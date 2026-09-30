@@ -117,3 +117,23 @@ versions. The `release` branch must exist before the first release PR.
 `gh release download` while the repo is private) is attached to every
 release. `ureq` is only needed for model routing (M9): the update check
 goes through `gh`, so it adds no HTTP code.
+
+After the GitHub release, three more jobs run, each skipped while its
+secret is unset:
+
+- **npm** (`NPM_TOKEN`): `packaging/npm-pack.sh` builds four platform
+  packages `@osbrjp/bungkus-mc-<os>-<cpu>` (the binary, gated by `os`/`cpu`)
+  and `@osbrjp/bungkus-mc`, whose `bungkus-mc`/`bkmc` bin
+  (`packaging/npm/bin/bungkus-mc.js`) runs the installed platform binary,
+  the esbuild pattern. Published `--access public`, platform packages
+  first; an already published version is skipped.
+- **Homebrew** (`HOMEBREW_TAP_TOKEN`, a token with push access to the tap;
+  `vars.HOMEBREW_TAP`, default `osbrjp/homebrew-tap`):
+  `packaging/brew-formula.sh` renders `Formula/bungkus-mc.rb` whose sources
+  are the npm platform tarballs, so `brew install osbrjp/tap/bungkus-mc`
+  works while the GitHub repo is private. Needs npm published.
+- **Slack** (`SLACK_WEBHOOK_URL`): bungkus-cli's announcement (release
+  title, notes, link) plus the install commands.
+
+Publishing to npm makes the binary publicly downloadable, even while the
+repo is private.
