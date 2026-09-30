@@ -282,7 +282,11 @@ fn expanded_usage(card: &Card) -> Vec<String> {
 /// Returns the state line: state word and detail (DESIGN §5.2).
 fn detail(card: &Card, now: Instant) -> String {
     if card.output_only(now) {
-        return "output only · live tree unavailable".to_owned();
+        return if card.hooked && card.kind == Kind::Codex {
+            "hooks not trusted · /hooks in codex".to_owned()
+        } else {
+            "output only · live tree unavailable".to_owned()
+        };
     }
     match &card.state {
         State::Working if card.pty.as_ref().and_then(|p| p.last_output).is_none() => {

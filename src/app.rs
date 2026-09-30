@@ -33,8 +33,8 @@ use crate::app::model::{Alert, Cmd, LaunchRequest, Model};
 use crate::app::sessions::{Card, State};
 use crate::ipc::server;
 use crate::store::config::{self, Config, Notify};
-use crate::term::PtyEvent;
 use crate::term::session::{Colors, Session, child_env};
+use crate::term::{PtyEvent, SessionId};
 use crate::ui::sanitise::sanitise;
 use crate::ui::{self, theme};
 use crate::workspace;
@@ -57,6 +57,8 @@ pub(crate) enum AppEvent {
     Pty(PtyEvent),
     /// One line from the hook socket, parsed on the UI thread.
     Hook(Vec<u8>),
+    /// Usage from a session's Codex rollout reader.
+    Usage(crate::term::SessionId, crate::agent::usage::Usage),
     /// A deadline passed: animation frame, sync flush or stop grace.
     Tick,
 }
@@ -225,6 +227,7 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<()> {
                 Cmd::Redraw => terminal.clear()?,
                 Cmd::Apply(settings) => apply(&mut model, env, settings),
                 Cmd::Launch(request) => launch(&mut model, env, hooks.as_ref(), request, &tx),
+                Cmd::WatchRollout(id, path) => watch_rollout(&mut model, id, &path, &tx),
             }
         }
     }
@@ -259,6 +262,9 @@ fn launch(
         kind,
         mut launch,
     } = request;
+    if let (Some(hooks), Kind::Codex) = (hooks, kind) {
+        launch.hook_args = agent::codex::hook_args(&hooks.exe);
+    }
     let mut user_line = None;
     if let (Some(hooks), Kind::Claude) = (hooks, kind) {
         let config_dir = std::env::var_os("CLAUDE_CONFIG_DIR").map_or_else(
@@ -304,7 +310,7 @@ fn launch(
         extra.push(("BUNGKUS_MC_USER_STATUSLINE", OsStr::new(&line.command)));
     }
     let child = child_env(std::env::vars_os(), &extra);
-    if launch.settings.is_some() {
+    if launch.settings.is_some() || !launch.hook_args.is_empty() {
         card.expect_hooks();
     }
     let size = ui::output_size(model.screen, model.zoom);
@@ -364,6 +370,24 @@ fn desktop_notification(text: &str, var: impl Fn(&str) -> Option<String>) -> Str
         format!("\x1b]9;{text}\x07")
     } else {
         format!("\x1b]777;notify;bungkus-mc;{text}\x07")
+    }
+}
+
+/// Starts the Codex usage reader for a session, if its rollout path passes
+/// validation (ARCHITECTURE §6.3); otherwise the card keeps showing `-`.
+fn watch_rollout(model: &mut Model, id: SessionId, path: &Path, tx: &SyncSender<AppEvent>) {
+    let Some(home) = agent::codex_usage::codex_home(|n| std::env::var(n).ok()) else {
+        return;
+    };
+    let Ok(file) = agent::codex_usage::open(path, &home) else {
+        return;
+    };
+    let (stop, stopped) = mpsc::channel();
+    agent::codex_usage::watch(file, stopped, tx.clone(), move |usage| {
+        AppEvent::Usage(id, usage)
+    });
+    if let Some(card) = model.card_mut(id) {
+        card.rollout_stop = Some(stop);
     }
 }
 

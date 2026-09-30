@@ -15,6 +15,7 @@ use crate::app::sessions::{Card, State};
 use crate::term::screen::Screen;
 use crate::ui::mascot::{self, Mascot, Mood};
 use crate::ui::pane;
+use crate::ui::sanitise::truncate;
 use crate::ui::theme::{Theme, Token, bg, rgb, spec};
 
 /// Draws the output pane.
@@ -24,15 +25,16 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
         return;
     };
     let interact = model.focus == Focus::Output;
-    let mut title = format!(
-        "output · {} {} · {}",
-        card.kind.badge(),
-        card.id.short(),
-        card.name
-    );
-    if interact {
-        title = format!("{title} · INTERACT · {} to leave", model.exit_chord.label());
-    }
+    let head = format!("output · {} {} · ", card.kind.badge(), card.id.short());
+    let tail = if interact {
+        format!(" · INTERACT · {} to leave", model.exit_chord.label())
+    } else {
+        String::new()
+    };
+    let room =
+        usize::from(area.width).saturating_sub(head.chars().count() + tail.chars().count() + 4);
+    let title = format!("{head}{}{tail}", truncate(&card.name, room));
+    let title_width = title.chars().count() + 4;
     let block = if interact {
         Block::bordered()
             .border_type(BorderType::Double)
@@ -82,7 +84,7 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
                         at,
                     );
                 }
-                Some(_) if area.width > 12 => {
+                Some(_) if usize::from(area.width) >= title_width + 8 => {
                     let (text, token) = if mood == Mood::Failed {
                         ("/xx\\", Token::Err)
                     } else {
