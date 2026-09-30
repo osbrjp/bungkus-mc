@@ -589,7 +589,7 @@ stopped — sessions first, then the descendants tracked in ARCHITECTURE.md
 
 Process rows are `basename(comm) [:port …] pid <n>` (never argv); ports
 are omitted when `lsof` is unavailable. Rows start as `[stop]` except the
-default-keep set (`*.app` bundles, `ssh-agent`, `gpg-agent`, `tmux`,
+default-keep set (app bundles under `Applications`, `claude`, `codex`, `ssh-agent`, `gpg-agent`, `tmux`,
 `screen`, `watchman`, `ollama`, `colima`, `docker`, `code`, and
 `cleanup.keep`), which start as `[keep]`; `space` toggles the highlighted
 row; `j`/`k` move. After 8 rows the dialog shows `… and N more` and
