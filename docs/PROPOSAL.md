@@ -149,7 +149,10 @@ is replaced by the Rust equivalents in ARCHITECTURE.md and CODING_RULES.md
    `session_name`/`session_title`; prompt then `untitled` as fallbacks);
    the `n` picker gets a name field prefilled from the prompt.
 10. **Model routing with TypeSafe Jev**, opt-in and off by default, scoped
-    to the start prompt (M9, ARCHITECTURE.md §13).
+    to the start prompt (M9, ARCHITECTURE.md §13). An optional add-on:
+    disabled, or enabled with no key, it is skipped with no side effects
+    and no wording in the UI; it is configured only on the settings
+    screen, never in the setup wizard.
 11. **mc paints a low-saturation green background** ("Daun Teduh"
     `#1c2a21`, body text ~11:1; light "Santan" `#f0f3d8`) when the terminal
     is TrueColor; otherwise the terminal's own bg/fg. Config `background:

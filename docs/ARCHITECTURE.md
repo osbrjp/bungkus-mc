@@ -238,7 +238,10 @@ thread**, one **waiter thread**.
   `spikes/cases/flood-seq.json` and `flood-color.json` **interactively**;
   if the UI thread cannot keep up (input latency over 100 ms during a
   flood), the fallback is the spike's model — a pump thread owning `Term`
-  behind a mutex, the UI thread locking only to render.
+  behind a mutex, the UI thread locking only to render. **Result (M3):**
+  `seq 500000` through a session in the release build, measured from
+  `enter` in the picker to the card showing `wrapped`, took 0.58 s in tmux
+  at 130×40 — on par with tmux itself — so `Term` stays on the UI thread.
 - **Child exit rule.** `ChildExited` is sent on reader EOF/EIO **or** 500 ms
   after `Child::wait` returns, whichever comes first: a descendant (a dev
   server) may hold the PTY slave open after the agent is gone, and the
@@ -653,8 +656,10 @@ name. No recursion, no project file.
    pump thread if the flood check fails, §4.1). The reader thread sends
    bytes; it never touches the `Term`.
 3. PTY readers send on a **bounded** `SyncSender` (64 × 32 KiB) and block
-   when it is full — that is the backpressure. Every other source uses the
-   same channel's unbounded clone.
+   when it is full — that is the backpressure. `std::sync::mpsc` has no
+   unbounded clone of a sync channel, so every other source (input, exits,
+   later hooks) shares the same bounded channel; they are rare and the UI
+   thread drains everything on each wake-up.
 4. Each session has one **writer thread** owning the PTY writer, fed by an
    unbounded `Sender<Vec<u8>>`; the UI thread only `send`s to it (keys,
    paste, mouse, the Term listener's query replies) and never blocks on the
@@ -794,6 +799,21 @@ notification; plus the `spikes/cases/` corpus replayed by `compare.py`
 against tmux.
 
 ## 13. Model routing with TypeSafe Jev (opt-in, off by default)
+
+**An optional add-on (owner, 2026-09-30).** With `routing.enabled` absent
+or false (the default) no routing code runs at all: no request, no consent
+dialog, no key lookup (`apiKeyCommand` never runs), and no "routed / not
+routed" wording on cards or in the `n` picker, which shows the plain model
+choice. mc then looks exactly as if the feature did not exist. Enabled but
+without a key (`TYPESAFE_API_KEY` unset and `apiKeyCommand` unset, failing,
+timing out or printing nothing): routing is skipped silently for that
+start and the agent's default model is used, with no dialog, toast or
+retry of the key command within the process; the card reads plain
+`default`, the settings screen shows one line `Jev: no key — routing
+skipped`, and the debug log records the reason. The setup wizard never
+asks about Jev; it lives only on the settings screen as an add-on toggle
+with a key hint. Tests: disabled = zero side effects (no process, socket
+or HTTP); enabled without a key = no request, default model.
 
 Goal (owner): pick a cheaper model for easy tasks. Where mc can do that:
 only where it sees prompt text — **the optional start prompt at `n`, and
