@@ -125,9 +125,9 @@ pub(crate) fn trim(raw: &Value) -> HookEvent {
         agent_type: text(raw, "agent_type", ID_MAX),
         tool_name: text(raw, "tool_name", ID_MAX),
         tool_use_id: text(raw, "tool_use_id", ID_MAX),
-        tool_desc: raw
-            .get("tool_input")
-            .and_then(|i| text(i, "description", TEXT_MAX)),
+        tool_desc: raw.get("tool_input").and_then(|i| {
+            text(i, "description", TEXT_MAX).or_else(|| text(i, "task_name", TEXT_MAX))
+        }),
         last_message: text(raw, "last_assistant_message", TEXT_MAX),
         session_title: text(raw, "session_title", TITLE_MAX),
         background_tasks: tasks,

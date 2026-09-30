@@ -37,8 +37,12 @@ const NEEDS_YOU: [&str; 4] = [
     "permission_request",
 ];
 
-/// Tool names that start a subagent (Claude, Codex).
-const SPAWN_TOOLS: [&str; 2] = ["Agent", "spawn_agent"];
+/// Returns whether a tool call starts a subagent: Claude's `Agent`, or a
+/// Codex tool ending in `spawn_agent` (0.159.2 names it
+/// `collaborationspawn_agent`).
+fn spawns(tool: &str) -> bool {
+    tool == "Agent" || tool.ends_with("spawn_agent")
+}
 
 /// A session's state (DESIGN §5.3).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -128,6 +132,8 @@ pub(crate) struct Card {
     pub tool_calls: u32,
     /// The last usage report.
     pub usage: Option<Usage>,
+    /// Stops the Codex usage reader when dropped.
+    pub rollout_stop: Option<std::sync::mpsc::Sender<()>>,
 }
 
 impl Card {
@@ -174,6 +180,7 @@ impl Card {
             main_done: false,
             tool_calls: 0,
             usage: None,
+            rollout_stop: None,
         }
     }
 
@@ -211,6 +218,7 @@ impl Card {
     /// on 0 and failed otherwise, with the screen's last line as reason.
     pub(crate) fn exited(&mut self, code: Option<u32>, now: Instant) {
         self.ended = Some(now);
+        self.rollout_stop = None;
         for sub in self.subagents.iter_mut().filter(|s| s.ended.is_none()) {
             sub.ended = Some(now);
         }
@@ -291,10 +299,7 @@ impl Card {
                 }
                 if event.name == "PreToolUse" {
                     self.tool_calls = self.tool_calls.saturating_add(1);
-                    let spawn = event
-                        .tool_name
-                        .as_deref()
-                        .is_some_and(|t| SPAWN_TOOLS.contains(&t));
+                    let spawn = event.tool_name.as_deref().is_some_and(spawns);
                     if spawn {
                         self.pending
                             .push_back(event.tool_desc.clone().unwrap_or_default());
@@ -480,6 +485,42 @@ mod tests {
         );
         assert_eq!(c.running_subagents(), 0);
         assert_eq!(c.tool_calls, 3);
+    }
+
+    #[test]
+    fn the_recorded_codex_session_walks_the_decided_states() {
+        use State::{Working, YourTurn};
+        let lines: Vec<&str> = include_str!("../agent/testdata/codex/session.jsonl")
+            .lines()
+            .collect();
+        let want = [
+            YourTurn, Working, Working, Working, Working, Working, Working, Working, YourTurn,
+            YourTurn, YourTurn,
+        ];
+        assert_eq!(lines.len(), want.len());
+        let mut c = Card::new(
+            SessionId::new(),
+            Kind::Codex,
+            "/p".into(),
+            None,
+            None,
+            Instant::now(),
+        );
+        c.expect_hooks();
+        let now = Instant::now();
+        for (i, (line, want)) in lines.iter().zip(want).enumerate() {
+            c.reduce(&event(line), now);
+            assert_eq!(c.state, want, "after line {i}: {line:.80}");
+        }
+        assert_eq!(c.subagents.len(), 1);
+        assert_eq!(
+            c.subagents[0].description, "say_hi",
+            "Codex task_name as description"
+        );
+        assert_eq!(
+            c.agent_session.as_deref(),
+            Some("01a0f2cb-0303-7ae2-8133-1474fd08a780")
+        );
     }
 
     #[test]

@@ -12,7 +12,7 @@ use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModif
 use ratatui::layout::Rect;
 use rustix::process::Signal;
 
-use crate::agent::usage::Window;
+use crate::agent::usage::{Usage, Window};
 use crate::agent::{Kind, Launch};
 use crate::app::AppEvent;
 use crate::app::form::{Field, Form, FormKind, Outcome};
@@ -101,6 +101,8 @@ pub(crate) enum Cmd {
     Apply(Settings),
     /// Start a session.
     Launch(LaunchRequest),
+    /// Start the Codex usage reader on this session's rollout file.
+    WatchRollout(SessionId, PathBuf),
 }
 
 /// Everything the screen shows.
@@ -337,7 +339,12 @@ impl Model {
                     pty.advance(&bytes);
                 }
             }
-            AppEvent::Hook(line) => self.hook(&line),
+            AppEvent::Hook(line) => {
+                if let Some(cmd) = self.hook(&line) {
+                    return Some(cmd);
+                }
+            }
+            AppEvent::Usage(id, usage) => self.codex_usage(id, usage),
             AppEvent::Pty(PtyEvent::Exited(id, code)) => {
                 let now = self.now;
                 if let Some(card) = self.card_mut(id) {
@@ -366,30 +373,46 @@ impl Model {
 
     /// Applies one socket line to the card of its mc session; malformed
     /// lines and unknown sessions are dropped.
-    fn hook(&mut self, line: &[u8]) {
-        let Ok(wire) = serde_json::from_slice::<Wire>(line) else {
-            return;
-        };
+    fn hook(&mut self, line: &[u8]) -> Option<Cmd> {
+        let wire = serde_json::from_slice::<Wire>(line).ok()?;
         let now = self.now;
-        let Some(card) = self
+        let card = self
             .cards
             .iter_mut()
-            .find(|c| c.id.0.hyphenated().to_string() == wire.mc_session)
-        else {
-            return;
-        };
+            .find(|c| c.id.0.hyphenated().to_string() == wire.mc_session)?;
         if let Some(usage) = wire.usage {
             if !usage.limits.is_empty() {
                 self.limits[card.kind as usize].clone_from(&usage.limits);
             }
             card.report(usage);
-            return;
+            return None;
         }
         let before = card.state.clone();
+        let bound = card.agent_session.is_some();
         card.reduce(&wire.event, now);
         if card.state == State::NeedsYou && before != State::NeedsYou {
             let text = format!("{} needs you: {}", card.id.short(), card.name);
             self.alerts.push(Alert::NeedsYou(text));
+        }
+        let first_bind = !bound && card.agent_session.is_some();
+        let watch = card.kind == Kind::Codex && card.running() && card.rollout_stop.is_none();
+        match (
+            &wire.event.transcript,
+            first_bind || wire.event.name == "SessionStart",
+            watch,
+        ) {
+            (Some(path), true, true) => Some(Cmd::WatchRollout(card.id, PathBuf::from(path))),
+            _ => None,
+        }
+    }
+
+    /// Applies usage from the Codex rollout reader.
+    fn codex_usage(&mut self, id: SessionId, usage: Usage) {
+        if !usage.limits.is_empty() {
+            self.limits[Kind::Codex as usize].clone_from(&usage.limits);
+        }
+        if let Some(card) = self.card_mut(id) {
+            card.report(usage);
         }
     }
 
@@ -516,6 +539,7 @@ impl Model {
             name: text(&p.name),
             prompt: text(&p.prompt),
             settings: None,
+            hook_args: Vec::new(),
         };
         Some(Cmd::Launch(LaunchRequest {
             project,
@@ -972,6 +996,33 @@ pub(crate) mod tests {
             !m.cards[0].output_only(m.now + HOOK_GRACE),
             "a usage line counts as a sign of life"
         );
+    }
+
+    #[test]
+    fn codex_session_start_asks_to_watch_the_rollout_once() {
+        let mut m = sample(&["a"]);
+        let (id, _w) = with_session(&mut m, "cx");
+        m.cards[0].kind = Kind::Codex;
+        m.cards[0].expect_hooks();
+        let start = r#"{"hook_event_name":"SessionStart","session_id":"s1","transcript_path":"/c/r.jsonl"}"#;
+        let cmd = m.update(hook_line(id, start));
+        assert_eq!(
+            cmd,
+            Some(Cmd::WatchRollout(id, PathBuf::from("/c/r.jsonl")))
+        );
+        m.cards[0].rollout_stop = Some(std::sync::mpsc::channel().0);
+        assert_eq!(m.update(hook_line(id, start)), None, "already watching");
+        let window = Window {
+            label: "5h".into(),
+            used_pct: 1.0,
+            resets_at: None,
+        };
+        let usage = crate::agent::usage::Usage {
+            limits: vec![window],
+            ..Default::default()
+        };
+        m.update(AppEvent::Usage(id, usage));
+        assert_eq!(m.limits[Kind::Codex as usize].len(), 1);
     }
 
     #[test]

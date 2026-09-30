@@ -13,7 +13,7 @@ anyhow = "1.0.104"
 lexopt = "0.3.2"
 portable-pty = "0.9.0"
 ratatui = "0.30.2"
-rustix = { version = "1.1.5", features = ["event", "process", "stdio"] }
+rustix = { version = "1.1.5", features = ["event", "fs", "process", "stdio"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["preserve_order"] }
 thiserror = "2.0.21"

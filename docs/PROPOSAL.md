@@ -282,7 +282,7 @@ with the last agent preselected.
 | Cleanup kills the wrong process | low | high | descendants observed by scan only; pid + start-time identity re-checked before every signal; never by port; dialog lists everything first; fixture tests per OS |
 | Cleanup misses a daemonised process (forked between scans) | low | low | 2 s interval; documented limit; shorten if seen |
 | Hook / statusLine / rollout schema changes | medium | low | all fields optional; recorded fixtures; unknown → ignored / `-` |
-| Codex hook trust does not persist for injected hooks | medium | low | M6 first task; `setup codex` fallback fully specified |
+| Codex hook trust does not persist for injected hooks | resolved (M6) | low | verified: trust persists for byte-identical `-c` hooks; Codex asks once per install path |
 | Routing misroutes a hard task to a small model | medium | medium | opt-in; confidence threshold; card shows the model; override in picker; `/model` inside the agent |
 | Jev API unavailable / key missing | medium | none | 1.5 s budget, silent fallback to the default model |
 | CJK ambiguous-width terminals shift columns | medium (JP team) | medium | ascii default glyphs; narrow unicode set; recorded stream test |

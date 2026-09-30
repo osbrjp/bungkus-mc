@@ -5,6 +5,8 @@
 //! events.
 
 pub(crate) mod claude;
+pub(crate) mod codex;
+pub(crate) mod codex_usage;
 pub(crate) mod usage;
 
 use std::ffi::{OsStr, OsString};
@@ -80,6 +82,8 @@ pub(crate) struct Launch {
     pub prompt: Option<String>,
     /// Claude `--settings` JSON (mc's hooks); `None` without a socket.
     pub settings: Option<String>,
+    /// Codex `-c hooks.*` arguments; empty without a socket.
+    pub hook_args: Vec<String>,
 }
 
 /// Builds the argument vector for a new session (ARCHITECTURE §5.1, §5.2).
@@ -98,6 +102,9 @@ pub(crate) struct Launch {
 pub(crate) fn argv(kind: Kind, program: &Path, args: &[String], launch: &Launch) -> Vec<OsString> {
     let mut out: Vec<OsString> = vec![program.into()];
     out.extend(args.iter().map(OsString::from));
+    if kind == Kind::Codex {
+        out.extend(launch.hook_args.iter().map(OsString::from));
+    }
     let mut flag = |name: &str, value: &str| {
         out.push(name.into());
         out.push(value.into());
@@ -161,6 +168,7 @@ mod tests {
             name: Some("flaky test".into()),
             prompt: Some("-rf everything".into()),
             settings: Some("{}".into()),
+            hook_args: vec!["-c".into(), "hooks.Stop=[]".into()],
         };
         let bare = Launch {
             id,
@@ -168,6 +176,7 @@ mod tests {
             name: None,
             prompt: None,
             settings: None,
+            hook_args: Vec::new(),
         };
         let s = |v: Vec<OsString>| {
             v.into_iter()
@@ -202,7 +211,15 @@ mod tests {
         );
         assert_eq!(
             s(argv(Kind::Codex, Path::new("/bin/codex"), &[], &full)),
-            ["/bin/codex", "-m", "haiku", "--", "-rf everything"]
+            [
+                "/bin/codex",
+                "-c",
+                "hooks.Stop=[]",
+                "-m",
+                "haiku",
+                "--",
+                "-rf everything"
+            ]
         );
     }
 
