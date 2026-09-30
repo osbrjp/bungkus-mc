@@ -719,7 +719,7 @@ row overrides on the base):
 | blink | 4 `....GGGGGGGG....`, 5 `....GEGGGGEG....` | blink |
 | lookL | 3 `.....EGGGEG.....`, 4 `....GEGGGEGG....`, 5 `....GGGGGGGG....` | look-up-left |
 | lookR | 3 `.....GEGGGE.....`, 4 `....GGEGGGEG....`, 5 `....GGGGGGGG....`, 12 `......LL.LL.....` (feet right) | look-up-right |
-| duck | body rows 1–9 shifted **down** two pixels, legs 11–12 `......L..L......` / `.....LL.LL......` | duck |
+| duck | body rows 1–9 shifted **down** one pixel (as the rendered shape below shows), legs 11–12 `......L..L......` / `.....LL.LL......` | duck |
 | hop | body rows 1–9 shifted **up** one pixel (tip never clipped: row 0 is empty), legs one pixel longer (9–11 `......L..L......`, 12 feet) | — (terminal) |
 | stepL | 11 `.....LL..L......`, 12 `........LL......` | — (terminal) |
 | stepR | 11 `......L.LL......`, 12 `.....LL.........` | — (terminal) |
