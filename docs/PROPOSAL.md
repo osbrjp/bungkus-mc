@@ -232,6 +232,9 @@ with the last agent preselected.
 18. **Screen-reader mode: not in v0.1.** Revisit if anyone asks. Users who
     need it can run Claude Code on its own with its screen-reader option.
 
+19. **Title-bar name: `bungkus-mc`**, e.g. `bungkus-mc · 1 needs you`.
+    Short, matches the command, survives tab-title truncation.
+
 ## 7. Open questions for the product owner
 
 1. **Public or private GitHub repo?** The planned installer (`curl … |
@@ -240,19 +243,18 @@ with the last agent preselected.
    a public repo (source visible, no rights granted). A private repo would
    need an authenticated install (`gh release download`) and no one-line
    curl installer.
-2. **Title-bar name:** `bungkus-mc` or `bungkus mission control`?
-3. **"wrapped"** as the word for a finished session — keep, or plain "done"?
-4. **Routing tiers per agent:** Claude `quick → haiku`, `standard → sonnet`,
+2. **"wrapped"** as the word for a finished session — keep, or plain "done"?
+3. **Routing tiers per agent:** Claude `quick → haiku`, `standard → sonnet`,
    `deep → opus` is the proposed default; exact model ids per tier?
-5. **Route Codex too?** Codex's `-m` accepts model ids, but the tier map is
+4. **Route Codex too?** Codex's `-m` accepts model ids, but the tier map is
    empty by default (no obvious cheap/standard/deep triple); provide one,
    or Claude-only for M9?
-6. **Jev cost vs tokens saved:** a Jev call is ~$0.00002 per routed start
+5. **Jev cost vs tokens saved:** a Jev call is ~$0.00002 per routed start
    (≤ 4 KiB prompt at $0.042/Mtok), negligible; the real trade is
    quality-on-misroute vs cheaper sessions. Is the 0.6 confidence floor
    right, and should a fallback default to the *cheaper* or the *default*
    model?
-7. **Codex thread names:** extend the approved rollout reader to the
+6. **Codex thread names:** extend the approved rollout reader to the
    thread-name record once its type is confirmed, or leave Codex titles to
    mc's own name/prompt?
 
