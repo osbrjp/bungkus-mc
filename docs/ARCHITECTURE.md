@@ -54,7 +54,7 @@ Recommendation: **1 + 3** (plus Claude's status line for usage, §6).
  │   • spinner tick    → tickMsg (only while something is running)                           │
  │   • update check    → updateAvailableMsg (copied from bungkus-cli)                         │
  │                                                                                          │
- │  unix socket  $BUNGKUS_MCC_SOCK = ${XDG_RUNTIME_DIR:-$TMPDIR:-/tmp}/bungkus-mcc-<uid>/<pid>.sock │
+ │  unix socket  $BUNGKUS_MCC_SOCK = ${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/bungkus-mcc-<uid>/<pid>.sock │
  └───────────┬──────────────────────────────────────────┬───────────────────────────────────┘
              │ PTY; env += BUNGKUS_MCC_SOCK,             │ PTY; same env
              │        BUNGKUS_MCC_SESSION=<mcc id>        │
@@ -73,8 +73,10 @@ Recommendation: **1 + 3** (plus Claude's status line for usage, §6).
   hint from DESIGN.md §10. The live pane never depends on the socket.
 - Agents are ordinary children in their own session (creack/pty `Setsid`).
 - Prompt: `n` optionally takes an initial prompt, passed as one positional
-  argument after `--` (VERIFIED on both CLIs with a prompt starting with
-  `-`). It becomes the card title (sanitised, truncated).
+  argument after `--` (VERIFIED for `claude -p` and `codex exec` with a
+  prompt starting with `-`; ASSUMPTION that the *interactive* entry points
+  parse `--` the same way — an M3 check; if not, prompts starting with `-`
+  are rejected with a hint). It becomes the card title (sanitised, truncated).
 
 ### 3.1 Child environment (decided)
 
@@ -296,9 +298,13 @@ entry. No capability flags, no registry.
 - `--settings` hooks **merge** with the user's own hooks (VERIFIED: the same
   `UserPromptSubmit` reached both a `--settings` hook and a project hook).
   Assumption closed.
-- Enterprise/managed settings with `disableAllHooks` or
-  `allowManagedHooksOnly` silently drop ours: no `SessionStart` within 10 s
-  → card shows "output only".
+- Claude runs hooks and the status line **only after the workspace-trust
+  prompt has been answered** for that directory, and managed settings with
+  `disableAllHooks` / `allowManagedHooksOnly` drop ours entirely. So: no
+  event of any kind within 10 s → the card shows "output only" with a hint
+  that names both causes ("answer the trust prompt in the pane, or hooks are
+  disabled by policy"); the card leaves "output only" the moment *any* event
+  arrives, however late.
 
 ### 5.2 Codex (`codex.go`)
 
@@ -347,7 +353,7 @@ context fill %, plan rate limits. What exists without reading transcripts:
 
 | Number | Claude Code 2.1.285 | Codex 0.153.4 |
 |--------|---------------------|---------------|
-| tokens (session) | **statusLine stdin** `context_window.total_input_tokens/total_output_tokens`, `current_usage{input, output, cache_creation_input, cache_read_input}` — VERIFIED present | interactive: only in the rollout `token_count` events (internal) or via app-server `thread/tokenUsage/updated` (not in stage 1); `codex exec --json turn.completed.usage` (VERIFIED) is headless only |
+| tokens (session) | **statusLine stdin** `context_window.total_input_tokens/total_output_tokens` (input **includes cache**; cumulative vs per-request UNCONFIRMED → M5), `current_usage{input, output, cache_creation_input, cache_read_input}` — VERIFIED present | interactive: only in the rollout `token_count` events (internal) or via app-server `thread/tokenUsage/updated` (not in stage 1); `codex exec --json turn.completed.usage` (VERIFIED) is headless only |
 | tokens (per subagent) | not exposed by hooks or statusLine; only in the subagent transcript | same |
 | cost | **statusLine** `cost.total_cost_usd` (client-side list price) — VERIFIED | none for non-Enterprise (Codex meters credits; USD only for eligible workspaces) |
 | context % | **statusLine** `context_window.used_percentage` (+ `context_window_size`) — VERIFIED | rollout `token_count.info.model_context_window` (internal) / app-server |
@@ -362,16 +368,10 @@ context fill %, plan rate limits. What exists without reading transcripts:
   Codex's own status line (which can show context and limits) is visible in
   the output pane because we render its TUI. A proper source is the
   app-server protocol (stage 2, with detach).
-- **Proposed, contained exception (open question):** read *only* the
-  `~/.codex/sessions/…/rollout-<id>.jsonl` file named by the Codex hook's
-  `transcript_path`, *only* lines whose `type == "event_msg"` and
-  `payload.type == "token_count"`, tail-only (from the offset at attach,
-  500 ms poll, `ReadAt`), never storing or displaying any other line. It
-  gives tokens, context window and rate limits for Codex. It is still an
-  internal format (0.153 changed how usage is persisted), so it is behind
-  `codexUsageFromRollout: false` by default and reviewed against
-  SECURITY.md before merging. Not in the milestone plan unless the owner
-  says yes.
+- **Proposed exception (open question, not planned):** tail only the
+  `token_count` lines of the rollout file that Codex's own hook names in
+  `transcript_path` — an internal format, so only with the owner's yes and a
+  SECURITY.md review.
 
 ### 6.2 Claude status line delivery (`bungkus-mcc statusline`)
 
@@ -380,22 +380,42 @@ own status line** (VERIFIED: with `--settings '{"statusLine":…}'` only our
 command ran; precedence managed > `--settings` > local > project > user).
 To keep the user's status line working:
 
-1. At launch, mcc resolves the user's effective `statusLine` object from
-   `.claude/settings.local.json`, `.claude/settings.json`,
-   `~/.claude/settings.json` (first hit wins; managed settings are not
-   readable by us — if a managed status line exists it overrides ours
-   anyway and usage shows `—`).
-2. The injected object is `{"type":"command","command":"'<exe>' statusline",
+1. **Resolve** the user's effective `statusLine` object at launch from
+   `<cwd>/.claude/settings.local.json`, `<cwd>/.claude/settings.json`,
+   `${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json` (first hit wins).
+   Edge cases: malformed JSON in a file = treated as no status line there;
+   a resolved command that is itself our own `statusline` (a previous mcc
+   session's `--settings` leaked into a file, or a user copying it) is
+   dropped — recursion guard; managed settings are not readable by us and
+   would override ours anyway (usage then shows `-`). Project/local
+   settings are repo-controlled; running their command is acceptable
+   because Claude's workspace-trust gate precedes any status-line execution
+   and Claude would run the same command without mcc (SECURITY.md).
+2. **Inject** `{"type":"command","command":"'<exe>' statusline",
    "padding": <user's>, "refreshInterval": <user's, or 30 when they had
-   none>}` — 30 s so `rate_limits` refresh between assistant messages.
-3. `bungkus-mcc statusline` reads stdin (cap 1 MiB), forwards a `Usage`
-   line (`session_id, cost, context_window, rate_limits, model.id` only —
-   nothing else from the payload) to the socket, then `exec`s the user's
-   original command via `sh -c "$BUNGKUS_MCC_USER_STATUSLINE"` with the
-   same stdin bytes and its stdout as ours, so their status line renders
-   unchanged. No user command → print nothing.
-4. Same silence rules as `hook` (no stdout of our own, exit 0, 2 s socket
-   budget). It runs on every assistant message plus the interval — cheap.
+   none>}`. 30 s keeps `rate_limits` fresh between assistant messages; it
+   also means the user's own command now runs every 30 s where it may have
+   run only on events before — documented, and `refreshInterval: 0` in their
+   settings is honoured as "events only".
+3. **Run**: `bungkus-mcc statusline` reads stdin up to 1 MiB into a buffer.
+   Concurrently, with a **≤ 200 ms budget** that never delays the user's
+   line, it forwards a `Usage` line (`session_id, cost, context_window,
+   rate_limits` — nothing else; `model.id` dropped) to the socket. Then it
+   runs the user's command with `exec.Command("sh", "-c", cmd)`,
+   `Stdin = bytes.NewReader(buf)`, `Stdout = os.Stdout`, `Stderr` discarded,
+   and exits with its status. It runs under `sh`; whether Claude itself
+   uses `sh` or the user's `$SHELL` is an M5 check (match it if they
+   differ). No user command → print nothing.
+   If stdin exceeds 1 MiB it is passed through to the user's command
+   unchanged and **not forwarded**.
+4. Same silence rules as `hook` (no stdout of our own, exit 0).
+
+Token semantics (M5 records a multi-turn session to settle them):
+`context_window.total_input_tokens` **includes cache** reads/writes and may
+be per-request rather than cumulative; `used_percentage`/`current_usage`
+are `null` before the first reply (→ `-`); `context_window_size` varies
+(200k and 1M observed). Limits whose `resets_at` has passed without a
+fresher report are shown dimmed as stale (DESIGN.md §6.1).
 
 ## 7. State and config storage
 
@@ -408,7 +428,7 @@ Support`, wrong for a terminal tool).
 | config | `${XDG_CONFIG_HOME:-~/.config}/bungkus/mcc/config.json` | 0600, dir 0700 |
 | state | `${XDG_STATE_HOME:-~/.local/state}/bungkus/mcc/sessions.json` | 0600, dir 0700 |
 | debug log (`--debug` / `BUNGKUS_MCC_DEBUG=1` only) | `${XDG_STATE_HOME:-~/.local/state}/bungkus/mcc/mcc.log` | 0600 |
-| socket | `${XDG_RUNTIME_DIR:-$TMPDIR:-/tmp}/bungkus-mcc-<uid>/<pid>.sock` | dir 0700, sock 0600 |
+| socket | `filepath.Clean(${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}})/bungkus-mcc-<uid>/<pid>.sock` | dir 0700, sock 0600 |
 | update-check cache | `os.UserCacheDir()/bungkus-mcc/latest-release` (as bungkus-cli) | 0600 |
 
 `config.json` (all keys optional; the workspace can also be given as the
@@ -532,7 +552,7 @@ zero library coupling. Stage 1 ships without it.
 | OSC 52 | Bubble Tea cmd | `y`; hint when unsupported |
 | Nerd Font | undetectable | `icons` setting, default unicode |
 | light/dark | `BackgroundColorMsg` | `theme` setting |
-| notifications | OSC 9/99/777 by terminal, BEL fallback | `notify` setting |
+| notifications | OSC 9/99/777 by terminal, BEL fallback; title via OSC 2 with XTWINOPS push/pop | `notify` setting |
 | tmux / zellij | `TERM=tmux-256color`; OSC 8 ≥ 3.4; kitty keys need `extended-keys` | test matrix; no DCS passthrough needed |
 | Apple Terminal | 256 colours (truecolor from macOS 26 UNCONFIRMED), no OSC 8, no kitty keys | must be fully usable — this is the floor |
 | resize storms | Bubble Tea coalesces | debounce PTY resize by one frame |

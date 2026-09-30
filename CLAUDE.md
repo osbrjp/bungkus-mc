@@ -24,7 +24,7 @@ pre-development** — no application code yet. Read the docs before writing any.
 - **Go 1.26** — single static binary, darwin/linux × arm64/amd64
 - **Cobra** — `bungkus-mcc [workspace]` (TUI), `hook`, `statusline`, `setup codex` (if needed), `update`
 - **Bubble Tea v2 / Lip Gloss v2 / Bubbles v2** (`charm.land/*`) — versions match bungkus-cli
-- **creack/pty + charmbracelet/x/vt** — agents run in a PTY, rendered by an embedded VT emulator
+- **creack/pty + charmbracelet/x/vt** — agents run in a PTY, rendered by an embedded VT emulator; **x/ansi** for `Strip` and colour conversion
 - stdlib for JSON config/state, unix socket IPC, slog
 
 ## Planned Structure
@@ -44,14 +44,14 @@ internal/workspace/          # project dir scan
 ## Key Decisions (don't relitigate without reading the docs)
 
 - Live pane = PTY + VT emulator with a reply-pump goroutine (x/vt blocks `Write` otherwise) and our own key translation table (x/vt has no kitty encoder). Rendered output passes an allowlist (printable + `CSI…m`).
-- Structure = agent hooks → `bungkus-mcc hook` (silent, trimmed fields) → unix socket. Usage = Claude status line → `bungkus-mcc statusline` (forwards, then execs the user's own status line). **Never parse agent transcripts.** Codex usage shows `—` in stage 1.
+- Structure = agent hooks → `bungkus-mcc hook` (silent, trimmed fields) → unix socket. Usage = Claude status line → `bungkus-mcc statusline` (forwards within 200 ms, then runs the user's own status line under `sh` with the buffered stdin). **Never parse agent transcripts.** Codex usage shows `-` in stage 1.
 - Claude hooks + statusLine injected per session with `--settings` (merges with user hooks — verified). Codex hooks injected per launch with `-c hooks.*` (verified); trust persistence is M6's first task. Never `--dangerously-*`.
 - New: `claude --session-id <uuid> --settings … -- <prompt>`; resume: `claude --resume <id> --settings …` (never both flags). `--` before prompts on both CLIs.
 - States: running / your turn / needs you / failed / wrapped / stopped; `background_tasks` is authoritative for subagents; `idle_prompt` ignored; sidebar precedence failed > needs you > running > your turn.
 - Quitting stops sessions (confirm); resumable. No daemon in stage 1.
 - Modes: NORMAL (vim + arrows) and INTERACT; exit chord `ctrl-\` by default, configurable (`interactExit`); `ctrl-z` swallowed. All keys in `internal/tui/keymap.go`, unique per pane/mode.
 - Never paint a background; `fg` is the terminal default; every state is glyph + word + colour; state glyphs are East-Asian-Narrow; `notify` default `bell`.
-- Separate repo and binary from bungkus-cli; shared code is copied with a `// copied from …@<sha>` header. Seven direct deps; adding one requires a TECH_STACK.md entry.
+- Separate repo and binary from bungkus-cli; shared code is copied with a `// copied from …@<sha>` header. Eight direct deps; adding one requires a TECH_STACK.md entry.
 - Every string not from the PTY (hook fields, prompts, dir names) goes through `sanitise()`.
 
 ## Build, Run, Test (once code exists)

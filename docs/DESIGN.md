@@ -147,8 +147,10 @@ A TUI does not choose the font. We choose code points.
   (common with CJK locales in iTerm2/kitty) render them 2 cells while
   lipgloss/x/vt count 1, and columns shift. Mitigation: every state and
   marker glyph below is *Narrow* (checked with `unicodedata.east_asian_width`);
-  borders remain ambiguous (every terminal we target draws them 1 cell in
-  practice, but `--icons ascii` switches borders to `+-|` too). A recorded
+  borders remain ambiguous, as do the `·` separator (U+00B7) and the
+  logomark glyphs `▲ ╱ ▁ ‖` (every terminal we target draws them 1 cell in
+  practice; `--icons ascii` switches borders to `+-|`, `·` to `|` and the
+  logomark to its ascii form). A recorded
   stream test with CJK, emoji and `⏺ ⎿` (Claude's own output) asserts the
   emulator's column positions match wcwidth — see CODING_RULES.md.
 
@@ -163,7 +165,7 @@ A TUI does not choose the font. We choose code points.
 | subagent      | U+F0DA (caret) | `◦`     | `-`   | N |
 | focus marker  | U+F0DA         | `▸`     | `>`   | N |
 | INTERACT      | U+F11C (kbd)   | `►`     | `>`   | N |
-| limit bar     | —              | `▮▯`    | `#-`  | A (bar is optional; the % is the datum) |
+| limit bar     | —              | `▮▯`    | `#-`  | N |
 | agent badge   | `C` / `X` letter in `accent`, all sets |
 
 Nerd Font code points are private-use; patched "Mono" variants render them
@@ -201,22 +203,22 @@ stack). Minimum size **80×24**; below that a single centred line:
 ### 4.1 Main screen, 120×40 (projects pane focused)
 
 ```
- bungkus-mcc  ~/Works/OSBR                                                             1 needs you · 2 running · v0.1.0 
+ bungkus-mcc  ~/Works/OSBR                                                             1 needs you · 2 working · v0.1.0 
 ┏ projects ━━━━━━━━━━┓┌ sessions · kedai-web ──────────────┐┌ output · C #a3f1 · write proposal ───────────────────────┐
 ┃▸ kedai-web     ! 1 ┃│┃! C #a3f1 write proposal        12m││                                                          │
 ┃  warung-api    ⠹ 1 ┃│┃  needs you · permission: Bash     ││  ● I'll start by reading the sibling repo, then          │
-┃  pasar-mobile      ┃│┃  84k tok · $1.42 · ctx 37%        ││    inspect the local session data.                       │
+┃  pasar-mobile      ┃│┃  499k tok · $1.42 · ctx 37%       ││    inspect the local session data.                       │
 ┃  roti-docs         ┃│┃  ◦ research hooks             ⠹ 3m││                                                          │
 ┃  teh-cli           ┃│┃  ◦ research codex             ⠹ 3m││  ⏺ Bash(ls ~/.claude/projects | head)                    │
 ┃                    ┃│┃  ◦ research go tui libs       ✓ 1m││    ⎿  -Users-me                                          │
 ┃                    ┃│                                    ││       -Users-me-Documents                                │
 ┃                    ┃│ ⠹ X #77c0 fix flaky test        41m││       ...                                                │
 ┃                    ┃│   working · shell                  ││                                                          │
-┃                    ┃│   — tok · — · ctx —                ││  ⏺ Bash(ls ~/.claude/projects/-Users-me/*.jsonl)         │
+┃                    ┃│   - tok · - · ctx -                ││  ⏺ Bash(ls ~/.claude/projects/-Users-me/*.jsonl)         │
 ┃                    ┃│                                    ││                                                          │
 ┃                    ┃│ ✓ C #9be2 bump deps         wrapped││  Allow Bash to run this command?                         │
 ┃                    ┃│   22m · 38 tools · 2 subagents     ││                                                          │
-┃                    ┃│   61k tok · $0.98                  ││  ❯ 1. Yes                                                │
+┃                    ┃│   61k tok · $0.98 · ctx -          ││  ❯ 1. Yes                                                │
 ┃                    ┃│                                    ││    2. Yes, and don't ask again for ls in this project    │
 ┃                    ┃│                                    ││    3. No, and tell Claude what to do differently         │
 ┃                    ┃│                                    ││                                                          │
@@ -240,17 +242,18 @@ stack). Minimum size **80×24**; below that a single centred line:
 ┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │
 ┗━━━━━━━━━━━━━━━━━━━━┛└────────────────────────────────────┘└──────────────────────────────────────────────────────────┘
- NORMAL  j/k move · enter open · n new · l output · ! needs you · ? help · q quit           5h ▮▮▮▯▯ 42% · 7d ▮▯▯▯▯ 18% 
+ NORMAL  j/k move · enter sessions · n new session · ! needs you · ? help · q quit          5h ▮▮▮▯▯ 42% · 7d ▮▯▯▯▯ 18% 
 ```
 
-Reading it: exactly one pane is focused (heavy border + `▸`). The needs-you
+Reading it: exactly one pane is focused (heavy border + `▸`); the sessions
+pane is not focused, so no card is expanded (§5.2). The needs-you
 card has a `┃` gutter in `warn` (the failed card's gutter is `err`). The
 output pane shows the agent's real UI (here Claude's permission prompt).
 Header right: global tally; getah bar right: plan limits (Claude sessions
 only; see §6). The sessions pane is fixed at 38 so the output pane gets the
 rest.
 
-### 4.2 INTERACT mode (keys go to the agent)
+### 4.2 INTERACT mode, zoomed (keys go to the agent)
 
 ```
 ╔ output · C #a3f1 · write proposal · INTERACT · ctrl-\ to leave ══════════════════════════════════════════════════════╗
@@ -261,32 +264,33 @@ rest.
 Double border, `INTERACT` in the title, the mode word in reverse-video
 `warn` in the getah bar, and the bar text changes. The global tally (`! 1
 needs you`) stays visible in INTERACT so a second session's prompt is never
-missed while typing into the first. `z` (zoom) hides the other two panes;
-the banner is the same.
+missed while typing into the first. The mock is the zoomed view (`z`):
+the output pane fills the width; unzoomed, the same banner sits on the
+output pane beside the other two.
 
 ### 4.3 Narrow, 80×24 (single-pane stack, sessions shown)
 
 ```
- bungkus-mcc  kedai-web › sessions                      1 needs you · 2 running 
+ bungkus-mcc  kedai-web › sessions                      1 needs you · 2 working 
 ┏ sessions · kedai-web ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃▸┃! C #a3f1 write proposal                                                 12m┃
 ┃ ┃  needs you · permission: Bash                                              ┃
-┃ ┃  84k tok · $1.42 · ctx 37%                                                 ┃
+┃ ┃  tokens   in 486k · out 13k                                                ┃
+┃ ┃  cache    read 402k · write 19k                                            ┃
+┃ ┃  cost     $1.42 (claude list price)                                        ┃
+┃ ┃  context  37% of 200k · 74k used                                           ┃
+┃ ┃  limits   5h 42% ↻14:00 · 7d 18% ↻Mon                                      ┃
 ┃ ┃  ◦ research hooks                                                      ⠹ 3m┃
 ┃ ┃  ◦ research codex                                                      ⠹ 3m┃
 ┃ ┃  ◦ research go tui libs                                                ✓ 1m┃
 ┃                                                                              ┃
 ┃  ⠹ X #77c0 fix flaky test                                                 41m┃
 ┃    working · shell                                                           ┃
-┃    — tok · — · ctx —                                                         ┃
+┃    - tok · - · ctx -                                                         ┃
 ┃                                                                              ┃
 ┃  ✓ C #9be2 bump deps                                                  wrapped┃
 ┃    22m · 38 tools · 2 subagents                                              ┃
-┃    61k tok · $0.98                                                           ┃
-┃                                                                              ┃
-┃                                                                              ┃
-┃                                                                              ┃
-┃                                                                              ┃
+┃    61k tok · $0.98 · ctx -                                                   ┃
 ┃                                                                              ┃
 ┃                                                                              ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
@@ -294,7 +298,8 @@ the banner is the same.
 ```
 
 The header carries the breadcrumb (`kedai-web › sessions`); limits collapse
-to numbers only.
+to numbers only. The sessions pane is focused, so the selected card is
+expanded (§6.3).
 
 ## 5. Components (the reusable part)
 
@@ -321,7 +326,7 @@ whether there is a header line.
 ```
 ┃! C #a3f1 write proposal            12m   gutter · state glyph · agent badge · #id · title · right: elapsed or state word
 ┃  needs you · permission: Bash            line 2: state word · detail (tool / prompt kind / exit line)
-┃  84k tok · $1.42 · ctx 37%               line 3: compact usage (— when unknown)
+┃  499k tok · $1.42 · ctx 37%              line 3: compact usage (`-` when unknown)
 ┃  ◦ research hooks             ⠹ 3m       one line per subagent (flat list): glyph · description · state glyph · time
 ```
 
@@ -330,25 +335,33 @@ whether there is a header line.
   there was no prompt: `claude session` / `codex session`.
 - `#id`: first 4 hex chars of the agent's own session id, in `info`.
 - Cards never collapse; when the pane is short, it scrolls (the selected
-  card is kept in view). The selected card is expanded (§6.3).
+  card is kept in view). **The selected card is expanded (§6.3) only while
+  the sessions pane is focused**; when focus is elsewhere every card is the
+  compact 3-line form, so the pane reads the same whichever card is selected.
+- Truncation: every line is cut to the inner width with a trailing `…`.
+  Lines with a right-aligned field (elapsed, state word, subagent time) keep
+  the right field and truncate the left text. The usage `limits` line drops
+  its `↻` reset times first, then truncates; the `cost` line drops its
+  parenthetical first. The card mocks below are inner width 36; the
+  expanded mock in §6.3 has `▸` in column 1, leaving 35.
 
 The four states in the mock set:
 
 ```
-┃! C #a3f1 write proposal            12m
-┃  needs you · permission: Bash         
-┃  84k tok · $1.42 · ctx 37%            
-                                        
-┃✗ C #c4d2 migrate schema         failed
-┃  exit 1 · Error: ENOENT drizzle.conf  
-┃  enter to view · r to resume          
-                                        
- » C #e1f0 review PR 42        your turn
-   done: "Two findings, see above"      
-   12k tok · $0.21 · ctx 9%             
-                                        
- ▪ X #0b3a add tests             stopped
-   r to resume                          
+┃! C #a3f1 write proposal        12m
+┃  needs you · permission: Bash     
+┃  499k tok · $1.42 · ctx 37%       
+                                    
+┃✗ C #c4d2 migrate schema     failed
+┃  exit 1 · Error: ENOENT drizzle.c…
+┃  enter to view · r to resume      
+                                    
+ » C #e1f0 review PR 42    your turn
+   done: "Two findings, see above"  
+   12k tok · $0.21 · ctx 9%         
+                                    
+ ▪ X #0b3a add tests         stopped
+   r to resume                      
 ```
 
 ### 5.3 State vocabulary (decided)
@@ -403,11 +416,10 @@ global set):
 ║  gg G home end   first / last   i         interact         ║
 ║  ctrl-d ctrl-u   half page      x         stop (confirm)   ║
 ║  enter           open output    r         resume           ║
-║  space           fold subagents d         forget (confirm) ║
-║  /               filter         !  ctrl-]  next needs you  ║
+║  /               filter         d         forget (confirm) ║
 ║                                                            ║
 ║  everywhere                                                ║
-║  h l ← → [ ] tab panes          1 2 3     jump to pane     ║
+║  h l ← → tab     panes          !  ctrl-]  next needs you  ║
 ║  z               zoom output    ctrl-l R  redraw           ║
 ║  w               workspace      ?         this help        ║
 ║  q               quit                                      ║
@@ -482,32 +494,42 @@ Sources and honesty about them are in ARCHITECTURE.md §6. On screen:
 any Claude session (limits are per account, not per session). Bars are 5
 cells (20 % each); `warn` colour from 80 %, `err` from 95 %. Omitted
 entirely when no session has reported limits (API-key users, Codex-only
-users): nothing is shown rather than `—`, because the bar is global.
+users): nothing is shown rather than `-`, because the bar is global. When a
+window's `resets_at` has passed and no fresher report has arrived, the
+figures are shown dimmed (`fg-muted`) as stale until the next report.
 
 ### 6.2 Per card, compact (line 3)
 
-`84k tok · $1.42 · ctx 37%` — total tokens (input + output, k/M
-abbreviated), cost as the agent reports it, context fill %. Unknown fields
-show `—`, so a Codex card reads `— tok · — · ctx —` until a source exists.
-`ctx` turns `warn` at 80 % and `err` at 90 % (the point where Claude
-auto-compacts).
+`499k tok · $1.42 · ctx 37%` — tokens (input incl. cache + output, k/M
+abbreviated), cost as the agent reports it, context fill %. The unknown
+marker is ASCII `-`: a Codex card reads `- tok · - · ctx -` until a source
+exists; a Claude card reads `-` for `ctx` before the first reply
+(`used_percentage`/`current_usage` are null then) and again once wrapped
+(the last report is not a live context). `ctx` turns `warn` at 80 % and
+`err` at 90 % — ASSUMPTION that 90 % is Claude's auto-compact point; the
+thresholds are constants to adjust in M5. Token semantics as reported by
+Claude's status line: `total_input_tokens` **includes cache** reads/writes
+and may be per-request rather than cumulative (ARCHITECTURE.md §6.2); the
+mock numbers follow that reading (in 486k = 65k fresh + 402k cache read +
+19k cache write).
 
 ### 6.3 Selected card, expanded
 
 ```
-▸┃! C #a3f1 write proposal           12m
- ┃  needs you · permission: Bash        
- ┃  tokens   in 71k · out 13k           
- ┃  cache    read 402k · write 19k      
- ┃  cost     $1.42 (claude list price)  
- ┃  context  37% of 200k · 74k used     
- ┃  limits   5h 42% ↻14:00 · 7d 18% ↻Mon
- ┃  ◦ research hooks                ⠹ 3m
- ┃  ◦ research codex                ⠹ 3m
+▸┃! C #a3f1 write proposal       12m
+ ┃  needs you · permission: Bash    
+ ┃  tokens   in 486k · out 13k      
+ ┃  cache    read 402k · write 19k  
+ ┃  cost     $1.42 (list price)     
+ ┃  context  37% of 200k · 74k used 
+ ┃  limits   5h 42% · 7d 18%        
+ ┃  ◦ research hooks            ⠹ 3m
+ ┃  ◦ research codex            ⠹ 3m
 ```
 
-Per-subagent tokens are not shown (no source outside transcripts; see the
-open question in PROPOSAL.md).
+Shown only while the sessions pane is focused (§5.2). `context` shows the
+reported `context_window_size` (200k here; 1M has been observed).
+Per-subagent tokens are not shown (no source outside transcripts).
 
 ## 7. Motion
 
@@ -529,8 +551,7 @@ getah bar are generated from it. Uniqueness is tested **per pane/mode**, so
 
 | Keys                                              | Action                                  |
 |---------------------------------------------------|-----------------------------------------|
-| `h` `l` · `←` `→` · `[` `]` · `tab` `shift-tab`   | previous / next pane                    |
-| `1` `2` `3`                                       | focus projects / sessions / output      |
+| `h` `l` · `←` `→` · `tab` `shift-tab`             | previous / next pane                    |
 | `j` `k` · `↓` `↑`                                 | move / scroll                           |
 | `gg` `G` · `home` `end`                           | first / last                            |
 | `ctrl-d` `ctrl-u` · `pgdn` `pgup`                 | half page                               |
@@ -545,7 +566,17 @@ getah bar are generated from it. Uniqueness is tested **per pane/mode**, so
 `gg` is the only two-key sequence (pending `g` shown in the getah bar,
 cleared by the next key).
 
-### 8.2 Sessions pane
+### 8.2 Projects pane
+
+| Keys        | Action                                                        |
+|-------------|---------------------------------------------------------------|
+| `enter`     | focus the sessions pane of the selected project               |
+| `n`         | new session for the selected project (same picker as below)   |
+
+`n` `enter` from the projects pane therefore starts a session for the
+highlighted project with the last-used agent and no prompt.
+
+### 8.3 Sessions pane
 
 | Keys        | Action                                                        |
 |-------------|---------------------------------------------------------------|
@@ -555,9 +586,8 @@ cleared by the next key).
 | `x`         | stop (confirm)                                                |
 | `r`         | resume a stopped/wrapped/failed session                       |
 | `d`         | forget a stopped/wrapped/failed session (confirm; list only)  |
-| `space`     | fold / unfold the subagent lines of the selected card         |
 
-### 8.3 Output pane, NORMAL
+### 8.4 Output pane, NORMAL
 
 | Keys                                   | Action                                              |
 |----------------------------------------|-----------------------------------------------------|
@@ -566,14 +596,14 @@ cleared by the next key).
 | `y`                                    | copy the visible screen (OSC 52; hint if unsupported) |
 | any other printable key                | hint: `press i to type to claude`                   |
 
-### 8.4 INTERACT
+### 8.5 INTERACT
 
 Every key, paste and (if the agent enabled it) mouse event goes to the
 agent, including `q`, `?`, `ctrl-c`, `esc`. Exceptions:
 
 | Keys                 | Action                                                            |
 |----------------------|-------------------------------------------------------------------|
-| `ctrl-\` (default)   | leave INTERACT. Configurable: `interactExit` in config, any single chord |
+| `ctrl-\` (default)   | leave INTERACT. Configurable: `interactExit` in config, any single chord (suggested alternate: `ctrl-^`) |
 | `ctrl-z`             | swallowed (a suspended agent cannot be resumed from inside a pane)  |
 | mouse click on another pane | leaves INTERACT and focuses that pane                       |
 
@@ -584,7 +614,7 @@ as reserved, which is why they don't use it). Known clashes, hence the
 config key: **vim-tmux-navigator** binds `C-\` (and `C-h/j/k/l`) in tmux;
 **VS Code / Cursor** may bind `ctrl+\`; on **JIS** keyboards `\` is the `¥`
 key (kitty/iTerm2/Terminal.app send 0x1C for ctrl-¥ — verify in M3); on
-**German** layouts `\` needs AltGr. Suggested alternates: `ctrl-]`, `ctrl-^`.
+**German** layouts `\` needs AltGr. Suggested alternate: `ctrl-^` (`ctrl-]` is taken by `!`'s twin).
 `esc` is never the exit: agents use it constantly. To send a literal exit
 chord to the agent: not supported in stage 1 (no agent needs it).
 
@@ -592,7 +622,7 @@ zellij note: zellij's default modes eat `ctrl-g/p/n/t/o/s/h/q` before any
 app sees them (`ctrl-g` toggles *lock mode*, which then passes everything
 through); `ctrl-\` is not among them.
 
-### 8.5 Mouse
+### 8.6 Mouse
 
 Click focuses a pane / selects a row (and exits INTERACT if the click is
 outside the output pane); wheel scrolls; click inside the output pane in
@@ -612,7 +642,9 @@ Setting `notify: "bell" | "desktop" | "off"`, **default `bell`**.
   chosen by `TERM_PROGRAM`/`TERM`; inside tmux/zellij OSC 9 is passed
   through only where the multiplexer allows it — degrade to `bell`.
 - Terminal title (OSC 2) always reflects the tally: `bungkus-mcc · 1 needs
-  you` / `bungkus-mcc · 2 working` / `bungkus-mcc`. Restored on exit.
+  you` / `bungkus-mcc · 2 working` / `bungkus-mcc`. The previous title is
+  saved and restored with XTWINOPS push/pop (`CSI 22;0t` on start,
+  `CSI 23;0t` on exit); terminals without it simply keep our last title.
 - The header tally and getah-bar tally are visible in every mode.
 
 ## 10. Empty states and microcopy

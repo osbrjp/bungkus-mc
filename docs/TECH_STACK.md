@@ -12,7 +12,7 @@ latest release as of 2026-09-30 (re-check at `go mod init`).
 | Targets | darwin/linux × arm64/amd64 | Same release matrix as bungkus-cli; Windows out of scope (no ConPTY) |
 | Build flags | `-s -w -X main.Version=<tag>` | Same as bungkus-cli |
 
-## Direct dependencies (7)
+## Direct dependencies (8)
 
 | Module | Version | Purpose | Alternatives rejected |
 |--------|---------|---------|-----------------------|
@@ -23,6 +23,7 @@ latest release as of 2026-09-30 (re-check at `go mod init`).
 | `github.com/creack/pty` | v1.1.24 | Open PTY, start child with size, `Setsize` on resize | raw `x/sys/unix` ioctls (~80 platform lines we'd own) |
 | `github.com/charmbracelet/x/vt` | pseudo-version, pin the newest at implementation (built and tested with `v0.0.0-20260927004216-…` against bubbletea v2.0.9) | VT emulator: feeds PTY bytes, screen + scrollback, `Render()`; terminal-side replies via its `Read` side | `vito/midterm` v0.2.5 (maintained; own cell type; no reply pipe design) — the fallback if x/vt fails M3; `hinshun/vt10x` (dead since 2022) |
 | `golang.org/x/mod` | v0.41.0 (match) | `semver` for the update check (copied code; also validates the cached tag) | hand-written compare |
+| `github.com/charmbracelet/x/ansi` | v0.11.8 (match, already transitive via lipgloss) | `ansi.Strip` in `sanitise()`; `Convert256/Convert16` in the theme tests | own escape parser — no |
 
 Verified behaviours of `x/vt` that shape the design (scratchpad `vt/`):
 `Write` **blocks** until its reply pipe is drained (→ pump goroutine);
@@ -31,9 +32,9 @@ kitty-keyboard client encoder** (→ our key table); it builds against the
 `ultraviolet` version Bubble Tea pins. Contained in one package
 (`internal/term`) behind a 6-method wrapper.
 
-`github.com/charmbracelet/x/ansi` is transitive (via lipgloss) and is used
-directly for `ansi.Strip` in `sanitise()` and for `Convert256/Convert16`
-in the theme tests — no extra module.
+East Asian Width for the glyph-width test: a **hard-coded table** for our
+~40 glyphs (generated once from `unicodedata`, checked into the test),
+not `rivo/uniseg` — the set is tiny and the table doubles as documentation.
 
 Transitive (already in bungkus-cli's go.sum): `charmbracelet/ultraviolet`,
 `colorprofile`, `x/ansi`, `x/term`, `x/termios`, `lucasb-eyer/go-colorful`,

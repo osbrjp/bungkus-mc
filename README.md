@@ -38,7 +38,7 @@ Notes for later users (from the design):
   optional (`icons: "nerd"`); `--icons ascii` needs nothing.
 - Leaving interact mode is `ctrl-\` by default; if tmux's
   vim-tmux-navigator, VS Code, or a JIS/German keyboard takes that key, set
-  `interactExit` in `~/.config/bungkus/mcc/config.json` (e.g. `ctrl-]`).
+  `interactExit` in `~/.config/bungkus/mcc/config.json` (suggested: `ctrl-^`).
 - Only sessions started from bungkus-mcc appear in it.
 - Two instances on the same workspace work but share `sessions.json`
   (last writer wins).

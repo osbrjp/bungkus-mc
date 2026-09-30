@@ -22,7 +22,7 @@ and Codex ship `SubagentStart/Stop`, `PreToolUse`, `Stop`, permission
 hooks with the same JSON shape — verified live), and usage figures from
 Claude Code's **status-line** extension point, all delivered over a
 per-process unix socket. It never parses the agents' transcript files,
-which both vendors document as internal. One Go binary, no daemon, seven
+which both vendors document as internal. One Go binary, no daemon, eight
 direct dependencies, the same build/release/install pipeline as bungkus-cli.
 
 Stage 1 is deliberately small: one workspace, Claude Code + Codex,
@@ -37,7 +37,8 @@ behind real demand.
    you" impossible to miss (colour + glyph + word + bell + terminal title).
 2. See each session's subagents as they start, work and finish.
 3. Interact with any session in place (the agent's own UI, not a re-skin).
-4. Start a new session for a project in two keystrokes (`n` `enter`).
+4. Start a new session for a project in two keystrokes: `n` `enter` from
+   the projects pane (last-used agent, no prompt).
 5. See tokens, cost, context % per session and plan limits globally.
 6. Work well in kitty, Ghostty, iTerm2, WezTerm, Alacritty, Terminal.app,
    tmux, zellij, VS Code/Cursor terminals — degrading, never breaking.
@@ -85,9 +86,9 @@ behind real demand.
 |-----------|-------|-----------|
 | M1 Skeleton | repo, CI (`gofmt`, test, govulncheck), release pipeline, `update`, theme package with colour tests, three empty panes with layout/breakpoints/modes/keymap + generated help, goldens at 120×40 and 80×24 | `bungkus-mcc` installs via install.sh, renders, `?` shows generated help, `q` quits |
 | M2 Workspace + projects | config/state files, first-run screen, workspace by CLI arg/config/text input, project list with sanitised names | pick a folder, see projects |
-| M3 Live pane | PTY + x/vt session with reply pump, key translation table (incl. `shift-enter`), sanitiser allowlist + hostile corpus, scrollback, resize-all, INTERACT with configurable exit chord, `n` launches `claude`/`codex` with `--`, `x` stops, quit-with-running confirm; tests: DSR/DA feed returns, hostile streams, CJK/emoji width; decide Codex `--no-alt-screen`; JIS/German chord check | a full Claude Code session runs inside mcc on kitty, Ghostty, tmux (+navigator), VS Code |
+| M3 Live pane | PTY + x/vt session with reply pump, key translation table (incl. `shift-enter`), sanitiser allowlist + hostile corpus, scrollback, resize-all, INTERACT with configurable exit chord, `n` launches `claude`/`codex` with `--`, `x` stops, quit-with-running confirm; tests: DSR/DA feed returns, hostile streams, CJK/emoji width; decide Codex `--no-alt-screen`; JIS/German chord check; confirm interactive `claude`/`codex` accept `--` before a dash-leading prompt | a full Claude Code session runs inside mcc on kitty, Ghostty, tmux (+navigator), VS Code |
 | M4 Structure + notifications (Claude) | `bungkus-mcc hook` (silent, trimmed, quoted path), socket server, Claude adapter via `--settings` (new + resume argv, unit-tested), decided state machine with `background_tasks`, subagent list, sidebar precedence, `notify` bell/desktop/off + OSC 2 title, `!` jump | cards and sidebar update live during a real session with parallel subagents; bell rings on needs-you |
-| M5 Usage (Claude) | `bungkus-mcc statusline` wrapper (forward + exec the user's status line), `Usage` messages, compact card line, expanded selected card, getah-bar limits with thresholds | tokens/cost/ctx on every Claude card; limits in the bar on a subscription account; `—` on API-key accounts; the user's own status line still renders |
+| M5 Usage (Claude) | `bungkus-mcc statusline` wrapper (200 ms concurrent forward, then the user's status line under `sh` with buffered stdin; resolver with `CLAUDE_CONFIG_DIR`, recursion guard), `Usage` messages, compact card line, expanded selected card (sessions pane focused), getah-bar limits with thresholds and stale dimming; record a multi-turn session to settle `total_input_tokens` semantics and check which shell Claude uses for status lines | tokens/cost/ctx on every Claude card; limits in the bar on a subscription account; `—` on API-key accounts; the user's own status line still renders |
 | M6 Codex | verify `/hooks` trust persistence for `-c` injected hooks (delete or build `setup codex` accordingly), record real Codex SubagentStart/PreToolUse payloads into testdata, Codex adapter, resume rules, "hooks off" hints | Codex session with subagents shows structure; untrusted path degrades to output only |
 | M7 Resume + polish | `sessions.json`, `r`/`d` with confirms, light theme, `--icons`, `NO_COLOR`, full terminal/keyboard matrix pass, README (fonts, exit-chord alternates, manual hook removal) | release `v0.1.0` on the `release` branch |
 
@@ -118,11 +119,10 @@ risk (emulator fidelity with the agents' TUIs, key translation).
    projects — enough, or an explicit list of arbitrary paths?
 3. **Sessions started outside mcc are invisible** in v0.1 (only sessions
    launched from mcc have the hooks). OK for v0.1?
-4. **Codex usage figures.** Stage 1 shows `—` for Codex (Codex's own status
-   line is visible in the pane). Options: (a) accept `—`; (b) approve the
-   contained transcript exception (ARCHITECTURE.md §6.1: tail only
-   `token_count` lines of the file Codex's own hook names, off by default,
-   internal format); (c) wait for the app-server client in stage 2.
+4. **Codex usage figures.** Stage 1 shows `-` for Codex (Codex's own status
+   line is visible in the pane). Options: (a) accept `-`; (b) approve
+   tailing the `token_count` lines of the rollout file Codex's own hook
+   names (internal format); (c) wait for the app-server client in stage 2.
 5. **Default icon set:** `unicode` (recommended) vs `nerd` vs `ascii`.
 6. **bungkus-cli palette adoption timing:** next bungkus-cli release, or
    after mcc ships?
@@ -151,4 +151,4 @@ start prompt is optional with the last agent preselected (decided).
 | `ctrl-\` clashes (vim-tmux-navigator, VS Code, JIS/German) | medium | low | configurable `interactExit`; documented alternates; tested keyboards |
 | Two mcc instances on one workspace | low | low | per-pid socket; `sessions.json` last-writer-wins; README note |
 | Palette on non-black backgrounds | medium | low | never paint bg; `fg` = terminal default; ratios checked on five common themes |
-| Team bandwidth: TUI + PTY + IPC | — | — | seven deps, no daemon, no transcript parsing, YAGNI rules |
+| Team bandwidth: TUI + PTY + IPC | — | — | eight deps, no daemon, no transcript parsing, YAGNI rules |

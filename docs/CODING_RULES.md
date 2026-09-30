@@ -61,6 +61,12 @@ cosmetics have goldens; glue has none. Coverage is not a target.
 - **Hook subcommand silence**: run `bungkus-mcc hook` with stdin from each
   testdata file and no socket → stdout and stderr are empty, exit 0; with
   a 9 MiB stdin → still exit 0 within the budget.
+- **Statusline wrapper**: resolver order and `CLAUDE_CONFIG_DIR`; malformed
+  settings JSON → no command; recursion guard drops our own command; the
+  user's command receives the exact stdin bytes and its stdout passes
+  through; stdin > 1 MiB → passed through, nothing forwarded; a socket that
+  never answers does not delay the user's line beyond 200 ms; forwarded
+  line contains no `model` field.
 - **Views**: (1) unit — `View()` substring asserts; (2) golden — `teatest/v2`
   at 120×40 and 80×24 with `NO_COLOR=1` and `--icons ascii`, scenarios:
   empty workspace, first run, three sessions in five states, needs-you and
@@ -78,7 +84,8 @@ cosmetics have goldens; glue has none. Coverage is not a target.
   the reference backgrounds; `ok/warn/err/accent` pairwise distinct at 256
   and 16 in both themes; `fg-muted ≠ info` at 256 and 16; every glyph in
   every icon set is exactly 1 cell (`lipgloss.Width`) and East Asian width
-  Narrow for state/marker glyphs.
+  Narrow for state/marker glyphs, checked against a hard-coded EAW table
+  for our glyph set (no uniseg dependency in tests).
 - **Sanitiser** (`internal/term/sanitise.go`): the hostile corpus from
   ARCHITECTURE.md §4.2 through (a) the emulator + allowlist and (b) the
   string sanitiser as used by cards, header and dialogs; the oracle is
@@ -96,7 +103,8 @@ cosmetics have goldens; glue has none. Coverage is not a target.
 - **workspace**: dot-dirs skipped, symlinked dirs followed, names with
   control characters sanitised for display.
 - **CLI smoke** (CI; skipped if binaries absent): `claude --help` and
-  `codex --help` contain the flags `Launch` uses.
+  `codex --help` contain the flags `Launch` uses. M3 manual check: the
+  interactive entry points accept `--` before a prompt starting with `-`.
 
 ## 3. Error handling and UX of failure
 
