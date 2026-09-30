@@ -18,13 +18,19 @@ use crate::app::AppEvent;
 use crate::app::form::{Field, Form, FormKind, Outcome};
 use crate::app::picker::{self, Picker};
 use crate::app::sessions::{self, Card, HOOK_GRACE, STOP_GRACE, State};
+use crate::app::stop::{StopDialog, StopKind};
 use crate::ipc::Wire;
+use crate::proc::Proc;
 use crate::store::config::Settings;
 use crate::term::keys::Chord;
 use crate::term::{PtyEvent, SessionId};
 use crate::ui::keymap::{self, Action, Lookup, Scope};
 use crate::ui::theme::{Theme, ThemeChoice};
 use crate::workspace::Project;
+
+/// How often tracked processes are rescanned while a session runs
+/// (ARCHITECTURE §3.3).
+const SCAN_EVERY: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// Which pane has focus. The output pane's focus is INTERACT (DESIGN §8).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,15 +54,6 @@ impl Focus {
     }
 }
 
-/// What a confirm dialog asks about.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Confirm {
-    /// Quit mc, stopping every running session.
-    Quit,
-    /// Stop one session.
-    Stop(SessionId),
-}
-
 /// A screen drawn over the panes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Overlay {
@@ -66,8 +63,8 @@ pub(crate) enum Overlay {
     Form(Form),
     /// The `n` picker.
     Picker(Picker),
-    /// A yes/no question.
-    Confirm(Confirm),
+    /// The quit / stop dialog.
+    Stop(StopDialog),
 }
 
 /// A session the loop must start.
@@ -103,6 +100,12 @@ pub(crate) enum Cmd {
     Launch(LaunchRequest),
     /// Start the Codex usage reader on this session's rollout file.
     WatchRollout(SessionId, PathBuf),
+    /// Take a fresh snapshot and open the quit / stop dialog.
+    OpenStop(StopKind),
+    /// Signal these tracked processes (identity-checked).
+    Signal(Vec<Proc>, Signal),
+    /// Take a background process snapshot.
+    Scan,
 }
 
 /// Everything the screen shows.
@@ -163,6 +166,10 @@ pub(crate) struct Model {
     pub limits: [Vec<Window>; 2],
     /// Wall-clock time in unix seconds, for stale limit windows.
     pub unix_now: u64,
+    /// `cleanup.keep`: extra process names that start as `[keep]`.
+    pub keep: Vec<String>,
+    /// When the next background process scan is due.
+    pub next_scan: Option<Instant>,
 }
 
 impl Model {
@@ -209,6 +216,8 @@ impl Model {
             alerts: Vec::new(),
             limits: [Vec::new(), Vec::new()],
             unix_now: 0,
+            keep: Vec::new(),
+            next_scan: None,
         }
     }
 
@@ -294,7 +303,17 @@ impl Model {
             .map(|c| c.started + HOOK_GRACE)
             .filter(|at| *at > self.now);
         let tick = self.animating().then_some(tick);
-        syncs.chain(stops).chain(silent).chain(tick).min()
+        let scan = self
+            .next_scan
+            .filter(|_| self.cards.iter().any(Card::running));
+        let plans = self.plan_deadline();
+        syncs
+            .chain(stops)
+            .chain(silent)
+            .chain(tick)
+            .chain(scan)
+            .chain(plans)
+            .min()
     }
 
     /// Opens the settings screen (or, before first run, the wizard).
@@ -333,7 +352,21 @@ impl Model {
             AppEvent::Tick => {
                 self.frame = self.frame.wrapping_add(1);
                 self.enforce_stops();
+                if let Some(cmd) = self.plan_kill_due() {
+                    return Some(cmd);
+                }
+                let running = self.cards.iter().any(Card::running);
+                match self.next_scan {
+                    Some(at) if running && self.now >= at => {
+                        self.next_scan = Some(self.now + SCAN_EVERY);
+                        return Some(Cmd::Scan);
+                    }
+                    None if running => self.next_scan = Some(self.now + SCAN_EVERY),
+                    _ => {}
+                }
             }
+            AppEvent::Procs(snapshot) => self.track(&snapshot),
+            AppEvent::HostGone => return self.host_gone(),
             AppEvent::Pty(PtyEvent::Output(id, bytes)) => {
                 if let Some(pty) = self.card_mut(id).and_then(|c| c.pty.as_mut()) {
                     pty.advance(&bytes);
@@ -353,6 +386,9 @@ impl Model {
                         let text = format!("{} failed: {reason}", card.id.short());
                         self.alerts.push(Alert::Failed(text));
                     }
+                }
+                if let Some(cmd) = self.plan_after_exit(id) {
+                    return Some(cmd);
                 }
                 if self.focus == Focus::Output
                     && self.selected_card().map(|i| self.cards[i].id) == Some(id)
@@ -458,10 +494,10 @@ impl Model {
 
     /// Returns [`Cmd::Quit`] once quitting and every session has ended (or
     /// the grace period plus one second has passed).
-    fn quit_when_stopped(&self) -> Option<Cmd> {
+    pub(crate) fn quit_when_stopped(&self) -> Option<Cmd> {
         let started = self.quitting?;
-        let done = !self.cards.iter().any(Card::running)
-            || self.now >= started + STOP_GRACE + std::time::Duration::from_secs(1);
+        let done = !self.stopping()
+            || self.now >= started + STOP_GRACE * 2 + std::time::Duration::from_secs(1);
         done.then_some(Cmd::Quit)
     }
 
@@ -503,7 +539,7 @@ impl Model {
                 }
                 Outcome::Cancel => None,
                 Outcome::Submit(settings) => Some(Cmd::Apply(settings)),
-                Outcome::Quit => self.request_quit(),
+                Outcome::Quit => Some(self.request_quit()),
             },
             Overlay::Picker(mut p) => match p.key(key) {
                 picker::Outcome::Continue => {
@@ -513,12 +549,7 @@ impl Model {
                 picker::Outcome::Cancel => None,
                 picker::Outcome::Start => self.launch(&p),
             },
-            Overlay::Confirm(confirm) => {
-                if key.code == KeyCode::Char('y') {
-                    self.confirmed(confirm);
-                }
-                self.quit_when_stopped()
-            }
+            Overlay::Stop(dialog) => self.stop_key(dialog, key),
         }
     }
 
@@ -566,40 +597,17 @@ impl Model {
         };
     }
 
-    /// Carries out a confirmed stop or quit: SIGTERM to each session's
-    /// process group; SIGKILL follows after the grace period.
-    fn confirmed(&mut self, confirm: Confirm) {
-        let now = self.now;
-        let targets: Vec<SessionId> = match confirm {
-            Confirm::Quit => {
-                self.quitting = Some(now);
-                self.message = Some("stopping…".into());
-                self.cards
-                    .iter()
-                    .filter(|c| c.running())
-                    .map(|c| c.id)
-                    .collect()
-            }
-            Confirm::Stop(id) => vec![id],
-        };
-        for id in targets {
-            if let Some(card) = self.card_mut(id).filter(|c| c.running()) {
-                card.stop_requested = Some(now);
-                if let Some(pty) = &card.pty {
-                    // reason: ESRCH means it already exited; the waiter reports it.
-                    let _ = pty.signal(Signal::TERM);
-                }
-            }
-        }
-    }
-
-    /// Quits at once, or asks first when sessions are running.
-    fn request_quit(&mut self) -> Option<Cmd> {
-        if self.cards.iter().any(Card::running) {
-            self.overlay = Some(Overlay::Confirm(Confirm::Quit));
-            None
+    /// Quits at once, or asks first (after a fresh scan) when sessions
+    /// are running or processes they started are tracked.
+    fn request_quit(&mut self) -> Cmd {
+        let busy = self
+            .cards
+            .iter()
+            .any(|c| c.running() || !c.descendants.procs.is_empty());
+        if busy {
+            Cmd::OpenStop(StopKind::Quit)
         } else {
-            Some(Cmd::Quit)
+            Cmd::Quit
         }
     }
 
@@ -687,7 +695,7 @@ impl Model {
             }
             Action::Stop => {
                 if let Some(i) = self.selected_card().filter(|&i| self.cards[i].running()) {
-                    self.overlay = Some(Overlay::Confirm(Confirm::Stop(self.cards[i].id)));
+                    return Some(Cmd::OpenStop(StopKind::Session(self.cards[i].id)));
                 }
             }
             Action::Zoom => self.zoom = !self.zoom,
@@ -696,7 +704,7 @@ impl Model {
             Action::Settings => self.open_form(FormKind::Settings, Field::Agent),
             Action::Help => self.overlay = Some(Overlay::Help),
             Action::Redraw => return Some(Cmd::Redraw),
-            Action::Quit => return self.request_quit(),
+            Action::Quit => return Some(self.request_quit()),
             Action::Filter
             | Action::NewSession
             | Action::Down
@@ -913,10 +921,17 @@ pub(crate) mod tests {
     fn quit_with_running_sessions_asks_and_waits_for_them() {
         let mut m = sample(&["a"]);
         let (id, _writes) = with_session(&mut m, "s");
-        m.update(press(KeyCode::Char('\\')));
         m.focus = Focus::Sessions;
-        assert_eq!(m.update(press(KeyCode::Char('q'))), None);
-        assert_eq!(m.overlay, Some(Overlay::Confirm(Confirm::Quit)));
+        assert_eq!(
+            m.update(press(KeyCode::Char('q'))),
+            Some(Cmd::OpenStop(StopKind::Quit)),
+            "asks after a fresh scan"
+        );
+        assert_eq!(
+            m.open_stop(StopKind::Quit, &[], &std::collections::HashMap::new()),
+            None
+        );
+        assert!(matches!(m.overlay, Some(Overlay::Stop(_))));
         assert_eq!(
             m.update(press(KeyCode::Char('y'))),
             None,

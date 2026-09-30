@@ -7,6 +7,7 @@
 mod agent;
 mod app;
 mod ipc;
+mod proc;
 mod store;
 mod term;
 mod ui;
@@ -128,6 +129,7 @@ fn main() -> Result<()> {
     let theme = Theme::new(ThemeName::Dark, Profile::detect(var), config.background);
     let mut model = Model::new(theme, home.clone(), found, fallback);
     model.message = message;
+    model.keep.clone_from(&config.cleanup.keep);
     if let Some(text) = &config.interact_exit {
         match term::keys::Chord::parse(text) {
             Some(chord) => model.exit_chord = chord,

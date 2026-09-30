@@ -6,11 +6,12 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph};
 
 use crate::agent::Kind;
-use crate::app::model::{Confirm, Model};
+use crate::app::model::Model;
 use crate::app::picker::{Picker, Row};
+use crate::app::stop::{StopDialog, StopKind, Target};
 use crate::ui::sanitise::truncate;
 use crate::ui::theme::{Theme, Token};
-use crate::ui::{bold_if, centred, dialog};
+use crate::ui::{bold_if, centred, dialog as dialog_block};
 
 /// Inner width of the picker's text fields.
 const FIELD: usize = 32;
@@ -22,7 +23,7 @@ const CONFIRM_ROWS: usize = 8;
 pub(super) fn draw_picker(frame: &mut Frame, area: Rect, p: &Picker, theme: Theme) {
     let rect = centred(area, 54, 11);
     frame.render_widget(Clear, rect);
-    let block = dialog(&format!("new session · {}", p.project), theme);
+    let block = dialog_block(&format!("new session · {}", p.project), theme);
     let inner = block.inner(rect);
     frame.render_widget(block, rect);
     let label = |row: Row, text: &str| {
@@ -107,67 +108,100 @@ fn tail(text: &str, max: usize) -> String {
     chars[chars.len().saturating_sub(max)..].iter().collect()
 }
 
-/// Draws a stop or quit confirm listing the sessions it stops.
-pub(super) fn draw_confirm(
+/// Draws the quit / stop dialog (DESIGN §5.5): the sessions, then every
+/// tracked process as `basename [:ports] pid n`, each with its
+/// `[stop]`/`[keep]` state; after [`CONFIRM_ROWS`] rows it scrolls and
+/// says `… and N more`.
+pub(super) fn draw_stop(
     frame: &mut Frame,
     area: Rect,
-    confirm: Confirm,
+    dialog: &StopDialog,
     model: &Model,
     theme: Theme,
 ) {
-    let (title, targets): (&str, Vec<usize>) = match confirm {
-        Confirm::Quit => (
+    let sessions = dialog
+        .rows
+        .iter()
+        .filter(|r| matches!(r.target, Target::Session(_)))
+        .count();
+    let (title, heading, keys) = match dialog.kind {
+        StopKind::Quit => (
             "quit?",
-            (0..model.cards.len())
-                .filter(|&i| model.cards[i].running())
-                .collect(),
+            match sessions {
+                0 => "Stopping what your sessions started:".to_owned(),
+                1 => "Stopping 1 session and what it started:".to_owned(),
+                n => format!("Stopping {n} sessions and what they started:"),
+            },
+            "space keep/stop · y quit · n stay  ",
         ),
-        Confirm::Stop(id) => (
+        StopKind::Session(_) => (
             "stop?",
-            model
-                .cards
-                .iter()
-                .position(|c| c.id == id)
-                .into_iter()
-                .collect(),
+            "Stopping this session and what it started:".to_owned(),
+            "space keep/stop · y stop · n keep  ",
         ),
-    };
-    let count = targets.len();
-    let heading = match (confirm, count) {
-        (Confirm::Quit, 1) => "Stopping 1 session:".to_owned(),
-        (Confirm::Quit, n) => format!("Stopping {n} sessions:"),
-        (Confirm::Stop(_), _) => "Stopping this session:".to_owned(),
     };
     let mut lines = vec![
         Line::from(""),
         Line::styled(format!("  {heading}"), theme.fg(Token::Fg)),
     ];
     lines.push(Line::from(""));
-    for &i in targets.iter().take(CONFIRM_ROWS) {
-        let card = &model.cards[i];
-        lines.push(Line::from(vec![
-            Span::styled("  [stop] ", theme.fg(Token::Warn)),
-            Span::styled(format!("{} ", card.kind.badge()), theme.fg(Token::Accent)),
-            Span::styled(format!("{} ", card.id.short()), theme.fg(Token::Info)),
-            Span::styled(truncate(&card.name, 28), theme.fg(Token::Fg)),
-        ]));
+    let start = dialog.cursor.saturating_sub(CONFIRM_ROWS - 1);
+    for (i, row) in dialog
+        .rows
+        .iter()
+        .enumerate()
+        .skip(start)
+        .take(CONFIRM_ROWS)
+    {
+        let marker = if i == dialog.cursor { ">" } else { " " };
+        let (word, token) = if row.stop {
+            ("[stop]", Token::Warn)
+        } else {
+            ("[keep]", Token::Ok)
+        };
+        let mut spans = vec![
+            Span::styled(format!(" {marker}"), theme.fg(Token::Ok)),
+            Span::styled(format!("{word} "), theme.fg(token)),
+        ];
+        match &row.target {
+            Target::Session(id) => {
+                if let Some(card) = model.cards.iter().find(|c| c.id == *id) {
+                    spans.push(Span::styled(
+                        format!("{} ", card.kind.badge()),
+                        theme.fg(Token::Accent),
+                    ));
+                    spans.push(Span::styled(
+                        format!("{} ", card.id.short()),
+                        theme.fg(Token::Info),
+                    ));
+                    spans.push(Span::styled(truncate(&card.name, 28), theme.fg(Token::Fg)));
+                }
+            }
+            Target::Process { proc, ports, .. } => {
+                let ports = ports
+                    .iter()
+                    .map(|p| format!(" :{p}"))
+                    .collect::<Vec<_>>()
+                    .concat();
+                let text = format!("{}{ports} pid {}", proc.name(), proc.pid);
+                spans.push(Span::styled(truncate(&text, 36), theme.fg(Token::Fg)));
+            }
+        }
+        lines.push(Line::from(spans));
     }
-    if count > CONFIRM_ROWS {
+    let hidden = dialog.rows.len().saturating_sub(start + CONFIRM_ROWS);
+    if hidden > 0 {
         lines.push(Line::styled(
-            format!("  … and {} more", count - CONFIRM_ROWS),
+            format!("  … and {hidden} more"),
             theme.fg(Token::FgMuted),
         ));
     }
     lines.push(Line::from(""));
-    let keys = match confirm {
-        Confirm::Quit => "y quit · n stay  ",
-        Confirm::Stop(_) => "y stop · n keep  ",
-    };
     lines.push(Line::styled(keys, theme.fg(Token::FgMuted)).alignment(Alignment::Right));
     let height = u16::try_from(lines.len() + 2).unwrap_or(u16::MAX);
-    let rect = centred(area, 46, height);
+    let rect = centred(area, 50, height);
     frame.render_widget(Clear, rect);
-    let block = dialog(title, theme);
+    let block = dialog_block(title, theme);
     let inner = block.inner(rect);
     frame.render_widget(block, rect);
     frame.render_widget(Paragraph::new(lines), inner);

@@ -12,6 +12,7 @@ mod interact;
 pub(crate) mod model;
 pub(crate) mod picker;
 pub(crate) mod sessions;
+pub(crate) mod stop;
 
 use std::ffi::OsStr;
 use std::io::{self, Write};
@@ -59,6 +60,10 @@ pub(crate) enum AppEvent {
     Hook(Vec<u8>),
     /// Usage from a session's Codex rollout reader.
     Usage(crate::term::SessionId, crate::agent::usage::Usage),
+    /// A background process snapshot.
+    Procs(Vec<crate::proc::Proc>),
+    /// The host terminal went away (input closed).
+    HostGone,
     /// A deadline passed: animation frame, sync flush or stop grace.
     Tick,
 }
@@ -185,9 +190,11 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<()> {
     thread::spawn(move || {
         while let Ok(event) = event::read() {
             if input.send(AppEvent::Input(event)).is_err() {
-                break;
+                return;
             }
         }
+        // reason: the loop may already be gone; nothing else to tell.
+        let _ = input.send(AppEvent::HostGone);
     });
 
     let mut next_tick = Instant::now() + TICK;
@@ -222,15 +229,75 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<()> {
             let Some(cmd) = model.update(event) else {
                 continue;
             };
-            match cmd {
-                Cmd::Quit => return Ok(()),
-                Cmd::Redraw => terminal.clear()?,
-                Cmd::Apply(settings) => apply(&mut model, env, settings),
-                Cmd::Launch(request) => launch(&mut model, env, hooks.as_ref(), request, &tx),
-                Cmd::WatchRollout(id, path) => watch_rollout(&mut model, id, &path, &tx),
+            match run_cmd(&mut model, env, hooks.as_ref(), &tx, uid, cmd) {
+                Next::Quit => return Ok(()),
+                Next::Redraw => terminal.clear()?,
+                Next::Continue => {}
             }
         }
     }
+}
+
+/// What the loop does after a command.
+enum Next {
+    /// Keep going.
+    Continue,
+    /// Clear the terminal first.
+    Redraw,
+    /// Leave mc.
+    Quit,
+}
+
+/// Runs one command `update` returned.
+fn run_cmd(
+    model: &mut Model,
+    env: &Env,
+    hooks: Option<&Hooks>,
+    tx: &SyncSender<AppEvent>,
+    uid: u32,
+    cmd: Cmd,
+) -> Next {
+    match cmd {
+        Cmd::Quit => return Next::Quit,
+        Cmd::Redraw => return Next::Redraw,
+        Cmd::Apply(settings) => apply(model, env, settings),
+        Cmd::Launch(request) => launch(model, env, hooks, request, tx),
+        Cmd::WatchRollout(id, path) => watch_rollout(model, id, &path, tx),
+        Cmd::Scan => {
+            let tx = tx.clone();
+            thread::spawn(move || {
+                // reason: a closed loop just loses this snapshot.
+                let _ = tx.send(AppEvent::Procs(crate::proc::snapshot(uid)));
+            });
+        }
+        Cmd::OpenStop(kind) => {
+            let snapshot = crate::proc::snapshot(uid);
+            model.track(&snapshot);
+            let pids: Vec<i32> = model
+                .cards
+                .iter()
+                .flat_map(|c| c.descendants.procs.iter().map(|p| p.pid))
+                .collect();
+            let ports = crate::proc::ports::listening(&pids);
+            if let Some(Cmd::Quit) = model.open_stop(kind, &snapshot, &ports) {
+                return Next::Quit;
+            }
+        }
+        Cmd::Signal(procs, signal) => {
+            for proc in &procs {
+                if let Err(crate::proc::kill::KillError::Denied) =
+                    crate::proc::kill::signal(proc, signal)
+                {
+                    model.message =
+                        Some(format!("could not stop {} pid {}", proc.name(), proc.pid));
+                }
+            }
+            if let Some(Cmd::Quit) = model.update(AppEvent::Tick) {
+                return Next::Quit;
+            }
+        }
+    }
+    Next::Continue
 }
 
 /// Saves settings, rescans the workspace and recolours running sessions.
@@ -323,7 +390,10 @@ fn launch(
         colors(model.theme),
         tx,
     ) {
-        Ok(session) => card.pty = Some(session),
+        Ok(session) => {
+            card.pid = session.pid();
+            card.pty = Some(session);
+        }
         Err(e) => {
             card.state = State::Failed(format!("could not start {command}: {e}"));
             card.ended = Some(model.now);

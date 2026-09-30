@@ -191,7 +191,7 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
         Some(Overlay::Help) => help::draw(frame, area, model.focus.scope(), theme),
         Some(Overlay::Form(f)) => form::draw_settings(frame, area, f, theme, model.host_light),
         Some(Overlay::Picker(p)) => dialogs::draw_picker(frame, area, p, theme),
-        Some(Overlay::Confirm(c)) => dialogs::draw_confirm(frame, area, *c, model, theme),
+        Some(Overlay::Stop(d)) => dialogs::draw_stop(frame, area, d, model, theme),
         None => {}
     }
 }
@@ -595,7 +595,18 @@ pub(crate) mod tests {
         assert_golden("interact-80x24.txt", &render(&mut model, 80, 24));
         key(&mut model, KeyCode::Char('\x1c'));
         model.focus = Focus::Sessions;
-        key(&mut model, KeyCode::Char('q'));
+        let running = model
+            .cards
+            .iter()
+            .position(crate::app::sessions::Card::running)
+            .unwrap();
+        model.cards[running].pid = Some(4400);
+        let snapshot: Vec<_> = crate::proc::parse_ps(include_str!("proc/testdata/ps-macos.txt"))
+            .into_iter()
+            .filter(|p| p.uid == 501)
+            .collect();
+        let ports = std::collections::HashMap::from([(4471, vec![5173]), (4502, vec![5432])]);
+        model.open_stop(crate::app::stop::StopKind::Quit, &snapshot, &ports);
         assert_golden("quit-confirm-80x24.txt", &render(&mut model, 80, 24));
     }
 

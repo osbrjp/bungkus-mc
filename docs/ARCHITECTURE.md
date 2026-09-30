@@ -143,7 +143,10 @@ resume.**
   `[stop]`/`[keep]` toggle per row (`space`); after 8 rows the dialog shows
   `… and N more` (DESIGN.md §5.5). **Exactly the listed set is signalled.**
 - **Default-keep rule.** Rows start as `[keep]`, and the SIGHUP path (no
-  dialog) never signals them, for: any `comm` under `*.app/Contents/`;
+  dialog) never signals them, for: any `comm` inside an app bundle under an
+  `Applications` folder (`…/Applications/*.app/Contents/…`; M7: Homebrew's
+  `Python.app` interpreter is not a desktop app and starts as `[stop]`);
+  the agents `claude` and `codex`;
   basenames `gpg-agent`, `ssh-agent`, `tmux`, `screen`, `watchman`,
   `ollama`, `colima`, `docker`, `code`; and anything in config
   `cleanup.keep`. Everything else starts as `[stop]`.

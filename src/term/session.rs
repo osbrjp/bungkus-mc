@@ -396,6 +396,16 @@ impl Session {
         self.shared.colors.set(colors);
     }
 
+    /// Returns the agent's pid (its process group id), if it started.
+    #[must_use]
+    pub(crate) fn pid(&self) -> Option<i32> {
+        self.pty
+            .as_ref()
+            .and_then(|p| p.pid)
+            .map(Pid::as_raw_nonzero)
+            .map(i32::from)
+    }
+
     /// Sends `signal` to the agent's process group.
     ///
     /// # Errors
