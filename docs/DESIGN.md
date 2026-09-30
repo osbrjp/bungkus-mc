@@ -887,7 +887,8 @@ no `cache`/`cost` lines and its `limits` line reads `5h 10% · 7d 3%`.
 
 ## 7. Motion
 
-- One **global animation clock**, a single `tea.Tick` at 350 ms, armed
+- One **global animation clock**, the 350 ms tick (the event loop's
+  `recv_timeout` deadline), armed
   only while something animated is visible and `motion` is on. It drives
   the `| / - \` spinner (sidebar column, card working glyph, header tally
   `/`) and every mascot sequence; all of them read the same tick, so the
@@ -895,8 +896,9 @@ no `cache`/`cost` lines and its `limits` line reads `5h 10% · 7d 3%`.
 - `motion: false` (or `NO_COLOR`) freezes everything: spinner `|`, mascot
   on its idle (or cross) frame.
 - No animation on focus or resize. Frames are rendered on a dirty flag or
-  the animation tick (never on a fixed timer) and wrapped in crossterm's
-  synchronized-update markers (DEC 2026) where supported.
+  the animation tick (never on a fixed timer) and wrapped in
+  synchronized-update markers (DEC 2026, via `ratatui::crossterm`) where
+  supported.
 - A session that wraps flashes its glyph in `accent` for two ticks. That is
   the only celebration.
 

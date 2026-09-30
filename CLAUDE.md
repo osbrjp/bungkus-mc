@@ -26,10 +26,10 @@ docs before writing any.
 ## Tech Stack
 
 - **Rust stable 1.97** (`rust-toolchain.toml`), edition 2024, one binary crate; darwin/linux × arm64/amd64
-- **ratatui + crossterm** (UI, input, kitty keyboard flags on the host side)
+- **ratatui** (UI; its re-exported `ratatui::crossterm` for input, raw mode, kitty keyboard flags on the host side)
 - **alacritty_terminal 0.26** (embedded emulator) + **portable-pty**
-- `thiserror`/`anyhow`, `serde`/`serde_json`, `uuid`, `lexopt`, `ureq` (rustls, sync), `semver`, `rustix`, `tracing` — 15 crates, all pinned, `Cargo.lock` committed
-- No async runtime; threads + `std::sync::mpsc`
+- `thiserror`/`anyhow` (anyhow only in `main.rs` and top-level subcommand entry points), `serde`/`serde_json`, `uuid`, `lexopt`, `ureq` (rustls, sync), `semver`, `rustix` — **12 crates**, `Cargo.lock` committed; no logging crate (`debug_log!` macro)
+- No async runtime; threads + `std::sync::mpsc`; one PTY writer thread per session
 
 ## Module layout
 
@@ -50,7 +50,7 @@ src/workspace.rs   # project dir scan
 ## Key Decisions (don't relitigate without reading the docs)
 
 - **Rust, not Go** (owner, M0 spike: 12× faster on heavy output, 1.2 MB binary, a maintained emulator crate on crates.io). bungkus-cli stays Go.
-- Live pane = PTY + `alacritty_terminal` advanced on the UI thread; query replies (DSR/DA/OSC 10/11/CSI 14/18 t) answered from the theme; our own key encoder (`term/keys.rs`) incl. kitty CSI-u toward the agent (M3); mouse forwarded when the agent enabled it; EIO after child exit ignored. **Focusing the output pane is INTERACT** (full passthrough); `ctrl-\` returns to the sessions pane.
+- Live pane = PTY + `alacritty_terminal` advanced on the UI thread (M3 re-times the flood cases; pump-thread fallback); per session a bounded reader thread, a **writer thread** that owns the PTY writer (the UI thread only sends), and a waiter (exit on reader EOF or 500 ms after `wait`); query replies (DSR/DA/OSC 10/11 from the theme, CSI 14 t; 18 t is alacritty's); `kitty_keyboard: true` + our own encoder (`term/keys.rs`) incl. kitty CSI-u toward the agent (M3); sync-update deadline + `stop_sync`; mouse forwarded when the agent enabled it; EIO after child exit ignored. **Focusing the output pane is INTERACT** (full passthrough); `ctrl-\` returns to the sessions pane.
 - Structure = agent hooks → `bungkus-mcc hook` → unix socket. Usage = Claude status line → `bungkus-mcc statusline` (forwards within 200 ms, then runs the user's own status line under `sh`). **Never parse agent transcripts — except `agent/codex_usage.rs`** (`token_count` records only, owner-approved).
 - Render on a dirty flag or the 350 ms animation tick, never on a fixed timer.
 - Child env: `TERM`/`COLORTERM` set; host-terminal identity vars, `TYPESAFE_API_KEY` and the Claude/Codex **session-marker** vars (`CLAUDECODE`, `CLAUDE_CODE_CHILD_SESSION`, …, see ARCHITECTURE §3.1) unset; `CLAUDE_CONFIG_DIR`/`CODEX_HOME` kept.
@@ -60,7 +60,7 @@ src/workspace.rs   # project dir scan
 - Palette: painted low-saturation green at TrueColor only (`background: paint`), terminal bg/fg + declared `Color::Indexed` values otherwise; the DESIGN §2 tables are the spec shared with bungkus-cli, guarded by a token-table test in each repo. Default icon set ASCII; every state is glyph + word + colour.
 - Mascot (banana-leaf packet, Figma poses): 16×14 / 8×6 half-block sprites, corner of the output pane by mood and busyness, died for anything failed; never over agent output.
 - Routing (TypeSafe Jev) opt-in, `n` start prompt only, secret-shape guard, consent in `consent.json`, key from env or a once-per-process command; M9 / v0.2.0.
-- No daemon, no async runtime, no `unsafe` (rustix), 15 crates. Adding one requires a TECH_STACK.md entry.
+- No daemon, no async runtime, no `unsafe` (rustix; no `pre_exec`/`setsid` — child processes use `process_group(0)`), 12 crates. Adding one requires a TECH_STACK.md entry.
 
 ## Build, Run, Test
 
@@ -79,7 +79,6 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-features
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
 cargo deny check
-cargo audit
 ```
 
 ## Conventions

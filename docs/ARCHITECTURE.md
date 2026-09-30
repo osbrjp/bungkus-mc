@@ -51,16 +51,18 @@ reader for numbers, §6).
  │  UI thread: the event loop owns the whole model (Elm-style)                              │
  │   ├─ projects pane   ├─ sessions pane (selected project)   ├─ output pane               │
  │                                                             (one alacritty Term/session) │
- │  threads, each sending AppEvent over one std::sync::mpsc::Sender clone:                  │
- │   • pty reader ×N   → AppEvent::PtyOutput{sess, bytes}   (also answers queries, §4.1)   │
- │   • child waiter ×N → AppEvent::ChildExited{sess, code}  (after the reader hit EOF)      │
- │   • socket listener → AppEvent::Hook / ::Usage                                           │
- │   • codex usage tail ×N → AppEvent::Usage (§6.3)                                          │
- │   • proc scan       → AppEvent::Descendants (§3.3, every 2 s while any session runs)     │
- │   • update check    → AppEvent::UpdateAvailable (once a day)                             │
- │   • route request   → AppEvent::Routed (§13, only for a routed `n` start)                 │
- │   • crossterm input → AppEvent::Input (keys, mouse, paste, resize, focus)                │
- │  the loop: recv_timeout(next_tick) → update model → render if dirty or on an animation tick │
+ │  threads → one mpsc channel of AppEvent into the loop:                                   │
+ │   • pty reader ×N   → PtyOutput{sess, bytes}   on a BOUNDED SyncSender (64 × 32 KiB)     │
+ │   • pty writer ×N   ← Vec<u8> on an unbounded Sender: keys, paste, query replies (§4.1) │
+ │   • child waiter ×N → ChildExited{sess, code}  (reader EOF, or 500 ms after wait, §4.1)  │
+ │   • socket listener → Hook / Usage                                                       │
+ │   • codex usage tail ×N → Usage (§6.3)                                                    │
+ │   • proc scan       → Descendants (§3.3, every 2 s while any session runs)               │
+ │   • update check    → UpdateAvailable (once a day)                                       │
+ │   • route request   → Routed (§13, only for a routed `n` start)                          │
+ │   • input reader    → Input (keys, mouse, paste, resize, focus) via ratatui::crossterm   │
+ │  the loop: recv_timeout(deadline) → drain with try_recv → update model → one render     │
+ │            deadline = min(next animation tick, each Term's sync_timeout())               │
  │                                                                                          │
  │  unix socket  $BUNGKUS_MCC_SOCK = clean(${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}})/bungkus-mcc-<uid>/<pid>.sock │
  └───────────┬──────────────────────────────────────────┬───────────────────────────────────┘
@@ -79,8 +81,9 @@ reader for numbers, §6).
   verified (§7, SECURITY.md), or the path exceeds the 104-byte `sun_path`
   limit, mcc runs **without a socket**: every card is "output only" with
   the hint from DESIGN.md §11. The live pane never depends on the socket.
-- Agents are ordinary children in their own session (`portable-pty` calls
-  `setsid` in the child; the process group is the child's pid).
+- Agents are ordinary children; `portable-pty` makes the child the session
+  leader of its PTY (inside the crate, not in our code), so the process
+  group is the child's pid.
 - Prompt: `n` optionally takes an initial prompt, passed as one positional
   argument after `--` (VERIFIED for `claude -p` and `codex exec` with a
   dash-leading prompt; ASSUMPTION that the interactive entry points parse
@@ -119,9 +122,12 @@ Start from `std::env::vars_os()` and then:
 The emulator's default foreground/background are **the theme's painted
 `bg`/`fg`** (`#1c2a21`/`#d6e2d3` dark, `#f0f3d8`/`#1f2a22` light) whenever
 mcc paints (TrueColor and `background: "paint"`), so the agent's screen
-blends into the pane; otherwise the host's colours (queried once at start
-through crossterm's raw OSC 10/11 round-trip, or the theme's reference
-values when the host does not answer). **OSC 10/11 replies to the agent
+blends into the pane; otherwise the host's colours (queried once at start:
+mcc writes `OSC 10 ; ? ST` / `OSC 11 ; ? ST` to the tty and waits for the
+reply with `rustix::event::poll` on stdin for up to 200 ms **before**
+crossterm's input reader is started — crossterm has no API for this, and a
+late reply would otherwise leak into the key stream; the theme's reference
+values are used when the host does not answer). **OSC 10/11 replies to the agent
 carry those same colours** (spike finding: the prototype answered fixed
 values; mcc answers `Event::ColorRequest` from the active theme), so
 agents pick their dark (or light) theme to match.
@@ -194,34 +200,66 @@ long-term answer and a stage-2 candidate.
 
 ### 4.1 Live output
 
+Per session: one `MasterPty`, one `alacritty_terminal::Term<Listener>` +
+`Processor` (owned by the UI thread), one **reader thread**, one **writer
+thread**, one **waiter thread**.
+
 ```
-pty master ──read(32 KiB)──▶ reader thread: term.advance(bytes)?  no —
-                              the reader sends AppEvent::PtyOutput; the UI thread owns the Term
-                              and calls `Processor::advance(&mut term, &bytes)` in `update`
-                              BUT terminal queries must be answered even while the UI is busy:
-                              alacritty emits them as `Event::PtyWrite(String)` through the
-                              EventListener the Term was built with; our listener is a
-                              `Sender<AppEvent>` + a direct `pty_writer` clone, so replies
-                              (DSR, DA, OSC 10/11/12, CSI 14/18 t) are written back from the
-                              thread that processed the bytes, never blocking the UI.
-UI thread: render = read `term.renderable_content()` → ratatui Buffer cells
-           (skip WIDE_CHAR_SPACER; map alacritty colours → Color::Rgb/Indexed; then sanitise)
+                 bounded SyncSender (64 × 32 KiB)                    unbounded Sender<Vec<u8>>
+ pty master ──▶ reader thread ────────────────────────▶ UI thread ◀──────────────────────── writer thread ──▶ pty master
+  (read)        PtyOutput{sess, bytes}                  │  update():                          owns the one
+                EIO / EOF → ReaderClosed{sess}          │   processor.advance(&mut term, &bytes)   MasterPty::take_writer()
+                                                        │   Term listener: Event::PtyWrite(reply)  drains the channel,
+                                                        │     └─ writer_tx.send(reply)  (never blocks)  writes, ignores EIO
+                                                        │   keys / paste / mouse (INTERACT):
+                                                        │     └─ writer_tx.send(keys::encode(..))
+                                                        │  render(): term.renderable_content() → ratatui cells
+                                                        │     (skip WIDE_CHAR_SPACER; colours → Color::Rgb/Indexed)
+ child ───────▶ waiter thread: Child::wait() ──▶ ChildExited{sess, code} (see exit rule below)
 ```
 
-Concretely: each session owns `alacritty_terminal::Term<Listener>` and a
-`Processor`. The PTY reader thread does **not** touch the `Term`; it sends
-bytes. The UI thread advances the parser (the spike measured `seq 500000`
-at 0.48 s end to end this way, 12× faster than the Go prototype and on par
-with tmux's 0.6 s), and any `Event::PtyWrite` produced while advancing is
-written to the PTY master by the UI thread through a cloned writer. There
-is **no reply-pump thread and no blocking write** — the Go workaround does
-not exist here. Writes to a PTY whose child has exited return `EIO`; those
-are ignored (spike finding: the prototype exited 1 on it).
-
+- **The UI thread never blocks on the PTY.** Everything that must reach the
+  child — encoded keys, paste, mouse, and the emulator's own query replies
+  (DSR/CPR, DA1/DA2, OSC 10/11/12 with the painted theme colours, CSI 18 t,
+  kitty keyboard mode query) — is a `send` on the writer channel; the writer
+  thread is the only holder of the PTY writer. The Term listener that
+  alacritty calls with `Event::PtyWrite` is a struct holding that `Sender`.
+  `Event::TextAreaSizeRequest` (CSI 14 t, pixel size) is not answered by
+  the crate; mcc answers it from the writer with the pane's cell size ×
+  a nominal cell size (M3).
+- **Backpressure.** The reader's channel is bounded; a flooding agent fills
+  it and the reader blocks on the PTY, which slows the agent instead of
+  growing memory. The loop drains everything queued with `try_recv` and
+  renders **once** per wake-up.
+- **Where `Term` lives — the M3 check.** The design advances `Term` on the
+  UI thread. The spike measured `seq 500000` in 0.48 s (Go 5.9 s, tmux
+  0.6 s) *headless, with `Term` advanced on a pump thread*, so that number
+  proves the emulator, not this placement. M3 replays
+  `spikes/cases/flood-seq.json` and `flood-color.json` **interactively**;
+  if the UI thread cannot keep up (input latency over 100 ms during a
+  flood), the fallback is the spike's model — a pump thread owning `Term`
+  behind a mutex, the UI thread locking only to render.
+- **Child exit rule.** `ChildExited` is sent on reader EOF/EIO **or** 500 ms
+  after `Child::wait` returns, whichever comes first: a descendant (a dev
+  server) may hold the PTY slave open after the agent is gone, and the
+  reader would otherwise never see EOF. The reader treats `EIO` as EOF.
+  PTY writes after exit (`EIO`) are ignored (spike finding: the prototype
+  exited 1 on them).
+- **Synchronized updates from the agent (DEC 2026).** alacritty parks
+  output while the agent is inside a BSU/ESU pair and exposes
+  `Term::sync_timeout()`; the loop's `recv_timeout` deadline is
+  `min(next animation tick, each Term's sync_timeout())`, and when that
+  deadline fires the loop calls `stop_sync()` and marks the pane dirty, so
+  a lost ESU can never freeze a pane (M3 test: BSU with no ESU renders
+  after 150 ms).
 - **Rendering is on a dirty flag or a tick**, not every 16 ms (spike
   finding). `PtyOutput` for the visible session, any model change and any
   resize set `dirty`; the loop renders once per wake-up when dirty, and on
   the 350 ms animation tick only while something animated is on screen.
+- **Kitty keyboard toward the agent.** M3 builds the emulator with
+  `Config { kitty_keyboard: true, .. }` so agents that push kitty flags see
+  them advertised, and the encoder emits CSI-u while a flag is active
+  (below).
 - Resize: a crossterm `Resize` event (coalesced to one frame) resizes
   **every** emulator (`Term::resize`) and PTY (`MasterPty::resize`), not
   only the visible one.
@@ -249,9 +287,10 @@ are ignored (spike finding: the prototype exited 1 on it).
   other key — `esc`, `tab`, `shift-tab`, arrows, all ctrl chords — reaches
   the PTY.
 - **Queries answered** (M3 checklist from the spike): DSR/CPR, DA1/DA2,
-  OSC 10/11/12 with the painted theme colours, **CSI 14 t / 18 t
-  window-size replies** (the spike ignored `TextAreaSizeRequest`), kitty
-  keyboard mode query.
+  OSC 10/11/12 with the painted theme colours, CSI 18 t (character-cell
+  size, answered by alacritty itself via `PtyWrite`), **CSI 14 t** (pixel
+  size, `TextAreaSizeRequest`, answered by mcc — the spike ignored it),
+  kitty keyboard mode query.
 
 ### 4.2 Rendered-output sanitiser (allowlist)
 
@@ -501,9 +540,10 @@ shown dimmed as stale.
   `${CODEX_HOME:-~/.codex}`, then `resolved.strip_prefix(&codex_home)`
   must succeed (component-wise, so `~/.codex-evil/…` does not pass and
   `..` cannot appear after canonicalisation), extension `jsonl`. The file
-  is opened with `OpenOptions::custom_flags(O_NONBLOCK)` read-only and the
-  **open fd** is `fstat`ed (`rustix::fs::fstat`) and must be a regular
-  file. Anything else → reader disabled for that session, usage `-`.
+  is opened read-only with `OpenOptions::custom_flags(OFlags::NONBLOCK)`
+  and the **open file's** `File::metadata()` (an fstat on the fd, not a
+  path lookup) must report a regular file. Anything else → reader disabled
+  for that session, usage `-`.
 - **Read-only, tail only, capped.** Poll every 1 s (`metadata().len()`;
   on shrink restart from 0); `read_at` from the last offset, at most
   256 KiB per poll (a larger burst skips ahead to the newest 256 KiB); on
@@ -526,7 +566,7 @@ shown dimmed as stale.
   `turn.completed` usage — if `token_count` disappears, the reader degrades
   to `-` and these are the candidates.
 - **Tolerant.** Malformed JSON → line skipped; any I/O error → reader
-  stops, card shows `-`, one `tracing::debug!`. Never an error to the user.
+  stops, card shows `-`, one `debug_log!` line. Never an error to the user.
 - **Never stored.** Only the resulting `Usage` (numbers) is kept.
 - **Tests:** fixtures (`testdata/codex/rollout-*.jsonl` scrubbed to
   `token_count` + decoy lines), path-validation cases, truncation/shrink,
@@ -602,25 +642,33 @@ name. No recursion, no project file.
    otherwise touches nothing shared. No `Arc<Mutex<_>>` in stage 1 unless
    a channel is clearly worse (then document the lock order).
 2. `alacritty_terminal::Term` instances live in the model and are advanced
-   and read only on the UI thread. The reader thread sends bytes.
-3. PTY readers block on `send` when the channel is full (bounded at 64
-   chunks of 32 KiB) — that is the backpressure.
-4. The child waiter (`Child::wait` on its own thread) waits for the reader
-   to hit EOF, then sends `ChildExited`, so the final screen is complete
-   before the state flips.
-5. Socket: `UnixListener::accept` on one thread; one line per connection,
+   and read only on the UI thread (M3 may move them behind a mutex on a
+   pump thread if the flood check fails, §4.1). The reader thread sends
+   bytes; it never touches the `Term`.
+3. PTY readers send on a **bounded** `SyncSender` (64 × 32 KiB) and block
+   when it is full — that is the backpressure. Every other source uses the
+   same channel's unbounded clone.
+4. Each session has one **writer thread** owning the PTY writer, fed by an
+   unbounded `Sender<Vec<u8>>`; the UI thread only `send`s to it (keys,
+   paste, mouse, the Term listener's query replies) and never blocks on the
+   PTY.
+5. The child waiter (`Child::wait` on its own thread) sends `ChildExited`
+   on reader EOF/EIO or 500 ms after `wait` returned, whichever is first
+   (§4.1), so a descendant holding the slave open cannot hide an exit.
+6. Socket: `UnixListener::accept` on one thread; one line per connection,
    2 s read timeout, close; the line is sent as an event and parsed on the
    UI thread.
-6. The Codex usage tailer and the process-tree scanner are threads that
+7. The Codex usage tailer and the process-tree scanner are threads that
    sleep between bounded reads (≤ 256 KiB / one `ps`) and send one event
    each; they exit when the session ends or the last session stops.
-7. No `thread::sleep` on the UI thread. The loop blocks in
-   `recv_timeout(until_next_tick)`; the 350 ms animation tick exists only
-   while something animated is visible and `motion` is on; the corner
-   mascot's blank-cell check runs per render on at most 16×7 cells; "busy"
-   = PTY output within the last 1 s (an `Instant` set in the `PtyOutput`
-   handler — typing echo counts).
-8. Shutdown (§3.2) runs on the UI thread with a "stopping…" render between
+8. No `thread::sleep` on the UI thread. The loop blocks in
+   `recv_timeout(deadline)` with `deadline = min(next animation tick, each
+   Term's sync_timeout())`, then drains with `try_recv` and renders once;
+   the 350 ms animation tick exists only while something animated is
+   visible and `motion` is on; the corner mascot's blank-cell check runs
+   per render on at most 16×7 cells; "busy" = PTY output within the last
+   1 s (an `Instant` set in the `PtyOutput` handler — typing echo counts).
+9. Shutdown (§3.2) runs on the UI thread with a "stopping…" render between
    steps (the waits are short and bounded); the raw-mode guard's `Drop`
    restores the terminal last.
 
@@ -632,13 +680,13 @@ src/
   main.rs            # lexopt parsing → subcommand; anyhow at this level only; panic hook restores the terminal
   app/               # the event loop and Model: mode/focus, sessions, dirty flag, ticks, AppEvent
   ui/                # panes, dialogs, first run, keymap.rs (single source of keys/help), theme.rs (token spec impl),
-                     # mascot.rs (pixel maps, frames, moods), sanitise of strings for display
-  term/              # session.rs (PTY + Term + reader/waiter threads), keys.rs (encoder, from the spike), replies (OSC 10/11, CSI 14/18 t)
+                     # mascot.rs (pixel maps, frames, moods), sanitise.rs (the one string sanitiser)
+  term/              # session.rs (PTY + Term + reader/writer/waiter threads), keys.rs (encoder, from the spike), replies.rs (OSC 10/11, CSI 14 t)
   agent/             # mod.rs (Event, Usage, Adapter, reduce), claude.rs, codex.rs, codex_usage.rs; testdata/{claude,codex}/
   ipc/               # server.rs (UnixListener), hook.rs and statusline.rs (the silent subcommands), wire types
   proc/              # scan (linux.rs: /proc + pidfd; macos.rs: ps), ports.rs (lsof), kill.rs, keep rule
   route/             # Jev tier judgement → model id, key runner, secret-shape guard, consent
-  store/             # paths (XDG), config.rs, state.rs (atomic writes), consent
+  store/             # paths (XDG), config.rs, state.rs (atomic writes), consent, debug.rs (the ~20-line debug_log! macro → 0600 file under --debug)
   update/            # release check + `update` subcommand (port of bungkus-cli's ~150 lines)
   workspace.rs       # project dir scan
 install.sh           # bungkus-cli's script, REPO/BIN_NAME changed
@@ -704,13 +752,13 @@ Go code any more:
 | Concern | Handled by | Our part |
 |---------|-----------|----------|
 | colour depth, `NO_COLOR`, tmux RGB | our own detection (`COLORTERM`, `TERM`, `NO_COLOR`, `CLICOLOR_FORCE`, `TERM_PROGRAM`), ~30 lines | `Color::Rgb` painted set at TrueColor; **declared** `Color::Indexed` values at 256/16 (DESIGN.md §2); `background: "terminal"` forces the fallback |
-| kitty keyboard vs legacy (host) | crossterm `PushKeyboardEnhancementFlags(DISAMBIGUATE_ESCAPE_CODES)` when supported | never bind protocol-only keys; the exit chord is a C0 byte |
+| kitty keyboard vs legacy (host) | `ratatui::crossterm` `PushKeyboardEnhancementFlags(DISAMBIGUATE_ESCAPE_CODES)` when supported | never bind protocol-only keys; the exit chord is a C0 byte |
 | kitty keyboard toward the agent | our encoder (`term/keys.rs`) driven by the emulator's kitty mode stack (M3) | — |
-| mouse | crossterm `EnableMouseCapture` | `mouse: false`; wheel = scrollback; forwarded to the agent when it enabled mouse modes; modifier-drag for selection documented |
-| synchronized output | ratatui/crossterm `BeginSynchronizedUpdate`/`End…` per frame | — |
+| mouse | `ratatui::crossterm` `EnableMouseCapture` | `mouse: false`; wheel = scrollback; forwarded to the agent when it enabled mouse modes; modifier-drag for selection documented |
+| synchronized output | `BeginSynchronizedUpdate`/`End…` per frame (host side); alacritty's `sync_timeout()` + `stop_sync()` for the agent side (§4.1) | — |
 | OSC 8 | not emitted by ratatui; header link written raw only where supported | stripped from agent output |
 | Nerd Font / glyphs | undetectable | `icons` setting, **default ascii**; borders follow the locale |
-| light/dark | one OSC 11 query at start via crossterm raw I/O (200 ms budget) | `theme` setting |
+| light/dark | one OSC 11 query at start, reply awaited with `rustix::event::poll` on stdin (200 ms) before the input reader starts (§3.1) | `theme` setting |
 | notifications | OSC 9/99/777 raw writes by terminal, BEL fallback; title via OSC 2 with XTWINOPS push/pop | `notify` setting |
 | tmux / zellij | `TERM=tmux-256color`; OSC 8 ≥ 3.4 | test matrix |
 | Apple Terminal | 256 colours, no OSC 8, no kitty keys | must be fully usable — the floor |
@@ -781,11 +829,12 @@ pub(crate) fn route(cfg: &Config, prompt: &str) -> Decision                // ne
   back` (DESIGN.md §10). `sessions.json` records model, source, confidence.
 - API key: `TYPESAFE_API_KEY`, else `routing.apiKeyCommand` (an argv array
   — no shell — whose stdout is the key). The command runs **once per mcc
-  process, lazily on the first routed start**, with its own 10 s timeout,
-  `stdin` null, `stderr` null, `setsid` via `rustix` in a pre-exec hook
-  (no controlling tty, so it cannot prompt into our screen), stdout capped
-  at 4 KiB and trimmed; the key is kept in memory for the process
-  lifetime, never on disk, never logged.
+  process, lazily on the first routed start**, in its own process group
+  (`std::os::unix::process::CommandExt::process_group(0)`, safe — no
+  `pre_exec`, no `setsid`), `Stdio::null()` stdin (so it cannot prompt
+  into our screen), stderr discarded, its own 10 s timeout after which the
+  whole group is killed, stdout capped at 4 KiB and trimmed; the key is
+  kept in memory for the process lifetime, never on disk, never logged.
 - Consent: the first routed start shows the dialog (DESIGN.md §10); `y`
   writes `consent.json` in the state dir; `n` leaves routing enabled in
   config but every start falls back until consented (the picker shows

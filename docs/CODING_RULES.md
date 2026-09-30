@@ -33,9 +33,10 @@ behaviour, the skill wins for style.
 - Config/state: `serde` structs with `#[serde(default)]`; agent-facing
   payload structs never use `deny_unknown_fields`; atomic writes via a
   temp file + `rename` in `store`.
-- Logging: `tracing`; the subscriber writes to a 0600 file only under
-  `--debug`; never to stdout/stderr while the TUI runs; never payload
-  bodies, prompts, env or keys.
+- Logging: the `debug_log!` macro in `store/debug.rs` (~20 lines), which
+  writes to a 0600 file only under `--debug` and is a no-op otherwise;
+  never to stdout/stderr while the TUI runs; never payload bodies,
+  prompts, env or keys. No logging crate.
 - Env vars: `BUNGKUS_MCC_*`; `BUNGKUS_NO_UPDATE_CHECK` shared with
   bungkus-cli. Read in one place each (`store::paths`, `ipc::hook`,
   `ipc::statusline`).
@@ -97,7 +98,7 @@ has none. Coverage is not a target.
   within the same pane/mode; the exit chord bound in INTERACT only; every
   vim motion has an arrow twin; `!` has `ctrl-]`.
 - **INTERACT passthrough**: with the output pane focused, every
-  `crossterm::event::KeyEvent` in a generated set (printable, esc, tab,
+  `ratatui::crossterm::event::KeyEvent` in a generated set (printable, esc, tab,
   shift-tab, arrows, F-keys, every ctrl chord) reaches the PTY writer
   except the configured exit chord and `ctrl-z`; each focus route (`l`,
   `→`, `tab`, `enter`-on-session, click) flips the mode in the same
@@ -130,21 +131,30 @@ has none. Coverage is not a target.
 - **Sidebar spinner**: a project with any running session shows the
   global-clock frame; the badge shows only needs-you / failed / your-turn;
   static under `motion: false`.
-- **Sanitiser** (`term/sanitise.rs`): the hostile corpus from
+- **Sanitiser** (`ui/sanitise.rs`): the hostile corpus from
   ARCHITECTURE.md §4.2 through (a) the emulator + allowlist and (b) the
   string sanitiser as used by cards, header and dialogs; oracle: output
   contains only printable chars, `\n`, and `CSI…m`.
-- **Emulator** (`term`): feeding `CSI 6n`, `CSI c`, `CSI > c`, `CSI 14 t`,
-  `CSI 18 t`, `OSC 10/11 ?` → replies arrive on the PTY side within
-  100 ms, OSC 10/11 carrying the painted theme colours; a recorded stream
-  with CJK, emoji, `⏺ ⎿` and combining marks → cursor column after each
-  line equals the width sum; writes after child exit do not error (EIO
-  ignored); the `spikes/cases/` corpus replays green.
+- **Emulator and session threads** (`term`): feeding `CSI 6n`, `CSI c`,
+  `CSI > c`, `CSI 14 t`, `CSI 18 t`, `OSC 10/11 ?` → replies arrive on the
+  PTY side within 100 ms through the writer thread, OSC 10/11 carrying
+  the painted theme colours, CSI 14 t answered by mcc; the UI thread never
+  blocks when the writer's PTY is stalled (fake writer test); the reader
+  blocks on a full bounded channel instead of allocating; BSU with no ESU
+  renders after 150 ms (`sync_timeout` deadline + `stop_sync`); child exit
+  is reported on reader EOF/EIO **or** 500 ms after `wait` (test with a
+  child that leaks the slave fd to a grandchild); `Config { kitty_keyboard:
+  true }` is set and the encoder emits CSI-u while the agent has a flag
+  pushed; a recorded stream with CJK, emoji, `⏺ ⎿` and combining marks →
+  cursor column after each line equals the width sum; writes after child
+  exit do not error (EIO ignored); the `spikes/cases/` corpus replays
+  green, and the flood cases are timed interactively (M3 placement check).
 - **PTY**: spawn `sh -c 'printf …; exit 3'` → exit code 3 reported after
   the reader drained (skipped when no PTY is available).
 - **ipc**: round-trip over a temp dir; oversize and malformed payloads;
-  permission bits and the fail-to-no-socket path (bad dir mode, symlink,
-  > 104-byte path).
+  permission bits (dir 0700, socket 0600 via `set_permissions` after
+  bind, no umask change) and the fail-to-no-socket path (bad dir mode,
+  symlink, > 104-byte path).
 - **workspace**: dot-dirs skipped, symlinked dirs followed, marker files via
   `metadata()`, names with control characters sanitised.
 - **Descendant tracking** (`proc`): fixtures of `ps -axo
@@ -162,7 +172,7 @@ has none. Coverage is not a target.
 - **Codex usage reader** (`agent/codex_usage.rs`): fixtures with
   `token_count` records among decoys (incl. `token_usage_record`); path
   validation (outside `CODEX_HOME`, `..`, `~/.codex-evil` prefix trick,
-  symlink escape, non-`.jsonl`, directory, FIFO via `fstat`); tail from
+  symlink escape, non-`.jsonl`, directory, FIFO via `File::metadata()`); tail from
   `len − 256 KiB` with the partial first line discarded; shrink; carried
   partial line; carry over 256 KiB dropped to the next `\n`; `null`
   `info`/`rate_limits`; malformed lines skipped; a line without
@@ -173,8 +183,9 @@ has none. Coverage is not a target.
   server past the budget, empty tier map / missing key / secret-shaped
   prompt (no request made); resume never routes; golden request body with
   only `prompt`, `model` and the fixed question; sanitiser + 4 KiB
-  truncation; key runner (once per process, 10 s, 4 KiB cap, trimmed,
-  `setsid`); consent gate reads/writes `consent.json`.
+  truncation; key runner (once per process, own process group via
+  `process_group(0)`, null stdin, 10 s then group kill, 4 KiB cap,
+  trimmed); consent gate reads/writes `consent.json`.
 - **Update**: semver compare table; cached tag validated; installer URL is
   at the resolved tag.
 - **CLI smoke** (CI; skipped if binaries absent): `claude --help` and
@@ -203,7 +214,7 @@ has none. Coverage is not a target.
   Evidence. TUI changes: screenshot or recording in at least one terminal,
   two if rendering changed (one of them tmux or Apple Terminal).
 - CI green: `fmt`, `clippy -D warnings`, `test`, `doc -D warnings`,
-  `deny`, `audit` (TECH_STACK.md).
+  `cargo deny check` (TECH_STACK.md).
 
 ## 5. Review checklist
 

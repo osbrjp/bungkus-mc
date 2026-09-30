@@ -39,7 +39,7 @@ cargo build --release              # target/release/bungkus-mcc (Rust stable 1.9
 cargo run -- ~/Works               # run with a workspace
 cargo fmt --all --check && cargo clippy --all-targets --all-features -- -D warnings \
   && cargo test --all-features && RUSTDOCFLAGS="-D warnings" cargo doc --no-deps \
-  && cargo deny check && cargo audit          # what CI runs
+  && cargo deny check                         # what CI runs
 ```
 
 ## Planned install (not yet available)

@@ -27,7 +27,7 @@ figures from Claude Code's **status line** and, for Codex, from the
 exception to "never parse transcripts". Optionally, off by default, it asks
 TypeSafe's Jev which model tier a start prompt needs and launches the
 agent with a cheaper model. One Rust binary (~1.2 MB), no daemon, no
-async runtime, 15 pinned crates, the same release/install pipeline as
+async runtime, 12 crates pinned by `Cargo.lock`, the same release/install pipeline as
 bungkus-cli (which stays Go), released together with bungkus-cli's
 adoption of the shared Daun Pisang palette.
 
@@ -89,9 +89,9 @@ adoption of the shared Daun Pisang palette.
 | Milestone | Scope | Done when |
 |-----------|-------|-----------|
 | **M0 Foundation spike — done** | Two prototypes of the embedded terminal pane built to `spikes/SPEC.md` (Go: Bubble Tea v2 + x/vt + creack/pty; Rust: ratatui + crossterm + portable-pty + alacritty_terminal 0.26), a headless case harness and `spikes/compare.py` scoring both against a tmux reference | Both matched tmux on every case; the numbers below decided the language (§6 item 15) |
-| M1 Skeleton | crate, `rust-toolchain.toml`, lint set from the skill, CI (`fmt`, `clippy -D warnings`, `test`, `doc -D warnings`, `deny`, `audit`), release pipeline (native runners or `cargo-zigbuild`, `checksums.txt`, reused `install.sh`), `update` ported from bungkus-cli, `ui/theme.rs` implementing the token spec (painted + fallback sets, TrueColor gate, `background` config) with the token-table and contrast tests, mascot pixel maps + static half-block/ASCII renderers, three empty panes with layout/breakpoints/modes/keymap + generated help, goldens at 120×40 and 80×24 | `bungkus-mcc` installs via install.sh, renders green at TrueColor and plain at 256, `?` shows generated help, `q` quits |
+| M1 Skeleton | crate, `rust-toolchain.toml`, lint set from the skill, CI (`fmt`, `clippy -D warnings`, `test`, `doc -D warnings`, `cargo deny check` with `deny.toml` targets = the four unix triples), release pipeline (native runners or `cargo-zigbuild`, `checksums.txt`, reused `install.sh`), `update` ported from bungkus-cli, `ui/theme.rs` implementing the token spec (painted + fallback sets, TrueColor gate, `background` config) with the token-table and contrast tests, mascot pixel maps + static half-block/ASCII renderers, three empty panes with layout/breakpoints/modes/keymap + generated help, goldens at 120×40 and 80×24 | `bungkus-mcc` installs via install.sh, renders green at TrueColor and plain at 256, `?` shows generated help, `q` quits |
 | M2 Workspace + projects | config/state files, first-run screen, workspace by CLI arg/config/text input, project list = child folders with `CLAUDE.md`/`AGENTS.md`/`.git`, sanitised names | pick a folder, see projects |
-| M3 Live pane | `term/session.rs` from the spike: PTY + `alacritty_terminal` advanced on the UI thread, reader/waiter threads, key encoder (`keys.rs` from the spike + **kitty CSI-u output toward the agent, ~80 lines**), full passthrough incl. `esc`/`tab`/arrows/ctrl, **spike findings**: OSC 10/11 replies from the painted theme colours, mouse forwarding when the agent enabled it, EIO on PTY writes after child exit ignored, CSI 14/18 t window-size replies, render on dirty flag/tick instead of a 16 ms timer; session-marker env scrub with test; cell allowlist + hostile corpus; wheel scrollback; resize-all; INTERACT-on-focus with configurable exit chord; `n` launches `claude`/`codex` with `--` and `--name`; `x` stops; quit confirm; tests: query replies, hostile streams, CJK/emoji width, `spikes/cases/` replayed green; decide Codex `--no-alt-screen`; JIS/German chord check; confirm interactive `claude`/`codex` accept `--` | a full Claude Code session runs inside mcc on kitty, Ghostty, tmux (+navigator), VS Code, including answering a permission prompt via passthrough; `compare.py` matches tmux on every case |
+| M3 Live pane | `term/session.rs` from the spike: PTY + `alacritty_terminal` advanced on the UI thread (flood cases re-timed interactively; pump-thread fallback if needed), reader (bounded) / **writer** (owns the PTY writer, unbounded channel) / waiter threads, key encoder (`keys.rs` from the spike + **kitty CSI-u output toward the agent, ~80 lines**, with `Config { kitty_keyboard: true }`), full passthrough incl. `esc`/`tab`/arrows/ctrl, **spike findings**: OSC 10/11 replies from the painted theme colours, mouse forwarding when the agent enabled it, EIO on PTY writes after child exit ignored, CSI 14 t reply (18 t is alacritty's), sync-update deadline + `stop_sync` (BSU-without-ESU test), child exit on reader EOF or 500 ms after `wait`, render on dirty flag/tick instead of a 16 ms timer; host OSC 11 query via `rustix::event::poll` before the input reader; session-marker env scrub with test; cell allowlist + hostile corpus; wheel scrollback; resize-all; INTERACT-on-focus with configurable exit chord; `n` launches `claude`/`codex` with `--` and `--name`; `x` stops; quit confirm; tests: query replies, hostile streams, CJK/emoji width, `spikes/cases/` replayed green; decide Codex `--no-alt-screen`; JIS/German chord check; confirm interactive `claude`/`codex` accept `--` | a full Claude Code session runs inside mcc on kitty, Ghostty, tmux (+navigator), VS Code, including answering a permission prompt via passthrough; `compare.py` matches tmux on every case |
 | M4 Structure + notifications (Claude) | `bungkus-mcc hook` (silent, trimmed, quoted path), socket server, Claude adapter via `--settings` (new + resume argv, unit-tested), decided state machine with `background_tasks`, subagent list, sidebar precedence, `!` across projects, session names (`--name`, `session_title`, verify `/rename` → `session_name`), `notify` bell/desktop/off + OSC 2 title push/pop | cards and sidebar update live during a real session with parallel subagents; bell rings on needs-you; card titles follow renames |
 | M5 Usage (Claude) | `bungkus-mcc statusline` wrapper (200 ms concurrent forward, then the user's status line under `sh` with buffered stdin; resolver with `CLAUDE_CONFIG_DIR`, recursion guard), `Usage` messages, compact card line, expanded selected card (sessions pane focused), getah-bar limits with thresholds and stale dimming; record a multi-turn session to settle `total_input_tokens` semantics and check which shell Claude uses | tokens/cost/ctx on every Claude card; limits in the bar on a subscription account; `-` on API-key accounts; the user's own status line still renders |
 | M6 Codex | verify `/hooks` trust persistence for `-c` injected hooks (delete or build `setup codex`), record real Codex SubagentStart/PreToolUse payloads, Codex adapter, resume rules, "hooks off" hints; **Codex usage reader** (`agent/codex_usage.rs`: canonicalised path under `CODEX_HOME`, `fstat` regular file, tail-only 256 KiB, `token_count` only, tolerant serde structs, fixtures) feeding cards and the `X` limits | Codex session with subagents shows structure and `312k tok · - · ctx 22%`; untrusted path degrades to output only; bad/missing rollout shows `-` |
@@ -199,10 +199,16 @@ is replaced by the Rust equivalents in ARCHITECTURE.md and CODING_RULES.md
 
     Rust costs more lines, build time and crates; it buys an order of
     magnitude on the one path that matters (an agent flooding the pane), a
-    quarter of the binary, and an emulator with real releases. Spike
-    findings carried into M3: OSC 10/11 replies from the theme, mouse
-    forwarding, ignore EIO after child exit, CSI 14/18 t replies, render
-    on dirty/tick, and the session-marker env leak (ARCHITECTURE.md §3.1).
+    quarter of the binary, and an emulator with real releases. The flood
+    numbers were measured **headless, with the emulator advanced on a pump
+    thread**; the design advances it on the UI thread, and M3 re-times the
+    flood cases interactively before committing to that placement
+    (ARCHITECTURE.md §4.1). Spike findings carried into M3: OSC 10/11
+    replies from the theme, mouse forwarding, ignore EIO after child exit,
+    CSI 14 t replies (18 t is already answered by alacritty), a dedicated
+    PTY writer thread, render on dirty/tick, sync-update timeout, the
+    child-exit rule, `kitty_keyboard: true`, and the session-marker env
+    leak (ARCHITECTURE.md §3.1).
 
 Closed earlier: `--settings` hooks merge with user hooks (verified); Codex
 hook injection per launch via `-c` (verified); the start prompt is optional
@@ -247,4 +253,5 @@ with the last agent preselected.
 | CJK ambiguous-width terminals shift columns | medium (JP team) | medium | ascii default glyphs; narrow unicode set; recorded stream test |
 | `ctrl-\` clashes (navigator, VS Code, JIS/German) | medium | low | configurable `interactExit`; documented alternates; tested keyboards |
 | Two mcc instances on one workspace | low | low | per-pid socket; `sessions.json` last-writer-wins; README note |
-| Team bandwidth: TUI + PTY + IPC + proc, in a second language | — | — | 15 crates, no daemon, no async, one contained transcript reader, the Rust skill + YAGNI rules; the spike's `session.rs`/`keys.rs`/`ui.rs` are the starting point |
+| Team bandwidth: TUI + PTY + IPC + proc, in a second language | — | — | 12 crates, no daemon, no async, one contained transcript reader, the Rust skill + YAGNI rules; the spike's `session.rs`/`keys.rs`/`ui.rs` are the starting point |
+| `Term` on the UI thread cannot keep up with a flood | low–medium | medium | M3 replays `spikes/cases/flood-*` interactively; fallback is the spike's pump-thread model (ARCHITECTURE.md §4.1) |

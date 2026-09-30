@@ -20,23 +20,23 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
 
 ## 1. Lints and formatting
 
-Put this in the workspace `Cargo.toml` and do not loosen it without a comment
-explaining why:
+Put this in `Cargo.toml` (single package, so `[lints]`, not `[workspace.lints]`)
+and do not loosen it without a stated reason:
 
 ```toml
-[workspace.lints.rust]
+[lints.rust]
 missing_docs = "deny"
-unsafe_code = "deny"            # allow per-module with a SAFETY comment when truly needed
+unsafe_code = "deny"
 unused_must_use = "deny"
 
-[workspace.lints.clippy]
+[lints.clippy]
 pedantic = { level = "warn", priority = -1 }
 unwrap_used = "deny"
-expect_used = "warn"            # allowed with a message that states the invariant
+expect_used = "deny"            # a justified expect carries #[expect(clippy::expect_used, reason = "…")]
 panic = "deny"
 todo = "deny"
 dbg_macro = "deny"
-print_stdout = "deny"           # the TUI owns stdout; use tracing
+print_stdout = "deny"           # the TUI owns stdout; use the debug log
 missing_errors_doc = "warn"
 missing_panics_doc = "warn"
 ```
@@ -45,8 +45,8 @@ missing_panics_doc = "warn"
   (stable options only; import grouping is kept by hand: std, external, crate).
 - `clippy.toml`: `allow-unwrap-in-tests = true`, `allow-expect-in-tests = true`,
   `allow-panic-in-tests = true`, so the `deny` lints above apply to shipped code only.
-- A targeted `#[allow(clippy::…)]` needs a `// reason:` comment on the line above it.
-  Never put a blanket `allow` on a module.
+- Silence a lint only on the item that needs it, with `#[expect(lint, reason = "…")]`
+  (it errors once the lint no longer fires). Never put a blanket `allow` on a module.
 
 ## 2. Doc comments (rustdoc, structured like JSDoc/Javadoc)
 
@@ -66,7 +66,8 @@ Shape of a doc comment:
    - `# Errors`: every error variant and when it happens. Required for any `Result`.
    - `# Panics`: required if the function can panic. Better still, make it not panic.
    - `# Safety`: required on every `unsafe fn`.
-   - `# Examples`: a doctest. Use `no_run` when it spawns processes or touches the terminal.
+   - `# Examples`: optional, fenced as ```` ```ignore ````. This is a binary crate, so
+     doctests don't run; behaviour is proven in unit tests.
 
 ```rust
 //! Agent sessions: one PTY, one emulator, one child process per session.
@@ -77,9 +78,9 @@ Shape of a doc comment:
 /// Spawns an agent CLI inside a new pseudo-terminal.
 ///
 /// The child gets the scrubbed environment from [`child_env`] and starts
-/// at `size`. A background thread pumps PTY output into the emulator so
-/// terminal queries (DSR, DA, OSC 10/11) are answered even while the UI
-/// is busy.
+/// at `size`. A reader thread forwards PTY output to the event loop, which
+/// feeds the emulator; a writer thread owns the PTY writer, so keys, paste
+/// and query replies never block the UI.
 ///
 /// # Arguments
 ///
@@ -99,10 +100,8 @@ Shape of a doc comment:
 ///
 /// # Examples
 ///
-/// ```no_run
-/// # use bungkus_mcc::session::{Session, Agent, Size};
-/// let session = Session::spawn(&Agent::claude(), "/work/kedai-web".as_ref(), Size::new(80, 24))?;
-/// # Ok::<(), bungkus_mcc::session::SpawnError>(())
+/// ```ignore
+/// let session = Session::spawn(&Agent::claude(), Path::new("/work/kedai-web"), Size::new(80, 24))?;
 /// ```
 pub fn spawn(agent: &Agent, cwd: &Path, size: Size) -> Result<Session, SpawnError> {
     // …
@@ -156,13 +155,14 @@ milestone or issue: `// TODO(M6): …`.
 - **Library modules** define error enums with `thiserror`: one enum per module boundary, with variants that say what failed. Keep the source with `#[source]` / `#[from]`.
 - **`anyhow` only in `main.rs`** and top-level command handlers. Always add `.context("what we were doing")`.
 - **No `unwrap()` outside tests.**
-  - `expect("invariant: …")` only where the invariant is local and obvious.
+  - `expect("invariant: …")` only where the invariant is local and obvious, under
+    `#[expect(clippy::expect_used, reason = "…")]`.
   - Parsing untrusted input (hook payloads, `ps` output, Codex logs, API responses) never panics. It returns an error or skips the record.
 - **Nothing ignored silently.** A deliberate ignore is `let _ = x; // reason: …`.
 
 ## 5. Concurrency and I/O
 
-- **One UI event loop owns all app state** (the Elm-style model); other threads send messages over channels (`std::sync::mpsc` or `crossbeam-channel`).
+- **One UI event loop owns all app state** (the Elm-style model); other threads send messages over `std::sync::mpsc` channels.
   - Reach for `Arc<Mutex<_>>` only when a channel is clearly worse, and document the lock order.
 - **Blocking I/O** (PTY reads, `ps`, file tails) runs on dedicated threads. Do not add an async runtime unless a milestone needs one.
 - **Processes** are spawned with an argument vector (`std::process::Command`), never through a shell. The documented hook-command exception lives in one function.
@@ -170,10 +170,10 @@ milestone or issue: `// TODO(M6): …`.
 
 ## 6. `unsafe`
 
-Denied by default. If a syscall truly needs it (e.g. pidfd, `setsid`), wrap it in one
-small function inside a module that allows `unsafe_code`, with a `// SAFETY:` comment
-directly above every `unsafe` block that says why each precondition holds.
-Prefer `rustix`/`nix` safe wrappers.
+Denied. Use `rustix` safe wrappers and std APIs (e.g. `CommandExt::process_group`,
+not `pre_exec`). Any exception follows SECURITY.md: one small module that allows
+`unsafe_code`, with a `// SAFETY:` comment above every `unsafe` block stating why
+each precondition holds.
 
 ## 7. Tests
 
@@ -186,8 +186,10 @@ Prefer `rustix`/`nix` safe wrappers.
 ## 8. Dependencies
 
 - **Before adding a crate,** check whether std or an existing dependency already covers it. Every new crate needs a line in `docs/TECH_STACK.md`: why it's there and what alternatives were rejected.
-- **Version pinning:** exact minor versions in `Cargo.toml`, and `Cargo.lock` is committed.
-- **Audit on every change:** `cargo deny check` (advisories, licences, bans) and `cargo audit` run in CI. This is the Rust equivalent of `govulncheck`, under the same remediation windows as SECURITY.md.
+- **Version pinning:** `Cargo.lock` is committed and pins everything; 0.x crates are
+  minor-pinned by their caret requirement.
+- **Audit on every change:** `cargo deny check` (advisories, licences, bans, sources) runs
+  in CI, under the remediation windows in SECURITY.md.
 
 ## 9. Review checklist
 
