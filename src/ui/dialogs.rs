@@ -242,3 +242,40 @@ pub(super) fn draw_forget(
     frame.render_widget(block, rect);
     frame.render_widget(Paragraph::new(lines), inner);
 }
+
+/// Draws the take-over dialog: what happens, and what the user must do
+/// in the other terminal (DESIGN §5.9).
+pub(super) fn draw_take_over(
+    frame: &mut Frame,
+    area: Rect,
+    ext: &crate::external::External,
+    theme: Theme,
+) {
+    let lines = vec![
+        Line::from(""),
+        Line::styled(
+            format!("  Take over {}?", truncate(&ext.name, 40)),
+            theme.fg(Token::Fg),
+        ),
+        Line::styled(
+            "  mc resumes it here (claude --resume) once it closes.",
+            theme.fg(Token::FgMuted),
+        ),
+        Line::styled(
+            format!("  Quit it in its own terminal (/exit) — pid {}.", ext.pid),
+            theme.fg(Token::FgMuted),
+        ),
+        Line::from(""),
+        Line::styled(
+            "waiting for it to close · esc cancel  ",
+            theme.fg(Token::FgMuted),
+        )
+        .alignment(Alignment::Right),
+    ];
+    let rect = centred(area, 60, 8);
+    frame.render_widget(Clear, rect);
+    let block = dialog_block("take over", theme);
+    let inner = block.inner(rect);
+    frame.render_widget(block, rect);
+    frame.render_widget(Paragraph::new(lines), inner);
+}

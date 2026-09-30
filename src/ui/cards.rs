@@ -74,19 +74,26 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
     let mut lines: Vec<Line> = cards.into_iter().skip(start).flatten().collect();
     if !external.is_empty() {
         lines.push(Line::styled(
-            " outside mc (read-only)",
+            " outside mc · enter to take over",
             theme.fg(Token::FgMuted),
         ));
-        for ext in external {
-            lines.extend(external_lines(ext, width, spin, theme));
+        for (pos, ext) in external.into_iter().enumerate() {
+            let selected = focused && pos + indices.len() == model.card;
+            lines.extend(external_lines(ext, selected, width, spin, theme));
         }
     }
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
-/// Returns a session running outside mc as two lines: glyph, agent badge,
-/// name and state word, then where it runs; it is never selectable.
-fn external_lines(ext: &External, width: usize, spin: char, theme: Theme) -> [Line<'static>; 2] {
+/// Returns a session running outside mc as two lines: marker, glyph,
+/// agent badge, name and state word, then where it runs.
+fn external_lines(
+    ext: &External,
+    selected: bool,
+    width: usize,
+    spin: char,
+    theme: Theme,
+) -> [Line<'static>; 2] {
     let state = ext.state();
     let (glyph, token, word) = glyph(&state, spin, theme.icons);
     let word = if ext.status.is_none() {
@@ -99,7 +106,14 @@ fn external_lines(ext: &External, width: usize, spin: char, theme: Theme) -> [Li
     let pad = width.saturating_sub(fixed + name.chars().count() + word.len());
     [
         Line::from(vec![
-            Span::raw("   "),
+            Span::styled(
+                if selected {
+                    format!("{}  ", theme.icons.icon(Icon::Marker))
+                } else {
+                    "   ".to_owned()
+                },
+                theme.fg(Token::Ok),
+            ),
             Span::styled(glyph.to_string(), theme.fg(token)),
             Span::raw(" "),
             Span::styled(ext.kind.badge().to_string(), theme.fg(Token::Accent)),

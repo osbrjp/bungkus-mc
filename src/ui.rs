@@ -237,6 +237,7 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
         Some(Overlay::Picker(p)) => dialogs::draw_picker(frame, area, p, theme),
         Some(Overlay::Stop(d)) => dialogs::draw_stop(frame, area, d, model, theme),
         Some(Overlay::Forget(id)) => dialogs::draw_forget(frame, area, *id, model, theme),
+        Some(Overlay::TakeOver(ext, _)) => dialogs::draw_take_over(frame, area, ext, theme),
         None => {}
     }
 }
@@ -912,7 +913,10 @@ pub(crate) mod tests {
             },
         ];
         let screen = render(&mut model, 120, 40);
-        assert!(screen.contains("outside mc (read-only)"), "{screen}");
+        assert!(
+            screen.contains("outside mc · enter to take over"),
+            "{screen}"
+        );
         assert!(screen.contains("from another tab"), "{screen}");
         assert!(screen.contains("pid 701"), "{screen}");
         assert!(

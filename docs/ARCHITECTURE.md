@@ -216,8 +216,15 @@ A thread lists them every 5 s (`src/external.rs`) and sends
   project, after mc's cards; its state feeds the projects-pane spinner and
   badge. Sessions mc started are left out by pid, tracked descendant pid,
   or session id.
-- Read-only by design: not selectable, no output, no INTERACT, never
-  signalled, never written to `sessions.json`, no transcript read.
+- Read-only while they run: no output, no INTERACT, never signalled,
+  never written to `sessions.json`, no transcript read.
+- **Take over** (`src/app/takeover.rs`): `enter` on a Claude row (its cwd
+  must be the project folder and its session id a UUID) opens a dialog
+  that waits for the user to quit it in its own terminal. mc checks the
+  pid every 300 ms with signal 0 (`test_kill_process`; nothing is
+  delivered) and, once it is gone, launches `claude --resume <id>` in the
+  project like `r` does, so it becomes an ordinary card. Codex rows are
+  refused: nothing tells mc which Codex session a process is.
 
 ## 4. Data flow
 

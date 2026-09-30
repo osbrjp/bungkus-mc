@@ -72,6 +72,9 @@ pub(crate) enum Overlay {
     Stop(StopDialog),
     /// "Forget this session?"
     Forget(SessionId),
+    /// Waiting for an outside session (since the instant) to close so mc
+    /// can resume it.
+    TakeOver(External, Instant),
 }
 
 /// A session the loop must start.
@@ -301,6 +304,24 @@ impl Model {
             .collect()
     }
 
+    /// Returns the selected outside session: the selection runs past the
+    /// project's cards into the outside sessions listed below them.
+    #[must_use]
+    pub(crate) fn selected_external(&self) -> Option<&External> {
+        let project = self.selected_project()?;
+        let index = self.card.checked_sub(self.project_cards().len())?;
+        self.external_in(&project.path).get(index).copied()
+    }
+
+    /// Returns how many rows the sessions pane can select: the project's
+    /// cards, then its outside sessions.
+    fn session_rows(&self) -> usize {
+        let outside = self
+            .selected_project()
+            .map_or(0, |p| self.external_in(&p.path).len());
+        self.project_cards().len() + outside
+    }
+
     /// Returns the index of the selected card, if the project has any.
     #[must_use]
     pub(crate) fn selected_card(&self) -> Option<usize> {
@@ -356,7 +377,9 @@ impl Model {
             .next_scan
             .filter(|_| self.cards.iter().any(Card::running));
         let plans = self.plan_deadline();
+        let takeover = self.take_over_deadline();
         syncs
+            .chain(takeover)
             .chain(stops)
             .chain(silent)
             .chain(tick)
@@ -400,6 +423,9 @@ impl Model {
         match event {
             AppEvent::Tick => {
                 self.frame = self.frame.wrapping_add(1);
+                if let Some(cmd) = self.take_over_due() {
+                    return Some(cmd);
+                }
                 self.enforce_stops();
                 if let Some(cmd) = self.plan_kill_due() {
                     return Some(cmd);
@@ -415,7 +441,10 @@ impl Model {
                 }
             }
             AppEvent::Procs(snapshot) => self.track(&snapshot),
-            AppEvent::External(list) => self.external = list,
+            AppEvent::External(list) => {
+                self.external = list;
+                self.card = self.card.min(self.session_rows().saturating_sub(1));
+            }
             AppEvent::HostGone => return self.host_gone(),
             AppEvent::UpdateAvailable(tag) => {
                 self.message = Some(format!("bungkus-mc {tag} is out — bungkus-mc update"));
@@ -635,6 +664,12 @@ impl Model {
                 picker::Outcome::Start => self.launch(&p),
             },
             Overlay::Stop(dialog) => self.stop_key(dialog, key),
+            Overlay::TakeOver(ext, since) => {
+                if key.code != KeyCode::Esc {
+                    self.overlay = Some(Overlay::TakeOver(ext, since));
+                }
+                None
+            }
             Overlay::Forget(id) => {
                 if key.code == KeyCode::Char('y') {
                     self.cards.retain(|c| c.id != id);
@@ -796,7 +831,7 @@ impl Model {
                     self.card = 0;
                 }
                 Focus::Sessions | Focus::Output => {
-                    self.card = Self::step(self.card, delta, self.project_cards().len());
+                    self.card = Self::step(self.card, delta, self.session_rows());
                 }
             }
             return None;
@@ -808,7 +843,12 @@ impl Model {
                     Focus::Output => Focus::Sessions,
                 };
             }
-            Action::NextPane if self.focus == Focus::Sessions => self.interact(),
+            Action::NextPane | Action::Interact if self.focus == Focus::Sessions => {
+                if let Some(ext) = self.selected_external().cloned() {
+                    return self.take_over(ext);
+                }
+                self.interact();
+            }
             Action::Interact => self.interact(),
             Action::NextPane | Action::OpenProject => self.focus = Focus::Sessions,
             Action::Filter => {
