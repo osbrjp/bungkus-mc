@@ -35,6 +35,10 @@ pub(crate) struct Config {
     pub notify: Notify,
     /// Process cleanup settings.
     pub cleanup: Cleanup,
+    /// State glyph set.
+    pub icons: crate::ui::icons::IconSet,
+    /// Whether spinners and the mascot move.
+    pub motion: bool,
 }
 
 /// The `cleanup` config block.
@@ -70,6 +74,8 @@ impl Default for Config {
             mouse: true,
             notify: Notify::default(),
             cleanup: Cleanup::default(),
+            icons: crate::ui::icons::IconSet::default(),
+            motion: true,
         }
     }
 }

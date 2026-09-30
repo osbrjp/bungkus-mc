@@ -1,0 +1,41 @@
+ bungkus-mc  ~/Works/OSBR › kedai-web                                                                            v0.1.0
++ projects ----------+# sessions · kedai-web ==============#+ output · C #a3f1 · checkout redesign --------------------+
+|▌  kedai-web        ||▸ ✓ C #a3f1 checkout redesi… wrapped||                                                          |
+|   pasar-mobile     ||    0m · 0 tools · 0 subagents      ||                                                          |
+|   roti-docs        ||    tokens   in - · out -           ||                                                          |
+|   teh-cli          ||    cache    read - · write -       ||                                                          |
+|   warung-api       ||    cost     -                      ||                                                          |
+|                    ||    context  -                      ||                                                          |
+|                    ||                                    ||                                                          |
+|                    ||                                    ||                                                          |
+|                    ||                                    ||                                                          |
+|                    ||                                    ||                                                          |
+|                    ||                                    ||                                                          |
+|                    ||                                    ||                                                          |
+|                    ||                                    ||                                                          |
+|                    ||                                    ||                                                          |
+|                    ||                                    ||                                                          |
+|                    ||                                    ||                                                          |
+|                    ||                                    ||                                                          |
+|                    ||                                    ||                                                          |
+|                    ||                                    ||                   Warming up the wok…                    |
+|                    ||                                    ||                                                          |
+|                    ||                                    ||                                                          |
+|                    ||                                    ||                                                          |
+|                    ||                                    ||                                                          |
+|                    ||                                    ||                                                          |
+|                    ||                                    ||                                                          |
+|                    ||                                    ||                                                          |
+|                    ||                                    ||                                                          |
+|                    ||                                    ||                                                          |
+|                    ||                                    ||                                                          |
+|                    ||                                    ||                                                          |
+|                    ||                                    ||                                                          |
+|                    ||                                    ||                                                          |
+|                    ||                                    ||                                                          |
+|                    ||                                    ||                                                          |
+|                    ||                                    ||                                                          |
+|                    ||                                    ||                                                          |
++--------------------+#====================================#+----------------------------------------------------------+
+ NORMAL  enter → agent (ctrl-\ back) · n new · x stop · j/k · ! next · ? help
+cursor: hidden

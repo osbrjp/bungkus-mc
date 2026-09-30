@@ -37,6 +37,9 @@ const MINI: [&str; 6] = [
     "...GG...", "..GGGG..", ".GEGGEG.", "TTTGGUUU", "..L..L..", "........",
 ];
 
+/// The 4-line ASCII form for locales without half-blocks (DESIGN §5.7).
+const ASCII: [&str; 4] = ["    /\\", "   /oo\\", "  /_/\\_\\", "   _| _|"];
+
 /// Width of the full sprite in cells.
 pub(crate) const WIDTH: u16 = 16;
 /// Height of the full sprite in cells (two pixel rows per cell).
@@ -82,6 +85,8 @@ pub(crate) enum Mood {
     Failed,
     /// Nothing to react to.
     Idle,
+    /// The output pane's empty state (DESIGN §5.7 item 1).
+    Empty,
 }
 
 impl Mood {
@@ -94,6 +99,10 @@ impl Mood {
             Self::NeedsYou => &[Duck, Hop, Duck, Idle, LookL, LookL, LookL, Idle],
             Self::Working => &[StepL, Idle, StepR, Idle, StepL, Idle, StepR, LookR],
             Self::YourTurn => &[Idle, LookL, LookL, Idle, LookR, LookR, Idle, Blink],
+            Self::Empty => &[
+                Idle, Idle, LookL, LookL, Idle, LookR, LookR, Idle, Blink, Idle, Duck, Hop, Duck,
+                Idle,
+            ],
             Self::Failed => return Pose::Died,
             Self::Idle => return Pose::Idle,
         };
@@ -249,6 +258,23 @@ impl Mascot {
 
 impl Widget for Mascot {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        if !self.theme.utf8 {
+            let eyes = if self.pose == Pose::Died { "xx" } else { "oo" };
+            for (row, text) in ASCII.iter().enumerate() {
+                let line = text.replace("oo", eyes);
+                let y = area.y + u16::try_from(row).unwrap_or(u16::MAX);
+                if y < area.bottom() {
+                    buf.set_stringn(
+                        area.x,
+                        y,
+                        &line,
+                        usize::from(area.width),
+                        self.theme.fg(crate::ui::theme::Token::Ok),
+                    );
+                }
+            }
+            return;
+        }
         let rows = pixels(self.pose, self.mini);
         for (row, pair) in rows.chunks(2).enumerate() {
             let y = area.y + u16::try_from(row).unwrap_or(u16::MAX);
@@ -439,5 +465,25 @@ mod tests {
             Color::Rgb(0x0b, 0x12, 0x0d),
             "light legs token"
         );
+    }
+
+    #[test]
+    fn a_non_utf8_locale_gets_the_ascii_form() {
+        let theme = Theme::new(ThemeName::Dark, Profile::NoColor, Background::Paint).with_view(
+            crate::ui::icons::IconSet::Ascii,
+            false,
+            true,
+        );
+        let mut buf = Buffer::empty(Rect::new(0, 0, WIDTH, HEIGHT));
+        Mascot {
+            theme,
+            pose: Pose::Died,
+            mini: false,
+        }
+        .render(buf.area, &mut buf);
+        let row = |y| (0..8).map(|x| buf[(x, y)].symbol()).collect::<String>();
+        assert_eq!(row(0), "    /\\  ");
+        assert_eq!(row(1), "   /xx\\ ");
+        assert!(buf.content().iter().all(|c| c.symbol().is_ascii()));
     }
 }

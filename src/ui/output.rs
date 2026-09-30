@@ -8,7 +8,7 @@ use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Flex, Layout, Rect};
 use ratatui::style::Color;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Paragraph};
+use ratatui::widgets::Paragraph;
 
 use crate::app::model::{Focus, Model};
 use crate::app::sessions::{Card, State};
@@ -21,7 +21,7 @@ use crate::ui::theme::{Theme, Token, bg, rgb, spec};
 /// Draws the output pane.
 pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
     let Some(card) = model.selected_card().map(|i| &model.cards[i]) else {
-        draw_empty(frame, area, theme);
+        draw_empty(frame, area, theme, model.frame);
         return;
     };
     let interact = model.focus == Focus::Output;
@@ -36,8 +36,7 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
     let title = format!("{head}{}{tail}", truncate(&card.name, room));
     let title_width = title.chars().count() + 4;
     let block = if interact {
-        Block::bordered()
-            .border_type(BorderType::Double)
+        super::bordered(super::Weight::Double, theme)
             .border_style(theme.fg(Token::Warn))
             .title(Span::styled(format!(" {title} "), theme.fg(Token::Warn)))
     } else {
@@ -149,7 +148,7 @@ fn draw_message(frame: &mut Frame, inner: Rect, card: &Card, theme: Theme) {
 
 /// Draws the empty state: the mascot and two lines, centred (DESIGN
 /// §5.7); the mascot is left out when the pane is too short.
-fn draw_empty(frame: &mut Frame, area: Rect, theme: Theme) {
+fn draw_empty(frame: &mut Frame, area: Rect, theme: Theme, tick: usize) {
     let block = pane("output", false, theme);
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -162,7 +161,15 @@ fn draw_empty(frame: &mut Frame, area: Rect, theme: Theme) {
         let [sprite] = Layout::horizontal([Constraint::Length(mascot::WIDTH)])
             .flex(Flex::Center)
             .areas(content);
-        frame.render_widget(Mascot::idle(theme), sprite);
+        let pose = Mood::Empty.pose(tick, theme.animated());
+        frame.render_widget(
+            Mascot {
+                theme,
+                pose,
+                mini: false,
+            },
+            sprite,
+        );
         Rect {
             y: content.y + mascot::HEIGHT + 1,
             height: 2,

@@ -279,15 +279,18 @@ impl Model {
         [self.found[0].is_some(), self.found[1].is_some()]
     }
 
-    /// Returns whether anything on screen animates (a working card of the
-    /// selected project), so the 350 ms tick must run.
+    /// Returns whether anything on screen animates (a running card of the
+    /// selected project, or the empty-state mascot), so the 350 ms tick
+    /// must run.
     #[must_use]
     pub(crate) fn animating(&self) -> bool {
-        !self.theme.no_color()
-            && self
-                .project_cards()
-                .iter()
-                .any(|&i| self.cards[i].running())
+        let empty_output = self.selected_card().is_none();
+        self.theme.animated()
+            && (empty_output
+                || self
+                    .project_cards()
+                    .iter()
+                    .any(|&i| self.cards[i].running()))
     }
 
     /// Returns when the loop must wake without input: a synchronized update

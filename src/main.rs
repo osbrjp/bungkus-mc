@@ -21,6 +21,7 @@ use anyhow::{Context, Result, bail};
 use crate::agent::{Kind, find_on_path};
 use crate::app::model::Model;
 use crate::store::config::{self, Config, Settings, tilde};
+use crate::ui::icons::IconSet;
 use crate::ui::theme::{Profile, Theme, ThemeName};
 
 /// Usage text printed by `--help`.
@@ -35,6 +36,7 @@ Usage: bungkus-mc [options] [WORKSPACE]
                    (default: the workspace in config.json; first run asks)
 
 Options:
+  --icons SET      state glyphs: ascii (default), unicode, nerd
   -h, --help       print this help
   -V, --version    print the version
 
@@ -46,7 +48,7 @@ Config: ~/.config/bungkus/mc/config.json
 #[derive(Debug, PartialEq, Eq)]
 enum Command {
     /// Run the TUI, optionally on a workspace given on the command line.
-    Tui(Option<String>),
+    Tui(Option<String>, Option<IconSet>),
     /// Print [`HELP`].
     Help,
     /// Print the version.
@@ -72,6 +74,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, lexopt:
 
     let mut parser = lexopt::Parser::from_args(args);
     let mut workspace = None;
+    let mut icons = None;
     while let Some(arg) = parser.next()? {
         match arg {
             Short('h') | Long("help") => return Ok(Command::Help),
@@ -80,11 +83,24 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, lexopt:
             Value(value) if workspace.is_none() && value == "statusline" => {
                 return Ok(Command::StatusLine);
             }
+            Long("icons") => {
+                let value = parser.value()?.string()?;
+                icons = Some(match value.as_str() {
+                    "ascii" => IconSet::Ascii,
+                    "unicode" => IconSet::Unicode,
+                    "nerd" => IconSet::Nerd,
+                    _ => {
+                        return Err(lexopt::Error::from(format!(
+                            "--icons: {value}? (ascii, unicode, nerd)"
+                        )));
+                    }
+                });
+            }
             Value(value) if workspace.is_none() => workspace = Some(value.string()?),
             _ => return Err(arg.unexpected()),
         }
     }
-    Ok(Command::Tui(workspace))
+    Ok(Command::Tui(workspace, icons))
 }
 
 /// Parses the command line and runs the chosen command.
@@ -96,7 +112,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, lexopt:
 fn main() -> Result<()> {
     let command = parse_args(std::env::args().skip(1)).context("reading arguments")?;
     let mut stdout = std::io::stdout();
-    let workspace_arg = match command {
+    let (workspace_arg, icons_arg) = match command {
         Command::Help => return stdout.write_all(HELP.as_bytes()).context("printing help"),
         Command::Version => {
             return writeln!(stdout, "bungkus-mc {}", env!("CARGO_PKG_VERSION"))
@@ -107,7 +123,7 @@ fn main() -> Result<()> {
             return Ok(());
         }
         Command::StatusLine => std::process::exit(ipc::statusline::run()),
-        Command::Tui(workspace) => workspace,
+        Command::Tui(workspace, icons) => (workspace, icons),
     };
     if !stdout.is_terminal() {
         bail!("bungkus-mc needs a terminal on stdout");
@@ -126,7 +142,12 @@ fn main() -> Result<()> {
         .map(|kind| find_on_path(kind.command(), &path_var).map(|p| tilde(&p, home.as_deref())));
     let git_parent = app::form::git_parent(&cwd);
     let fallback = git_parent.clone().unwrap_or_else(|| cwd.clone());
-    let theme = Theme::new(ThemeName::Dark, Profile::detect(var), config.background);
+    let icons = icons_arg.unwrap_or(config.icons);
+    let theme = Theme::new(ThemeName::Dark, Profile::detect(var), config.background).with_view(
+        icons,
+        utf8_locale(var),
+        config.motion,
+    );
     let mut model = Model::new(theme, home.clone(), found, fallback);
     model.message = message;
     model.keep.clone_from(&config.cleanup.keep);
@@ -181,6 +202,21 @@ fn main() -> Result<()> {
     app::run(model, &env).context("running the TUI")
 }
 
+/// Returns whether the locale is UTF-8 (DESIGN §3): the first set of
+/// `LC_ALL`, `LC_CTYPE`, `LANG` names UTF-8, and `TERM` is not `linux` or
+/// `dumb`.
+fn utf8_locale(var: impl Fn(&str) -> Option<String>) -> bool {
+    let term = var("TERM").unwrap_or_default();
+    let locale = ["LC_ALL", "LC_CTYPE", "LANG"]
+        .iter()
+        .find_map(|n| var(n).filter(|v| !v.is_empty()));
+    let utf8 = locale.is_some_and(|l| {
+        let l = l.to_ascii_lowercase();
+        l.contains("utf-8") || l.contains("utf8")
+    });
+    utf8 && term != "linux" && term != "dumb"
+}
+
 /// Applies the config's settings on `workspace` and scans it.
 fn apply(model: &mut Model, config: &Config, workspace: PathBuf, cwd: &Path) {
     let scan = workspace::scan(&workspace);
@@ -199,12 +235,16 @@ mod tests {
     #[test]
     fn parses_each_flag_to_its_command() {
         let cases: &[(&[&str], Command)] = &[
-            (&[], Command::Tui(None)),
-            (&["~/Works"], Command::Tui(Some("~/Works".into()))),
+            (&[], Command::Tui(None, None)),
+            (&["~/Works"], Command::Tui(Some("~/Works".into()), None)),
             (&["-h"], Command::Help),
             (&["--help"], Command::Help),
             (&["-V"], Command::Version),
             (&["hook"], Command::Hook),
+            (
+                &["--icons", "unicode"],
+                Command::Tui(None, Some(IconSet::Unicode)),
+            ),
             (&["statusline"], Command::StatusLine),
             (&["--version"], Command::Version),
         ];
@@ -216,11 +256,34 @@ mod tests {
 
     #[test]
     fn rejects_unknown_arguments() {
-        for args in [&["--nope"][..], &["-x"], &["a", "b"]] {
+        for args in [&["--nope"][..], &["-x"], &["a", "b"], &["--icons", "emoji"]] {
             assert!(
                 parse_args(args.iter().map(ToString::to_string)).is_err(),
                 "{args:?}"
             );
         }
+    }
+
+    #[test]
+    fn detects_a_utf8_locale() {
+        let env = |pairs: &'static [(&str, &str)]| {
+            move |n: &str| {
+                pairs
+                    .iter()
+                    .find(|(k, _)| *k == n)
+                    .map(|(_, v)| (*v).to_owned())
+            }
+        };
+        assert!(utf8_locale(env(&[("LANG", "en_US.UTF-8")])));
+        assert!(utf8_locale(env(&[("LC_ALL", "ja_JP.utf8"), ("LANG", "C")])));
+        assert!(
+            !utf8_locale(env(&[("LC_ALL", "C"), ("LANG", "en_US.UTF-8")])),
+            "LC_ALL wins"
+        );
+        assert!(!utf8_locale(env(&[
+            ("LANG", "en_US.UTF-8"),
+            ("TERM", "linux")
+        ])));
+        assert!(!utf8_locale(env(&[])));
     }
 }
