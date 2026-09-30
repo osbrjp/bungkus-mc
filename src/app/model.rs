@@ -946,6 +946,7 @@ pub(crate) mod tests {
         let projects = names
             .iter()
             .map(|n| Project {
+                worktree_of: None,
                 name: (*n).into(),
                 path: workspace.join(n),
             })
