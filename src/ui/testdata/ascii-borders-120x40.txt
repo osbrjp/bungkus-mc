@@ -1,11 +1,11 @@
  bungkus-mc  ~/Works/OSBR › kedai-web                                                                            v0.1.0
 + projects ----------+# sessions · kedai-web ==============#+ output · C #a3f1 · checkout redesign --------------------+
-|▌  kedai-web        ||▸ ✓ C #a3f1 checkout redesi… wrapped||                                                          |
-|   pasar-mobile     ||    0m · 0 tools · 0 subagents      ||                                                          |
-|   roti-docs        ||    tokens   in - · out -           ||                                                          |
-|   teh-cli          ||    cache    read - · write -       ||                                                          |
-|   warung-api       ||    cost     -                      ||                                                          |
-|                    ||    context  -                      ||                                                          |
+| / search           ||▸ ✓ C #a3f1 checkout redesi… wrapped||                                                          |
+|▌  1 kedai-web      ||    0m · 0 tools · 0 subagents      ||                                                          |
+|   2 pasar-mobile   ||    tokens   in - · out -           ||                                                          |
+|   3 roti-docs      ||    cache    read - · write -       ||                                                          |
+|   4 teh-cli        ||    cost     -                      ||                                                          |
+|   5 warung-api     ||    context  -                      ||                                                          |
 |                    ||                                    ||                                                          |
 |                    ||                                    ||                                                          |
 |                    ||                                    ||                                                          |

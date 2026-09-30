@@ -1,11 +1,11 @@
  bungkus-mc  kedai-web › projects                                        v0.1.0
 ┏ projects ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃>  kedai-web                                                                  ┃
-┃   pasar-mobile                                                               ┃
-┃   roti-docs                                                                  ┃
-┃   teh-cli                                                                    ┃
-┃   warung-api                                                                 ┃
-┃            ╔ new session · kedai-web ═══════════════════════════╗            ┃
+┃ / search                                                                     ┃
+┃>  1 kedai-web                                                                ┃
+┃   2 pasar-mobile                                                             ┃
+┃   3 roti-docs                                                                ┃
+┃   4 teh-cli                                                                  ┃
+┃   5 warung-╔ new session · kedai-web ═══════════════════════════╗            ┃
 ┃            ║                                                    ║            ┃
 ┃            ║  agent   > claude    codex (not on PATH)           ║            ┃
 ┃            ║  model   > default    haiku    sonnet    opus      ║            ┃

@@ -37,8 +37,11 @@ pub(crate) enum Action {
     HalfDown,
     /// Move up half a page.
     HalfUp,
-    /// Start filtering the focused list.
+    /// Search the projects (FILTER mode).
     Filter,
+    /// Jump to a project by its number (digits; two when there are more
+    /// than nine projects).
+    Jump,
     /// Open the settings screen on the workspace field.
     Workspace,
     /// Open the settings screen.
@@ -262,7 +265,26 @@ pub(crate) const BINDINGS: &[Binding] = &[
         keys: &[c('/')],
         label: "/",
         action: Action::Filter,
-        help: "filter",
+        help: "search projects",
+        hint: None,
+        scope: Scope::Global,
+    },
+    Binding {
+        keys: &[
+            c('1'),
+            c('2'),
+            c('3'),
+            c('4'),
+            c('5'),
+            c('6'),
+            c('7'),
+            c('8'),
+            c('9'),
+            c('0'),
+        ],
+        label: "1-9",
+        action: Action::Jump,
+        help: "jump to project",
         hint: None,
         scope: Scope::Global,
     },

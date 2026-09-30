@@ -166,7 +166,7 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
         Constraint::Length(1),
     ])
     .areas(area);
-    model.list_rows = usize::from(area.height.saturating_sub(4));
+    model.list_rows = usize::from(area.height.saturating_sub(5));
     let layout = panes(area, model.focus, model.zoom);
     draw_header(
         frame,
@@ -269,8 +269,12 @@ fn workspace_label(model: &Model) -> String {
         .map_or_else(String::new, |s| tilde(&s.workspace, model.home.as_deref()))
 }
 
-/// Draws the projects pane: `<marker><spinner> <name>` … `<badge>` per
-/// row (DESIGN §5.3).
+/// Draws the projects pane: the search row, then
+/// `<marker><spinner> <number> <name>` … `<badge>` per row (DESIGN §5.3).
+///
+/// The number is the project's position in the (searched) list, the one
+/// digits jump to. The search row reads `/ search` until `/` is pressed,
+/// then shows the typed text with the cursor after it.
 ///
 /// The marker is `>` on the selected row while the pane is focused and
 /// `:` (the ascii form of `▌`) while it is not. The spinner column turns
@@ -278,20 +282,19 @@ fn workspace_label(model: &Model) -> String {
 /// state, failed > needs you > your turn, with its count.
 fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
     let focused = model.focus == Focus::Projects;
-    let title = if model.filtering || !model.filter.is_empty() {
-        format!("projects /{}", model.filter)
-    } else {
-        "projects".to_owned()
-    };
-    let block = pane(&title, focused, theme);
+    let block = pane("projects", focused, theme);
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    let [search, inner] =
+        Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(inner);
+    draw_search(frame, search, model, theme);
+    let visible = model.visible();
+    let digits = visible.len().max(1).to_string().len();
     let rows = usize::from(inner.height);
-    let width = usize::from(inner.width).saturating_sub(3);
+    let width = usize::from(inner.width).saturating_sub(4 + digits);
     let offset = (model.selected + 1).saturating_sub(rows);
     let spin = cards::spinner(model.frame, theme);
-    let lines: Vec<Line> = model
-        .visible()
+    let lines: Vec<Line> = visible
         .iter()
         .enumerate()
         .skip(offset)
@@ -335,6 +338,7 @@ fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
                 Span::styled(marker.to_string(), theme.fg(Token::Ok)),
                 Span::styled(spinner.to_string(), theme.fg(Token::Ok)),
                 Span::raw(" "),
+                Span::styled(format!("{:>digits$} ", i + 1), theme.fg(Token::FgMuted)),
                 Span::styled(text, name),
                 Span::raw(" ".repeat(pad)),
                 Span::styled(badge_text, theme.fg(badge_token)),
@@ -342,6 +346,38 @@ fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
         })
         .collect();
     frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// Draws the projects search row (FILTER mode puts the cursor after the
+/// text).
+fn draw_search(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
+    let room = usize::from(area.width).saturating_sub(3);
+    let line = if model.filtering || !model.filter.is_empty() {
+        let token = if model.filtering {
+            Token::Accent
+        } else {
+            Token::Fg
+        };
+        let text = truncate_start(&model.filter, room);
+        let cursor = u16::try_from(text.chars().count()).unwrap_or(0);
+        if model.filtering {
+            frame.set_cursor_position((area.x + 3 + cursor, area.y));
+        }
+        Line::from(vec![
+            Span::styled(" / ", theme.fg(token)),
+            Span::styled(text, theme.fg(Token::Fg)),
+        ])
+    } else {
+        Line::styled(" / search", theme.fg(Token::FgMuted))
+    };
+    frame.render_widget(line, area);
+}
+
+/// Returns the last `max` characters of `s`, so the end of a long search
+/// stays visible.
+fn truncate_start(s: &str, max: usize) -> String {
+    let n = s.chars().count();
+    s.chars().skip(n.saturating_sub(max)).collect()
 }
 
 /// Draws the last line: the mode word as a badge, then the focused pane's
@@ -366,7 +402,9 @@ fn draw_getah(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
             model.exit_chord.label()
         )
     } else if model.filtering {
-        "type to filter · enter keep · esc clear".to_owned()
+        "type to search · ↑↓ pick · enter open · esc clear".to_owned()
+    } else if let Some((n, _)) = model.jump {
+        format!("{n}… second digit, or wait")
     } else if let Some(ch) = model.pending {
         format!("{ch}…")
     } else {
@@ -759,7 +797,8 @@ pub(crate) mod tests {
         key(&mut model, KeyCode::Char('/'));
         key(&mut model, KeyCode::Char('t'));
         let screen = render(&mut model, 120, 40);
-        assert!(screen.contains("projects /t"), "{screen}");
+        assert!(screen.contains("┃ / t"), "{screen}");
+        assert!(screen.contains("cursor: 5,2"), "{screen}");
         assert!(screen.contains("FILTER"), "{screen}");
         assert!(!screen.contains("pasar-mobile"), "{screen}");
     }

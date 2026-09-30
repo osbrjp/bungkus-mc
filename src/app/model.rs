@@ -33,6 +33,10 @@ use crate::workspace::Project;
 /// (ARCHITECTURE §3.3).
 const SCAN_EVERY: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// How long a first digit waits for a second one when the workspace has
+/// more than nine projects (DESIGN §8).
+pub(crate) const JUMP_WAIT: std::time::Duration = std::time::Duration::from_secs(1);
+
 /// Which pane has focus. The output pane's focus is INTERACT (DESIGN §8).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Focus {
@@ -144,6 +148,9 @@ pub(crate) struct Model {
     pub filtering: bool,
     /// First key of a pending double press.
     pub pending: Option<char>,
+    /// A first project-number digit waiting for a second one, and when it
+    /// was typed.
+    pub jump: Option<(usize, Instant)>,
     /// Help, a form, the picker or a confirm on top of the panes.
     pub overlay: Option<Overlay>,
     /// One-line message shown in place of the key hints until the next key.
@@ -212,6 +219,7 @@ impl Model {
             filter: String::new(),
             filtering: false,
             pending: None,
+            jump: None,
             overlay: None,
             message: None,
             found,
@@ -341,7 +349,9 @@ impl Model {
             .next_scan
             .filter(|_| self.cards.iter().any(Card::running));
         let plans = self.plan_deadline();
+        let jump = self.jump.map(|(_, at)| at + JUMP_WAIT);
         syncs
+            .chain(jump)
             .chain(stops)
             .chain(silent)
             .chain(tick)
@@ -385,6 +395,12 @@ impl Model {
         match event {
             AppEvent::Tick => {
                 self.frame = self.frame.wrapping_add(1);
+                if let Some((n, at)) = self.jump
+                    && self.now >= at + JUMP_WAIT
+                {
+                    self.jump = None;
+                    self.jump_to(n);
+                }
                 self.enforce_stops();
                 if let Some(cmd) = self.plan_kill_due() {
                     return Some(cmd);
@@ -557,13 +573,53 @@ impl Model {
             self.filter_key(key);
             return None;
         }
-        match keymap::lookup(self.focus.scope(), key, self.pending.take()) {
+        let lookup = keymap::lookup(self.focus.scope(), key, self.pending.take());
+        let digit = match (lookup, key.code) {
+            (Lookup::Action(Action::Jump), KeyCode::Char(ch)) => ch.to_digit(10),
+            _ => None,
+        };
+        if let Some((first, _)) = self.jump.take() {
+            if let Some(d) = digit {
+                self.jump_to(first * 10 + d as usize);
+                return None;
+            }
+            self.jump_to(first);
+        }
+        match lookup {
             Lookup::Pending(ch) => {
                 self.pending = Some(ch);
                 None
             }
             Lookup::Unbound => None,
+            Lookup::Action(Action::Jump) => {
+                if let Some(d) = digit {
+                    self.jump_digit(d as usize);
+                }
+                None
+            }
             Lookup::Action(action) => self.act(action),
+        }
+    }
+
+    /// Handles a first project-number digit: with more than nine projects
+    /// it waits [`JUMP_WAIT`] for a second digit, unless no two-digit
+    /// number starts with it; otherwise it jumps at once.
+    fn jump_digit(&mut self, d: usize) {
+        let len = self.visible().len();
+        if len > 9 && d * 10 <= len {
+            self.jump = Some((d, self.now));
+        } else {
+            self.jump_to(d);
+        }
+    }
+
+    /// Selects visible project number `n` (1-based), or says there is none.
+    fn jump_to(&mut self, n: usize) {
+        if (1..=self.visible().len()).contains(&n) {
+            self.selected = n - 1;
+            self.card = 0;
+        } else {
+            self.message = Some(format!("No project {n}."));
         }
     }
 
@@ -690,11 +746,24 @@ impl Model {
         }
     }
 
-    /// Applies a FILTER-mode key: typing edits the filter, `enter` keeps
-    /// it, `esc` clears it.
+    /// Applies a FILTER-mode key: typing edits the search, `↑`/`↓` move
+    /// through the matches, `enter` keeps the search and opens the
+    /// highlighted project's sessions, `esc` clears it.
     fn filter_key(&mut self, key: KeyEvent) {
         match key.code {
-            KeyCode::Enter => self.filtering = false,
+            KeyCode::Enter => {
+                self.filtering = false;
+                if self.selected_project().is_some() {
+                    self.focus = Focus::Sessions;
+                }
+                return;
+            }
+            KeyCode::Up | KeyCode::Down => {
+                let delta = if key.code == KeyCode::Up { -1 } else { 1 };
+                self.selected = Self::step(self.selected, delta, self.visible().len());
+                self.card = 0;
+                return;
+            }
             KeyCode::Esc => {
                 self.filtering = false;
                 self.filter.clear();
@@ -752,7 +821,8 @@ impl Model {
             Action::NextPane if self.focus == Focus::Sessions => self.interact(),
             Action::Interact => self.interact(),
             Action::NextPane | Action::OpenProject => self.focus = Focus::Sessions,
-            Action::Filter if self.focus == Focus::Projects => {
+            Action::Filter => {
+                self.focus = Focus::Projects;
                 self.filtering = true;
                 self.filter.clear();
                 self.selected = 0;
@@ -790,7 +860,7 @@ impl Model {
             Action::Help => self.overlay = Some(Overlay::Help),
             Action::Redraw => return Some(Cmd::Redraw),
             Action::Quit => return Some(self.request_quit()),
-            Action::Filter
+            Action::Jump
             | Action::NewSession
             | Action::Down
             | Action::Up
@@ -924,6 +994,45 @@ pub(crate) mod tests {
         assert_eq!(m.focus, Focus::Sessions, "no session: no INTERACT");
         m.update(press(KeyCode::Char('h')));
         assert_eq!(m.focus, Focus::Projects);
+    }
+
+    #[test]
+    fn digits_jump_to_projects_and_wait_for_a_second_one_past_nine() {
+        let tick = |m: &mut Model, after| {
+            m.update(AppEvent::Tick);
+            m.now += after;
+            m.update(AppEvent::Tick);
+        };
+        let mut few = sample(&["a", "b", "c"]);
+        few.update(press(KeyCode::Char('3')));
+        assert_eq!(
+            (few.selected, few.jump),
+            (2, None),
+            "nine or fewer jump at once"
+        );
+        few.update(press(KeyCode::Char('7')));
+        assert_eq!(few.message.as_deref(), Some("No project 7."));
+
+        let names: Vec<String> = (1..=12).map(|i| format!("p{i:02}")).collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let mut m = sample(&names);
+        let cases = [
+            ("12", 11, "two digits"),
+            ("3", 2, "no two-digit number starts with 3"),
+            ("1", 2, "1 waits"),
+        ];
+        for (keys, selected, why) in cases {
+            for ch in keys.chars() {
+                m.update(press(KeyCode::Char(ch)));
+            }
+            assert_eq!(m.selected, selected, "{why}");
+        }
+        assert!(m.jump.is_some());
+        tick(&mut m, JUMP_WAIT);
+        assert_eq!((m.selected, m.jump), (0, None), "the wait ends on 1");
+        m.update(press(KeyCode::Char('1')));
+        m.update(press(KeyCode::Char('j')));
+        assert_eq!(m.selected, 1, "another key takes 1, then moves down");
     }
 
     #[test]
