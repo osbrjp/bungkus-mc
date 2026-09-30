@@ -47,15 +47,17 @@ Rules:
 2. Cards and surfaces are never painted separately (only the one screen
    background); selection uses reverse video, which by definition contrasts.
 3. **Every state is glyph + word + colour.** Colour is never the only carrier.
-4. Colours are declared once per token as: painted truecolor hex (used only
-   when painting), fallback truecolor hex (used at TrueColor when
-   `background: "terminal"`), and an explicit 256 and 16 index for the
-   downsampled profiles. **These tables are the token spec shared with
-   bungkus-cli**: mc implements them in `src/ui/theme.rs` as ratatui
-   `Color::Rgb` (TrueColor) and `Color::Indexed` (256/16 — the declared
-   index, never an automatic downsample), bungkus-cli in `styles.go`; a
-   token-table test in each repo compares its implementation with these
-   tables. The indices started from the nearest-colour output of a
+4. Colours are declared once per token in two sets. The **painted set**
+   is a truecolor hex per token, used only when painting. The **fallback
+   set** is a truecolor hex (used at TrueColor when not painting) plus an
+   explicit 256 and 16 index. Nothing is painted at 256/16 colours, so the
+   fallback set's indices are what renders there, in both products.
+   **These tables are the token spec shared with bungkus-cli**: mc
+   implements both sets in `src/ui/theme.rs` as ratatui `Color::Rgb`
+   (TrueColor) and `Color::Indexed` (256/16 — the declared index, never an
+   automatic downsample); bungkus-cli, which never paints, implements the
+   fallback set in `styles.go`. A token-table test in each repo compares
+   its implementation with these tables. The indices started from the nearest-colour output of a
    standard xterm-256 converter (checked during review) and are
    overridden only where the converter makes two roles collide (marked
    ★). A test asserts `ok/warn/err/accent` are pairwise distinct at 256
@@ -66,7 +68,7 @@ WCAG formula: (L1 + 0.05)/(L2 + 0.05), sRGB relative luminance. AA text
 
 ### 2.1 Dark — "Daun Teduh" (`daun-pisang-dark`, default), painted on `#1c2a21`
 
-| Token        | Nickname     | Painted hex | vs `#1c2a21` | Role                                     | 256 | 16 |
+| Token        | Nickname     | Painted hex | vs `#1c2a21` | Role                                     | 256† | 16† |
 |--------------|--------------|-------------|--------------|------------------------------------------|-----|----|
 | `bg`         | Daun teduh   | `#1c2a21`   | —            | the screen background (shaded leaf)       | —   | —  |
 | `fg`         | Nasi         | `#d6e2d3`   | 11.18        | primary text                              | 253 | 15 |
@@ -84,10 +86,27 @@ re-computed here). Inverse badges (`#1c2a21` text on the token as
 background — the mode word in the getah bar, the `!`/`x` gutter): on warn
 8.92, ok 5.93, err 5.62, accent 8.10.
 
-**Terminal fallback set** (TrueColor with `background: "terminal"`, and the
-hex behind the 256/16 indices): `fg` = terminal default, `fg-muted`
-`#8a99a8`, `fg-dim` `#555555`, `border` `#2a2a2a`, `accent`/`ok`/`warn`/
-`err`/`info` as above. Its contrast on the five common dark backgrounds
+† Nearest indices to the *painted* hex, kept for reference only: nothing
+is painted at 256/16, so no product renders these columns. The rendered
+indices are the fallback set's, below.
+
+**Terminal fallback set** (TrueColor with `background: "terminal"`, and
+every 256/16 rendering). Where the hex equals the painted one, so do the
+indices; the others are the nearest xterm-256 colour.
+
+| Token      | Fallback hex     | 256  | 16 |
+|------------|------------------|------|----|
+| `fg`       | terminal default | —    | —  |
+| `fg-muted` | `#8a99a8`        | 245★ | 7★ |
+| `fg-dim`   | `#555555`        | 240  | 8  |
+| `border`   | `#2a2a2a`        | 235  | 8★ |
+| `accent`   | `#ffaa88`        | 216  | 3★ |
+| `ok`       | `#7fb069`        | 107  | 2  |
+| `warn`     | `#e8c547`        | 185  | 11 |
+| `err`      | `#ff7361`        | 209  | 9  |
+| `info`     | `#6f8fc7`        | 68   | 12 |
+
+Its contrast on the five common dark backgrounds
 (`#080808` Lackluster · `#2e3440` Nord · `#282c34` One Dark · `#1e1e2e`
 Mocha · `#282828` Gruvbox): fg-muted 6.87 / 4.28 / 4.80 / 5.63 / 5.06;
 accent 10.83 / 6.75 / 7.57 / 8.87 / 7.97; ok 7.93 / 4.95 / 5.54 / 6.50 /
@@ -107,7 +126,7 @@ vanishes on a black background.
 
 ### 2.2 Light — "Santan" (`daun-pisang-light`), painted on `#f0f3d8`
 
-| Token        | Painted hex | vs `#f0f3d8` | 256 | 16 |
+| Token        | Painted hex | vs `#f0f3d8` | 256† | 16† |
 |--------------|-------------|--------------|-----|----|
 | `bg`         | `#f0f3d8`   | —            | —   | —  |
 | `fg`         | `#1f2a22`   | 13.11        | 235 | 0  |
@@ -120,12 +139,26 @@ vanishes on a black background.
 | `err`        | `#a8261e`   | 6.25         | 124 | 1  |
 | `info`       | `#3f5f8a`   | 5.76         | 60  | 4  |
 
-Terminal fallback set (light): `fg` = terminal default, `fg-muted`
-`#5a6470`, `fg-dim` `#8a8f8a`, `border` `#cfd2c8`, `accent` `#b8461f`,
-`ok` `#2f6b25`, `warn` `#8a5b00`, `err` `#b3261e`, `info` `#3f5f8a` (all
-≥ 4.6 on `#f3eee2`, white and Solarized light). At 16 colours the
-converter maps `accent`, `warn` and `err` all to 1 and `fg-dim` to 7;
-declared values fix this: warn 3, accent 5, dim/muted 8, border 7.
+† As in §2.1: painted-hex reference only, never rendered.
+
+Terminal fallback set (light; all text tokens ≥ 4.6 on `#f3eee2`, white
+and Solarized light):
+
+| Token      | Fallback hex     | 256 | 16 |
+|------------|------------------|-----|----|
+| `fg`       | terminal default | —   | —  |
+| `fg-muted` | `#5a6470`        | 241 | 8★ |
+| `fg-dim`   | `#8a8f8a`        | 245 | 8★ |
+| `border`   | `#cfd2c8`        | 252 | 7★ |
+| `accent`   | `#b8461f`        | 130 | 5★ |
+| `ok`       | `#2f6b25`        | 22★ | 2  |
+| `warn`     | `#8a5b00`        | 94  | 3★ |
+| `err`      | `#b3261e`        | 124 | 1  |
+| `info`     | `#3f5f8a`        | 60  | 4  |
+
+At 16 colours the converter maps `accent`, `warn` and `err` all to 1 and
+`fg-dim` to 7; the declared values fix this. At 256 the nearest colour for
+`ok` is gray 238, so it is declared as the cube green 22.
 
 Theme selection: `theme: "auto" | "dark" | "light"` in config (auto sends
 one OSC 11 query at start and reads the reply with a 200 ms budget; when
@@ -144,7 +177,7 @@ want. mc then chooses:
 | Profile     | `background: paint` (default)            | `background: terminal`       |
 |-------------|------------------------------------------|------------------------------|
 | TrueColor   | painted `bg` + `fg` + painted token set  | terminal bg/fg + fallback hex set |
-| 256 / 16    | terminal bg/fg + declared indices        | same                         |
+| 256 / 16    | terminal bg/fg + the fallback set's indices | same                      |
 | `NO_COLOR`  | terminal bg/fg, no colour, glyph + word + border weight only | same |
 
 At 16 colours and under `NO_COLOR` the UI must be fully usable: glyph +
