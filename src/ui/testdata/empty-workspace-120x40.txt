@@ -1,6 +1,6 @@
  bungkus-mc  ~/Works/OSBR                                                                                        v0.1.0
 ┏ projects ━━━━━━━━━━┓┌ sessions ──────────────────────────┐┌ output ──────────────────────────────────────────────────┐
-┃                    ┃│ No projects in ~/Works/OSBR. A     ││                                                          │
+┃ / search           ┃│ No projects in ~/Works/OSBR. A     ││                                                          │
 ┃                    ┃│ project is a folder with           ││                                                          │
 ┃                    ┃│ CLAUDE.md, AGENTS.md or .git in it ││                                                          │
 ┃                    ┃│ — w to pick another folder.        ││                                                          │

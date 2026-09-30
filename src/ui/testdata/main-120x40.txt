@@ -1,11 +1,11 @@
  bungkus-mc  ~/Works/OSBR › pasar-mobile                                                                         v0.1.0
 ┏ projects ━━━━━━━━━━┓┌ sessions · pasar-mobile ───────────┐┌ output ──────────────────────────────────────────────────┐
-┃   kedai-web        ┃│ No sessions in pasar-mobile. n to  ││                                                          │
-┃>  pasar-mobile     ┃│ start one.                         ││                                                          │
-┃   roti-docs        ┃│                                    ││                                                          │
-┃   teh-cli          ┃│                                    ││                                                          │
-┃   warung-api       ┃│                                    ││                                                          │
-┃                    ┃│                                    ││                                                          │
+┃ / search           ┃│ No sessions in pasar-mobile. n to  ││                                                          │
+┃   1 kedai-web      ┃│ start one.                         ││                                                          │
+┃>  2 pasar-mobile   ┃│                                    ││                                                          │
+┃   3 roti-docs      ┃│                                    ││                                                          │
+┃   4 teh-cli        ┃│                                    ││                                                          │
+┃   5 warung-api     ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │

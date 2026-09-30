@@ -62,7 +62,8 @@ defaults. Change these later with `,`.
 | `x` | stop a session (lists what it started too) |
 | `r` · `d` | resume · forget a finished session |
 | `z` | zoom the output pane |
-| `/` | filter projects |
+| `/` | search projects (`↑` `↓` pick, `enter` open, `esc` clear) |
+| `1`–`9` | jump to project N; past nine projects type two digits (`1` `2` → 12) |
 | `,` · `w` | settings · workspace |
 | `?` | all keys |
 | `q` | quit (stops sessions and what they started, after a confirm) |

@@ -1078,7 +1078,8 @@ the same frame.
 | `ctrl-d` `ctrl-u` · `pgdn` `pgup`                 | half page                               |
 | `!` · `ctrl-]`                                    | jump to the next needs-you session **across projects**: switches the sidebar selection to that project, selects the card, and enters the output pane (INTERACT) so the answer can be typed at once |
 | `z`                                               | zoom the output pane (toggle; stays in the current mode — from INTERACT: `ctrl-\` then `z`) |
-| `/`                                               | filter the focused list (FILTER mode: type, `enter` keep, `esc` clear). The list *is* the filter result, so `j`/`k` walk matches; there is no match-next key |
+| `/`                                               | search projects: the search row at the top of the projects pane takes the text (FILTER mode: type, `↑`/`↓` pick, `enter` opens the project's sessions and keeps the search, `esc` clears). Works from the sessions pane too |
+| `1`–`9`                                           | jump to the project with that number (the numbers left of the names follow the searched list). With more than nine projects a first digit waits 1 s for a second (`1` `2` → 12); it jumps at once when no two-digit number starts with it, and any other key takes the single digit first |
 | `w`                                               | settings, on the workspace field (§5.8) |
 | `,`                                               | settings: workspace, default agent, theme (§5.8) |
 | `?`                                               | help                                    |

@@ -1,11 +1,11 @@
  bungkus-mc  ~/Works/OSBR › kedai-web                                                 x 1 failed · | 1 working · v0.1.0
 ┌ projects ──────────┐┏ sessions · kedai-web ━━━━━━━━━━━━━━┓┌ output · C #a3f2 · flaky payment test ───────────────────┐
-│:| kedai-web    x 1 │┃ ┃x C #a3f1 checkout redesign failed┃│> fix the flaky date test                          ▄██▄   │
-│   pasar-mobile     │┃ ┃  exit 1 · boom                   ┃│  run it twice                                   ▄██████▄ │
-│   roti-docs        │┃ ┃  - tok · - · ctx -               ┃│                                                   ▀  ▀   │
-│   teh-cli          │┃                                    ┃│                                                          │
-│   warung-api       │┃> | C #a3f2 flaky payment test    0m┃│                                                          │
-│                    │┃    output only · live tree unavail…┃│                                                          │
+│ / search           │┃ ┃x C #a3f1 checkout redesign failed┃│> fix the flaky date test                          ▄██▄   │
+│:| 1 kedai-web  x 1 │┃ ┃  exit 1 · boom                   ┃│  run it twice                                   ▄██████▄ │
+│   2 pasar-mobile   │┃ ┃  - tok · - · ctx -               ┃│                                                   ▀  ▀   │
+│   3 roti-docs      │┃                                    ┃│                                                          │
+│   4 teh-cli        │┃> | C #a3f2 flaky payment test    0m┃│                                                          │
+│   5 warung-api     │┃    output only · live tree unavail…┃│                                                          │
 │                    │┃    tokens   in - · out -           ┃│                                                          │
 │                    │┃    cache    read - · write -       ┃│                                                          │
 │                    │┃    cost     -                      ┃│                                                          │
