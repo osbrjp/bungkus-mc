@@ -180,6 +180,11 @@ Same policy as bungkus-cli (which uses `govulncheck`), with the Rust tools:
   rollout, canonicalised path under `CODEX_HOME`, `File::metadata()` regular file,
   `token_count` only); `src/ipc/statusline.rs` (Claude settings files,
   read-only, for the status-line command).
+- **Sessions outside mc** — `src/external.rs` only lists them: `claude
+  agents --json` (fixed argv, stdin closed, 1 MiB cap, killed after 3 s);
+  Codex from the own-uid process snapshot plus `lsof -a -d cwd` for its
+  folder. Names and statuses go through `sanitise()`; these sessions are
+  never signalled, typed into, persisted or read beyond that.
 - **Outbound HTTP** — `src/update/` (GitHub) and `src/route/` (TypeSafe,
   opt-in), both `ureq` with rustls, timeouts, no redirects, capped bodies.
 - **Filesystem writes** — `src/store/` (own dirs only: `sessions.json`,

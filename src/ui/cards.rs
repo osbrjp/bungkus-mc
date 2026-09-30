@@ -13,6 +13,7 @@ use crate::agent::Kind;
 use crate::agent::usage::tokens;
 use crate::app::model::{Focus, Model};
 use crate::app::sessions::{Card, State};
+use crate::external::External;
 use crate::ui::icons::{Icon, IconSet};
 use crate::ui::sanitise::truncate;
 use crate::ui::theme::{Theme, Token};
@@ -33,7 +34,8 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let indices = model.project_cards();
-    if indices.is_empty() {
+    let external = project.map_or_else(Vec::new, |p| model.external_in(&p.path));
+    if indices.is_empty() && external.is_empty() {
         draw_empty(frame, inner, model, theme);
         return;
     }
@@ -63,14 +65,60 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
         })
         .collect();
     let rows = usize::from(inner.height);
-    let mut start = model.card.min(cards.len() - 1);
-    let mut used = cards[start].len();
+    let mut start = model.card.min(cards.len().saturating_sub(1));
+    let mut used = cards.get(start).map_or(0, Vec::len);
     while start > 0 && used + cards[start - 1].len() <= rows {
         start -= 1;
         used += cards[start].len();
     }
-    let lines: Vec<Line> = cards.into_iter().skip(start).flatten().collect();
+    let mut lines: Vec<Line> = cards.into_iter().skip(start).flatten().collect();
+    if !external.is_empty() {
+        lines.push(Line::styled(
+            " outside mc (read-only)",
+            theme.fg(Token::FgMuted),
+        ));
+        for ext in external {
+            lines.extend(external_lines(ext, width, spin, theme));
+        }
+    }
     frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// Returns a session running outside mc as two lines: glyph, agent badge,
+/// name and state word, then where it runs; it is never selectable.
+fn external_lines(ext: &External, width: usize, spin: char, theme: Theme) -> [Line<'static>; 2] {
+    let state = ext.state();
+    let (glyph, token, word) = glyph(&state, spin, theme.icons);
+    let word = if ext.status.is_none() {
+        "running"
+    } else {
+        word
+    };
+    let fixed = 2 + 2 + 2 + 1;
+    let name = truncate(&ext.name, width.saturating_sub(fixed + word.len() + 1));
+    let pad = width.saturating_sub(fixed + name.chars().count() + word.len());
+    [
+        Line::from(vec![
+            Span::raw("   "),
+            Span::styled(glyph.to_string(), theme.fg(token)),
+            Span::raw(" "),
+            Span::styled(ext.kind.badge().to_string(), theme.fg(Token::Accent)),
+            Span::raw(" "),
+            Span::styled(name, theme.fg(Token::Fg)),
+            Span::raw(" ".repeat(pad)),
+            Span::styled(word, theme.fg(Token::FgMuted)),
+        ]),
+        Line::styled(
+            format!(
+                "     {}",
+                truncate(
+                    &format!("pid {} · in its own terminal", ext.pid),
+                    width.saturating_sub(5)
+                )
+            ),
+            theme.fg(Token::FgMuted),
+        ),
+    ]
 }
 
 /// Returns the spinner frame for `frame`, or its first frame when motion
@@ -90,10 +138,7 @@ fn draw_empty(frame: &mut Frame, inner: Rect, model: &Model, theme: Theme) {
     let text = match (&model.scan_error, model.selected_project()) {
         (Some(error), _) => format!("Can't open {workspace}: {error}. w to pick another folder."),
         (None, Some(p)) => {
-            format!(
-                "No sessions in {}. n to start one. Only sessions started here show up.",
-                p.name
-            )
+            format!("No sessions in {}. n to start one.", p.name)
         }
         (None, None) if !model.filter.is_empty() => {
             format!("No project matches /{}.", model.filter)

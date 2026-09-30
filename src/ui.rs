@@ -309,9 +309,10 @@ fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
             } else {
                 theme.fg(Token::Fg)
             };
-            let states: Vec<&State> = sessions::order(&model.cards, &project.path)
+            let states: Vec<State> = sessions::order(&model.cards, &project.path)
                 .into_iter()
-                .map(|i| &model.cards[i].state)
+                .map(|i| model.cards[i].state.clone())
+                .chain(model.external_in(&project.path).iter().map(|e| e.state()))
                 .collect();
             let working = states.iter().any(|s| matches!(s, State::Working));
             let badge = [
@@ -770,5 +771,42 @@ pub(crate) mod tests {
             screen.contains("bungkus-mc needs at least 80×24 (now 72×20)."),
             "{screen}"
         );
+    }
+
+    #[test]
+    fn shows_sessions_outside_mc_but_not_its_own() {
+        use crate::app::model::tests::with_session;
+        use crate::external::External;
+
+        let mut model = sample(PROJECTS);
+        let (_id, _w) = with_session(&mut model, "mine");
+        let project = model.selected_project().unwrap().path.clone();
+        model.cards[0].pid = Some(700);
+        let ext = |pid, name: &str, status: Option<&str>| External {
+            kind: crate::agent::Kind::Claude,
+            pid,
+            cwd: project.join("sub"),
+            name: name.into(),
+            status: status.map(Into::into),
+            session_id: None,
+            started_ms: None,
+        };
+        model.external = vec![
+            ext(700, "mine again", Some("busy")),
+            ext(701, "from another tab", Some("idle")),
+            External {
+                cwd: "/elsewhere".into(),
+                ..ext(702, "other project", None)
+            },
+        ];
+        let screen = render(&mut model, 120, 40);
+        assert!(screen.contains("outside mc (read-only)"), "{screen}");
+        assert!(screen.contains("from another tab"), "{screen}");
+        assert!(screen.contains("pid 701"), "{screen}");
+        assert!(
+            !screen.contains("mine again"),
+            "mc's own session is not listed twice"
+        );
+        assert!(!screen.contains("other project"), "{screen}");
     }
 }

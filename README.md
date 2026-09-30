@@ -113,7 +113,9 @@ Sessions are remembered in `~/.local/state/bungkus/mc/sessions.json`.
   rendering (mc runs it for you).
 - **Codex usage** is read from `token_count` records in Codex's own session
   log, and nothing else.
-- Only sessions started from mc appear in it.
+- Sessions started outside mc (another terminal tab, an IDE) are listed
+  read-only under their project with their state and pid, from
+  `claude agents --json` and running `codex` processes.
 
 ## Quitting and cleanup
 

@@ -34,7 +34,7 @@ and the processes they left behind (§3.3).
 |---|--------|-------|----------------|---------|
 | 1 | **PTY + embedded VT emulator** (`portable-pty` + `alacritty_terminal`) | The agent's real UI, permission prompts, colours, interactive input. Works for any CLI agent. Spike-verified against a tmux reference on every case (slash menu, shift+enter, paste, resize, Codex, CJK/emoji, alt screen, queries). | Zero structure. Our own key encoder (the crate has none). | **Use — live pane.** |
 | 2 | **Tail transcripts** (`~/.claude/projects/<slug>/<sid>.jsonl` + `<sid>/subagents/agent-<id>.jsonl`; `~/.codex/sessions/…/rollout-*.jsonl`) | Full history, sessions mc did not start. | Both formats are explicitly internal (Claude docs: "changes between versions … can break on any release"; Codex undocumented and mid-migration to SQLite). Transcripts hold every secret the agent saw. | **Not for structure.** One owner-approved exception: Codex `token_count` records for usage only (§6.3). |
-| 3 | **Hooks → unix socket** (Claude `--settings`; Codex `-c hooks.*`) | Documented, structured, push-based; identical JSON shape in both agents (VERIFIED). | Only sessions mc launched (accepted for v0.1). Codex needs one-time hook trust. One process spawn per event. | **Use — structure.** |
+| 3 | **Hooks → unix socket** (Claude `--settings`; Codex `-c hooks.*`) | Documented, structured, push-based; identical JSON shape in both agents (VERIFIED). | Only sessions mc launched (outside sessions are listed read-only, §3.4). Codex needs one-time hook trust. One process spawn per event. | **Use — structure.** |
 | 4 | **Headless structured mode** (`claude -p --output-format stream-json`, `codex exec --json`, Codex app-server JSON-RPC) | Cleanest structured stream incl. usage. | Not the agent's interactive UI: mc would have to build chat + permission UIs — a different product. | **Not for stage 1.** |
 | 5 | **tmux/zellij panes** | Detach for free. | Two code paths, requires a multiplexer, mc cannot draw inside another pane. | **No.** Run mc *inside* tmux instead. |
 
@@ -198,6 +198,26 @@ long-term answer and a stage-2 candidate.
   opens; missing `lsof` = no port labels, nothing else.
 - `comm` goes through `sanitise()` before display; argv is never read.
 - Scope: descendants of mc-launched agents only.
+
+### 3.4 Sessions started outside mc (read-only)
+
+A thread lists them every 5 s (`src/external.rs`) and sends
+`AppEvent::External`; the model keeps the latest list apart from its cards.
+
+- **Claude:** `claude agents --json` (fixed argv, stdin closed, stdout
+  capped at 1 MiB, killed after 3 s). Each row gives pid, cwd, name,
+  session id and `status`: `busy` → working, `idle` → your turn, a status
+  about waiting/input/permission → needs you.
+- **Codex:** has no listing. A process of this user whose `comm` basename
+  is `codex`, that is not the app-server daemon and whose parent is not
+  another `codex` (the npm wrapper), counts as one session; its folder
+  comes from `lsof -a -d cwd -p <pids> -Fpn`. Its state is "running".
+- A row whose cwd is the project folder or below it shows in that
+  project, after mc's cards; its state feeds the projects-pane spinner and
+  badge. Sessions mc started are left out by pid, tracked descendant pid,
+  or session id.
+- Read-only by design: not selectable, no output, no INTERACT, never
+  signalled, never written to `sessions.json`, no transcript read.
 
 ## 4. Data flow
 
