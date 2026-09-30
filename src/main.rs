@@ -7,6 +7,7 @@
 mod agent;
 mod app;
 mod store;
+mod term;
 mod ui;
 mod workspace;
 
@@ -111,6 +112,16 @@ fn main() -> Result<()> {
     let theme = Theme::new(ThemeName::Dark, Profile::detect(var), config.background);
     let mut model = Model::new(theme, home.clone(), found, fallback);
     model.message = message;
+    if let Some(text) = &config.interact_exit {
+        match term::keys::Chord::parse(text) {
+            Some(chord) => model.exit_chord = chord,
+            None => {
+                model.message = Some(format!(
+                    "interactExit {text:?} is not a ctrl chord; using ctrl-\\."
+                ));
+            }
+        }
+    }
 
     let workspace = workspace_arg
         .map(|arg| app::absolute(&arg, &cwd, home.as_deref()))
@@ -135,6 +146,7 @@ fn main() -> Result<()> {
         config_path,
         cwd,
         wizard_prefill,
+        config,
     };
     app::run(model, &env).context("running the TUI")
 }

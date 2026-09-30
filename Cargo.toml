@@ -8,13 +8,16 @@ license-file = "LICENSE"
 publish = false
 
 [dependencies]
+alacritty_terminal = { version = "0.26.0", default-features = false }
 anyhow = "1.0.104"
 lexopt = "0.3.2"
+portable-pty = "0.9.0"
 ratatui = "0.30.2"
-rustix = { version = "1.1.5", features = ["event", "stdio"] }
+rustix = { version = "1.1.5", features = ["event", "process", "stdio"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["preserve_order"] }
 thiserror = "2.0.21"
+uuid = { version = "1.26.1", features = ["v4"] }
 
 [lints.rust]
 missing_docs = "deny"

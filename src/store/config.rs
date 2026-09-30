@@ -14,7 +14,7 @@ use crate::agent::Kind;
 use crate::ui::theme::{Background, ThemeChoice};
 
 /// The settings mc reads from `config.json`; every key is optional.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub(crate) struct Config {
     /// The folder whose children are the projects; may start with `~`.
@@ -25,6 +25,57 @@ pub(crate) struct Config {
     pub background: Background,
     /// The agent the `n` picker preselects.
     pub default_agent: Kind,
+    /// Commands and extra arguments per agent.
+    pub agents: Agents,
+    /// The chord that leaves INTERACT, e.g. `ctrl-^` (DESIGN §8.5).
+    pub interact_exit: Option<String>,
+    /// Whether mc captures the mouse.
+    pub mouse: bool,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            workspace: None,
+            theme: ThemeChoice::default(),
+            background: Background::default(),
+            default_agent: Kind::default(),
+            agents: Agents::default(),
+            interact_exit: None,
+            mouse: true,
+        }
+    }
+}
+
+/// The `agents` config block.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default)]
+pub(crate) struct Agents {
+    /// Claude Code.
+    pub claude: AgentCommand,
+    /// Codex.
+    pub codex: AgentCommand,
+}
+
+impl Agents {
+    /// Returns the entry for `kind`.
+    #[must_use]
+    pub(crate) const fn get(&self, kind: Kind) -> &AgentCommand {
+        match kind {
+            Kind::Claude => &self.claude,
+            Kind::Codex => &self.codex,
+        }
+    }
+}
+
+/// How to start one agent.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default)]
+pub(crate) struct AgentCommand {
+    /// Command name or path; the agent's own name when unset.
+    pub command: Option<String>,
+    /// Extra arguments placed before mc's own.
+    pub args: Vec<String>,
 }
 
 /// The values the wizard and the settings screen edit.

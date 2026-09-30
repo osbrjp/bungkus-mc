@@ -3,11 +3,13 @@
 //! This module names them and finds them on `PATH`. It never reads agent
 //! transcripts; structure arrives through hook events.
 
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+
+use crate::term::SessionId;
 
 /// Which agent CLI a session runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -32,6 +34,89 @@ impl Kind {
             Self::Codex => "codex",
         }
     }
+
+    /// Returns the one-letter badge (DESIGN §5.4).
+    #[must_use]
+    pub(crate) const fn badge(self) -> char {
+        match self {
+            Self::Claude => 'C',
+            Self::Codex => 'X',
+        }
+    }
+
+    /// Returns the product name used in user-facing messages.
+    #[must_use]
+    pub(crate) const fn product(self) -> &'static str {
+        match self {
+            Self::Claude => "Claude Code",
+            Self::Codex => "Codex",
+        }
+    }
+
+    /// Returns the models the `n` picker offers; `default` means no flag.
+    #[must_use]
+    pub(crate) const fn models(self) -> &'static [&'static str] {
+        match self {
+            Self::Claude => &["default", "haiku", "sonnet", "opus"],
+            Self::Codex => &["default"],
+        }
+    }
+}
+
+/// What the user chose in the `n` picker for a new session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Launch {
+    /// mc's id; Claude also gets it as `--session-id`.
+    pub id: SessionId,
+    /// Model id, or `None` for the agent's default.
+    pub model: Option<String>,
+    /// Session name (`--name` for Claude; Codex has no such flag).
+    pub name: Option<String>,
+    /// Start prompt, passed as one argument after `--`.
+    pub prompt: Option<String>,
+}
+
+/// Builds the argument vector for a new session (ARCHITECTURE §5.1, §5.2).
+///
+/// The prompt is always one argument after `--`, so a prompt starting with
+/// `-` cannot become a flag; the name is one `--name` value. Nothing goes
+/// through a shell.
+///
+/// # Arguments
+///
+/// * `kind`    - Which agent.
+/// * `program` - The agent's resolved executable.
+/// * `args`    - Extra arguments from config, placed before mc's.
+/// * `launch`  - The picker's choices.
+#[must_use]
+pub(crate) fn argv(kind: Kind, program: &Path, args: &[String], launch: &Launch) -> Vec<OsString> {
+    let mut out: Vec<OsString> = vec![program.into()];
+    out.extend(args.iter().map(OsString::from));
+    let mut flag = |name: &str, value: &str| {
+        out.push(name.into());
+        out.push(value.into());
+    };
+    match kind {
+        Kind::Claude => {
+            flag("--session-id", &launch.id.0.hyphenated().to_string());
+            if let Some(model) = &launch.model {
+                flag("--model", model);
+            }
+            if let Some(name) = &launch.name {
+                flag("--name", name);
+            }
+        }
+        Kind::Codex => {
+            if let Some(model) = &launch.model {
+                flag("-m", model);
+            }
+        }
+    }
+    if let Some(prompt) = &launch.prompt {
+        out.push("--".into());
+        out.push(prompt.into());
+    }
+    out
 }
 
 /// Returns the first executable file named `name` in the `PATH` list.
@@ -57,6 +142,56 @@ mod tests {
     use std::fs;
 
     use super::*;
+
+    #[test]
+    fn builds_launch_argv_per_agent() {
+        let id = SessionId(uuid::Uuid::nil());
+        let full = Launch {
+            id,
+            model: Some("haiku".into()),
+            name: Some("flaky test".into()),
+            prompt: Some("-rf everything".into()),
+        };
+        let bare = Launch {
+            id,
+            model: None,
+            name: None,
+            prompt: None,
+        };
+        let s = |v: Vec<OsString>| {
+            v.into_iter()
+                .map(|a| a.into_string().unwrap())
+                .collect::<Vec<_>>()
+        };
+        let claude = Path::new("/bin/claude");
+        assert_eq!(
+            s(argv(Kind::Claude, claude, &["--verbose".into()], &full)),
+            [
+                "/bin/claude",
+                "--verbose",
+                "--session-id",
+                "00000000-0000-0000-0000-000000000000",
+                "--model",
+                "haiku",
+                "--name",
+                "flaky test",
+                "--",
+                "-rf everything",
+            ]
+        );
+        assert_eq!(
+            s(argv(Kind::Claude, claude, &[], &bare)),
+            [
+                "/bin/claude",
+                "--session-id",
+                "00000000-0000-0000-0000-000000000000"
+            ]
+        );
+        assert_eq!(
+            s(argv(Kind::Codex, Path::new("/bin/codex"), &[], &full)),
+            ["/bin/codex", "-m", "haiku", "--", "-rf everything"]
+        );
+    }
 
     #[test]
     fn finds_only_executable_files_on_path() {

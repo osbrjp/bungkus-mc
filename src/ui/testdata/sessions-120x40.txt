@@ -1,0 +1,41 @@
+ bungkus-mc  ~/Works/OSBR › kedai-web                                                                            v0.1.0
+┌ projects ──────────┐┏ sessions · kedai-web ━━━━━━━━━━━━━━┓┌ output · C #a3f2 · flaky payment test ───────────────────┐
+│:  kedai-web        │┃ ┃x C #a3f1 checkout redesign failed┃│> fix the flaky date test                                 │
+│   pasar-mobile     │┃ ┃  exit 1 · boom                   ┃│  run it twice                                            │
+│   roti-docs        │┃ ┃  - tok · - · ctx -               ┃│                                                          │
+│   teh-cli          │┃                                    ┃│                                                          │
+│   warung-api       │┃> | C #a3f2 flaky payment test    0m┃│                                                          │
+│                    │┃    working · claude                ┃│                                                          │
+│                    │┃    - tok · - · ctx -               ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃  + C #a3f3 bump deps        wrapped┃│                                                          │
+│                    │┃    wrapped in 0m                   ┃│                                                          │
+│                    │┃    - tok · - · ctx -               ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+└────────────────────┘┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛└──────────────────────────────────────────────────────────┘
+ NORMAL  enter → agent (ctrl-\ back) · n new · x stop · j/k · / filter · , settings · ? help
+cursor: hidden
