@@ -86,7 +86,7 @@ fn nest_worktrees(projects: &[Project]) -> Vec<Project> {
 }
 
 /// Returns whether two paths name the same folder (symlinks resolved).
-fn same_dir(a: &Path, b: &Path) -> bool {
+pub(crate) fn same_dir(a: &Path, b: &Path) -> bool {
     match (a.canonicalize(), b.canonicalize()) {
         (Ok(a), Ok(b)) => a == b,
         _ => a == b,

@@ -184,7 +184,10 @@ Same policy as bungkus-cli (which uses `govulncheck`), with the Rust tools:
   agents --json` (fixed argv, stdin closed, 1 MiB cap, killed after 3 s);
   Codex from the own-uid process snapshot plus `lsof -a -d cwd` for its
   folder. Names and statuses go through `sanitise()`; these sessions are
-  never signalled, typed into, persisted or read beyond that.
+  never signalled, typed into, persisted or read beyond that. Take-over
+  only probes the pid with signal 0 (`test_kill_process`, no signal is
+  delivered) and resumes the session id `claude agents` reported, checked
+  to be a UUID, as one `--resume` argument.
 - **Outbound HTTP** — `src/update/` (GitHub) and `src/route/` (TypeSafe,
   opt-in), both `ureq` with rustls, timeouts, no redirects, capped bodies.
 - **Filesystem writes** — `src/store/` (own dirs only: `sessions.json`,

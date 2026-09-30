@@ -14,6 +14,7 @@ pub(crate) mod model;
 pub(crate) mod picker;
 pub(crate) mod sessions;
 pub(crate) mod stop;
+mod takeover;
 
 use std::ffi::OsStr;
 use std::io::{self, IsTerminal, Write};

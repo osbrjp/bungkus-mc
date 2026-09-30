@@ -258,7 +258,9 @@ with the last agent preselected.
     sessions from running `codex` processes and their working folder.
     They are listed under the project they run in, below mc's own cards,
     with state and pid only: no output, no INTERACT, no stop, no usage,
-    never persisted (ARCHITECTURE §3.4).
+    never persisted. A Claude one can be taken over: after the user quits
+    it in its own terminal, mc resumes it with `claude --resume`
+    (ARCHITECTURE §3.4).
 
 ## 7. Open questions for the product owner
 
