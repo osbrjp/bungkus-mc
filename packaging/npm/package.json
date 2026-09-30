@@ -1,0 +1,21 @@
+{
+  "name": "@osbrjp/bungkus-mc",
+  "version": "0.0.0",
+  "description": "Mission control for AI coding agents in the terminal",
+  "homepage": "https://github.com/osbrjp/bungkus-mc",
+  "license": "SEE LICENSE IN LICENSE",
+  "bin": {
+    "bungkus-mc": "bin/bungkus-mc.js",
+    "bkmc": "bin/bungkus-mc.js"
+  },
+  "files": ["bin/bungkus-mc.js", "LICENSE", "README.md"],
+  "os": ["darwin", "linux"],
+  "cpu": ["arm64", "x64"],
+  "engines": { "node": ">=18" },
+  "optionalDependencies": {
+    "@osbrjp/bungkus-mc-darwin-arm64": "0.0.0",
+    "@osbrjp/bungkus-mc-darwin-x64": "0.0.0",
+    "@osbrjp/bungkus-mc-linux-arm64": "0.0.0",
+    "@osbrjp/bungkus-mc-linux-x64": "0.0.0"
+  }
+}

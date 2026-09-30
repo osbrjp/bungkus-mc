@@ -26,6 +26,13 @@ bungkus-mc            # or the short command: bkmc
 bungkus-mc update     # later: install the newest release (--check only reports)
 ```
 
+Once published, also:
+
+```bash
+brew install osbrjp/tap/bungkus-mc
+npm install -g @osbrjp/bungkus-mc
+```
+
 The installer verifies the binary against the release's `checksums.txt`,
 installs to `/usr/local/bin` (`BUNGKUS_INSTALL_DIR` to change), and adds
 `bkmc` only when no command of that name exists. mc checks for a newer
