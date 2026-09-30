@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 use crate::agent::Kind;
 use crate::agent::usage::Usage;
 use crate::ipc::HookEvent;
+use crate::proc::{Descendants, Proc};
 use crate::term::SessionId;
 use crate::term::session::Session;
 use crate::ui::sanitise::sanitise;
@@ -134,6 +135,14 @@ pub(crate) struct Card {
     pub usage: Option<Usage>,
     /// Stops the Codex usage reader when dropped.
     pub rollout_stop: Option<std::sync::mpsc::Sender<()>>,
+    /// The agent's pid, the root of its descendant tree.
+    pub pid: Option<i32>,
+    /// Processes observed under the agent (ARCHITECTURE §3.3).
+    pub descendants: Descendants,
+    /// Descendants the user chose to stop, signalled after the session exits.
+    pub stop_plan: Vec<Proc>,
+    /// When the plan's SIGTERM went out; SIGKILL follows [`STOP_GRACE`] later.
+    pub plan_termed: Option<Instant>,
 }
 
 impl Card {
@@ -181,6 +190,10 @@ impl Card {
             tool_calls: 0,
             usage: None,
             rollout_stop: None,
+            pid: None,
+            descendants: Descendants::default(),
+            stop_plan: Vec::new(),
+            plan_termed: None,
         }
     }
 

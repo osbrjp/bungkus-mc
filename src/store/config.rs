@@ -33,6 +33,16 @@ pub(crate) struct Config {
     pub mouse: bool,
     /// How mc announces needs-you and failed sessions (DESIGN §9).
     pub notify: Notify,
+    /// Process cleanup settings.
+    pub cleanup: Cleanup,
+}
+
+/// The `cleanup` config block.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default)]
+pub(crate) struct Cleanup {
+    /// Process names that start as `[keep]` in the quit dialog.
+    pub keep: Vec<String>,
 }
 
 /// The `notify` setting.
@@ -59,6 +69,7 @@ impl Default for Config {
             interact_exit: None,
             mouse: true,
             notify: Notify::default(),
+            cleanup: Cleanup::default(),
         }
     }
 }
