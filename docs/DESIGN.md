@@ -1000,9 +1000,11 @@ Codex reports credits, not USD) and `- tok · - · ctx -` until its first
 `err` at 90 % — ASSUMPTION that 90 % is Claude's auto-compact point; the
 thresholds are constants to adjust in M5. Token semantics as reported by
 Claude's status line: `total_input_tokens` **includes cache** reads/writes
-and may be per-request rather than cumulative (ARCHITECTURE.md §6.2); the
-mock numbers follow that reading (in 486k = 65k fresh + 402k cache read +
-19k cache write).
+and is **per request** (settled in M5, ARCHITECTURE.md §6.2), so `tok` is
+the last request's size, not a session total; cost is cumulative. The mock
+numbers follow that reading (in 486k = 65k fresh + 402k cache read + 19k
+cache write). The getah bar drops the limits first when the key hints need
+the room (§5.1); `/ filter` and `, settings` are listed in `?` help only.
 
 ### 6.3 Selected card, expanded
 
