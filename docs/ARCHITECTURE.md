@@ -589,6 +589,7 @@ shown dimmed as stale.
 ```json
 {
   "workspace": "/Users/me/Works/OSBR",
+  "defaultAgent": "claude",
   "theme": "auto",
   "background": "paint",
   "motion": true,
@@ -612,7 +613,13 @@ shown dimmed as stale.
 }
 ```
 
-mc never writes `config.json`. The Jev model id (`jev-latest`), the
+mc writes `config.json` in one place only: the setup wizard and the
+settings screen (DESIGN.md §5.8) save `workspace`, `defaultAgent` and
+`theme`. The file is read as a `serde_json::Value` (with `preserve_order`),
+those three keys are set, and it is written back atomically (temp file +
+`rename`, 0600): every other key, and the key order, survive. A file that
+is not a JSON object is never replaced; the save fails with a message.
+Consent is still recorded in the state dir, not in config. The Jev model id (`jev-latest`), the
 request budget (1.5 s) and the confidence floor (0.6) are `const`s in
 `route`; consent lives in the state dir.
 
