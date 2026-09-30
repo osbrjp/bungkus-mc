@@ -21,5 +21,5 @@
 ┃                                                                              ┃
 ┃                                                                              ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
- NORMAL  enter → sessions · n new · j/k · / filter · , settings · ? help
+ NORMAL  enter → sessions · n new · j/k · ! next · / filter · , settings · ? hel
 cursor: 48,12

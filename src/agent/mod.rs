@@ -1,7 +1,10 @@
 //! The agents mc can run: Claude Code and Codex.
 //!
-//! This module names them and finds them on `PATH`. It never reads agent
-//! transcripts; structure arrives through hook events.
+//! This module names them, finds them on `PATH` and builds their launch
+//! argv. It never reads agent transcripts; structure arrives through hook
+//! events.
+
+pub(crate) mod claude;
 
 use std::ffi::{OsStr, OsString};
 use std::os::unix::fs::PermissionsExt;
@@ -74,6 +77,8 @@ pub(crate) struct Launch {
     pub name: Option<String>,
     /// Start prompt, passed as one argument after `--`.
     pub prompt: Option<String>,
+    /// Claude `--settings` JSON (mc's hooks); `None` without a socket.
+    pub settings: Option<String>,
 }
 
 /// Builds the argument vector for a new session (ARCHITECTURE §5.1, §5.2).
@@ -99,6 +104,9 @@ pub(crate) fn argv(kind: Kind, program: &Path, args: &[String], launch: &Launch)
     match kind {
         Kind::Claude => {
             flag("--session-id", &launch.id.0.hyphenated().to_string());
+            if let Some(settings) = &launch.settings {
+                flag("--settings", settings);
+            }
             if let Some(model) = &launch.model {
                 flag("--model", model);
             }
@@ -151,12 +159,14 @@ mod tests {
             model: Some("haiku".into()),
             name: Some("flaky test".into()),
             prompt: Some("-rf everything".into()),
+            settings: Some("{}".into()),
         };
         let bare = Launch {
             id,
             model: None,
             name: None,
             prompt: None,
+            settings: None,
         };
         let s = |v: Vec<OsString>| {
             v.into_iter()
@@ -171,6 +181,8 @@ mod tests {
                 "--verbose",
                 "--session-id",
                 "00000000-0000-0000-0000-000000000000",
+                "--settings",
+                "{}",
                 "--model",
                 "haiku",
                 "--name",

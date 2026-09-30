@@ -6,6 +6,7 @@
 
 mod agent;
 mod app;
+mod ipc;
 mod store;
 mod term;
 mod ui;
@@ -26,6 +27,7 @@ const HELP: &str = "\
 bungkus-mc - mission control for AI coding agents
 
 Usage: bungkus-mc [options] [WORKSPACE]
+       bungkus-mc hook      (run by agent hooks; silent)
 
   WORKSPACE        folder whose child folders are projects
                    (default: the workspace in config.json; first run asks)
@@ -47,6 +49,8 @@ enum Command {
     Help,
     /// Print the version.
     Version,
+    /// The silent hook subcommand agents run.
+    Hook,
 }
 
 /// Parses command-line arguments (without the program name).
@@ -68,6 +72,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, lexopt:
         match arg {
             Short('h') | Long("help") => return Ok(Command::Help),
             Short('V') | Long("version") => return Ok(Command::Version),
+            Value(value) if workspace.is_none() && value == "hook" => return Ok(Command::Hook),
             Value(value) if workspace.is_none() => workspace = Some(value.string()?),
             _ => return Err(arg.unexpected()),
         }
@@ -89,6 +94,10 @@ fn main() -> Result<()> {
         Command::Version => {
             return writeln!(stdout, "bungkus-mc {}", env!("CARGO_PKG_VERSION"))
                 .context("printing version");
+        }
+        Command::Hook => {
+            ipc::hook::run();
+            return Ok(());
         }
         Command::Tui(workspace) => workspace,
     };
@@ -174,6 +183,7 @@ mod tests {
             (&["-h"], Command::Help),
             (&["--help"], Command::Help),
             (&["-V"], Command::Version),
+            (&["hook"], Command::Hook),
             (&["--version"], Command::Version),
         ];
         for (args, want) in cases {

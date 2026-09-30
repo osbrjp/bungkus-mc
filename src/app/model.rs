@@ -16,7 +16,8 @@ use crate::agent::{Kind, Launch};
 use crate::app::AppEvent;
 use crate::app::form::{Field, Form, FormKind, Outcome};
 use crate::app::picker::{self, Picker};
-use crate::app::sessions::{self, Card, STOP_GRACE};
+use crate::app::sessions::{self, Card, HOOK_GRACE, STOP_GRACE, State};
+use crate::ipc::Wire;
 use crate::store::config::Settings;
 use crate::term::keys::Chord;
 use crate::term::{PtyEvent, SessionId};
@@ -77,6 +78,15 @@ pub(crate) struct LaunchRequest {
     pub kind: Kind,
     /// The picker's choices.
     pub launch: Launch,
+}
+
+/// Something the host terminal should announce (DESIGN §9).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Alert {
+    /// A session now needs the user.
+    NeedsYou(String),
+    /// A session failed.
+    Failed(String),
 }
 
 /// Work `update` hands back to the event loop.
@@ -143,6 +153,8 @@ pub(crate) struct Model {
     pub frame: usize,
     /// When quitting started, while sessions are being stopped.
     pub quitting: Option<Instant>,
+    /// Announcements for the loop to send (bell, desktop, title).
+    pub alerts: Vec<Alert>,
 }
 
 impl Model {
@@ -186,6 +198,7 @@ impl Model {
             now: Instant::now(),
             frame: 0,
             quitting: None,
+            alerts: Vec::new(),
         }
     }
 
@@ -264,8 +277,14 @@ impl Model {
             .iter()
             .filter(|c| c.running() && !c.killed)
             .filter_map(|c| c.stop_requested.map(|at| at + STOP_GRACE));
+        let silent = self
+            .cards
+            .iter()
+            .filter(|c| c.hooked && c.running() && c.events == 0)
+            .map(|c| c.started + HOOK_GRACE)
+            .filter(|at| *at > self.now);
         let tick = self.animating().then_some(tick);
-        syncs.chain(stops).chain(tick).min()
+        syncs.chain(stops).chain(silent).chain(tick).min()
     }
 
     /// Opens the settings screen (or, before first run, the wizard).
@@ -310,10 +329,15 @@ impl Model {
                     pty.advance(&bytes);
                 }
             }
+            AppEvent::Hook(line) => self.hook(&line),
             AppEvent::Pty(PtyEvent::Exited(id, code)) => {
                 let now = self.now;
                 if let Some(card) = self.card_mut(id) {
                     card.exited(code, now);
+                    if let State::Failed(reason) = &card.state {
+                        let text = format!("{} failed: {reason}", card.id.short());
+                        self.alerts.push(Alert::Failed(text));
+                    }
                 }
                 if self.focus == Focus::Output
                     && self.selected_card().map(|i| self.cards[i].id) == Some(id)
@@ -330,6 +354,54 @@ impl Model {
             AppEvent::Input(_) => {}
         }
         self.quit_when_stopped()
+    }
+
+    /// Applies one socket line to the card of its mc session; malformed
+    /// lines and unknown sessions are dropped.
+    fn hook(&mut self, line: &[u8]) {
+        let Ok(wire) = serde_json::from_slice::<Wire>(line) else {
+            return;
+        };
+        let now = self.now;
+        let Some(card) = self
+            .cards
+            .iter_mut()
+            .find(|c| c.id.0.hyphenated().to_string() == wire.mc_session)
+        else {
+            return;
+        };
+        let before = card.state.clone();
+        card.reduce(&wire.event, now);
+        if card.state == State::NeedsYou && before != State::NeedsYou {
+            let text = format!("{} needs you: {}", card.id.short(), card.name);
+            self.alerts.push(Alert::NeedsYou(text));
+        }
+    }
+
+    /// Jumps to the next session that needs you, across projects: selects
+    /// its project and card and enters INTERACT (DESIGN §8.1).
+    fn next_needs_you(&mut self) {
+        let current = self.selected_card().map(|i| self.cards[i].id);
+        let projects: Vec<PathBuf> = self.visible().iter().map(|p| p.path.clone()).collect();
+        let mut found = Vec::new();
+        for (p, path) in projects.iter().enumerate() {
+            for (c, &i) in sessions::order(&self.cards, path).iter().enumerate() {
+                if self.cards[i].state == State::NeedsYou {
+                    found.push((p, c, self.cards[i].id));
+                }
+            }
+        }
+        let after = found
+            .iter()
+            .position(|f| Some(f.2) == current)
+            .map_or(0, |i| i + 1);
+        let Some(&(p, c, _)) = found.get(after % found.len().max(1)) else {
+            self.message = Some("nobody needs you right now".into());
+            return;
+        };
+        self.selected = p;
+        self.card = c;
+        self.focus = Focus::Output;
     }
 
     /// Sends SIGKILL to sessions still running after their stop grace.
@@ -428,6 +500,7 @@ impl Model {
             model: p.model_id(),
             name: text(&p.name),
             prompt: text(&p.prompt),
+            settings: None,
         };
         Some(Cmd::Launch(LaunchRequest {
             project,
@@ -579,6 +652,7 @@ impl Model {
                 }
             }
             Action::Zoom => self.zoom = !self.zoom,
+            Action::NextNeedsYou => self.next_needs_you(),
             Action::Workspace => self.open_form(FormKind::Settings, Field::Workspace),
             Action::Settings => self.open_form(FormKind::Settings, Field::Agent),
             Action::Help => self.overlay = Some(Overlay::Help),
@@ -815,6 +889,75 @@ pub(crate) mod tests {
             Some(Cmd::Quit)
         );
         assert_eq!(m.cards[0].state, sessions::State::Stopped);
+    }
+
+    /// Returns a socket line for `id` with the given hook payload.
+    pub(crate) fn hook_line(id: SessionId, payload: &str) -> AppEvent {
+        let raw = serde_json::from_str(payload).unwrap();
+        let wire = Wire {
+            mc_session: id.0.hyphenated().to_string(),
+            event: crate::ipc::trim(&raw),
+        };
+        AppEvent::Hook(serde_json::to_vec(&wire).unwrap())
+    }
+
+    #[test]
+    fn hook_lines_move_states_and_raise_alerts() {
+        let mut m = sample(&["a"]);
+        let (id, _w) = with_session(&mut m, "s");
+        m.cards[0].expect_hooks();
+        m.update(hook_line(id, r#"{"hook_event_name":"UserPromptSubmit"}"#));
+        assert_eq!(m.cards[0].state, State::Working);
+        assert_eq!(crate::ui::title(&m), "bungkus-mc · 1 working");
+        m.update(hook_line(
+            id,
+            r#"{"hook_event_name":"Notification","notification_type":"permission_prompt"}"#,
+        ));
+        assert_eq!(m.cards[0].state, State::NeedsYou);
+        assert_eq!(m.alerts.len(), 1);
+        assert_eq!(crate::ui::title(&m), "bungkus-mc · 1 needs you");
+        m.update(hook_line(
+            id,
+            r#"{"hook_event_name":"Notification","notification_type":"permission_prompt"}"#,
+        ));
+        assert_eq!(m.alerts.len(), 1, "no second alert while still needing you");
+        m.update(AppEvent::Hook(b"not json".to_vec()));
+        m.update(hook_line(SessionId::new(), r#"{"hook_event_name":"Stop"}"#));
+        assert_eq!(
+            m.cards[0].state,
+            State::NeedsYou,
+            "garbage and unknown sessions are dropped"
+        );
+    }
+
+    #[test]
+    fn bang_jumps_to_the_next_needs_you_across_projects() {
+        let mut m = sample(&["a", "b"]);
+        let (first, _w1) = with_session(&mut m, "one");
+        m.update(press(KeyCode::Char('\x1c')));
+        m.focus = Focus::Projects;
+        m.update(press(KeyCode::Char('j')));
+        let (second, _w2) = with_session(&mut m, "two");
+        for id in [first, second] {
+            m.update(hook_line(
+                id,
+                r#"{"hook_event_name":"Notification","notification_type":"permission_prompt"}"#,
+            ));
+        }
+        m.focus = Focus::Projects;
+        m.update(press(KeyCode::Char('!')));
+        assert_eq!(
+            (m.selected, m.focus),
+            (0, Focus::Output),
+            "wraps to project a"
+        );
+        m.focus = Focus::Sessions;
+        m.update(press(KeyCode::Char('!')));
+        assert_eq!(m.selected, 1, "then project b");
+        m.cards.iter_mut().for_each(|c| c.state = State::YourTurn);
+        m.focus = Focus::Sessions;
+        m.update(press(KeyCode::Char('!')));
+        assert_eq!(m.message.as_deref(), Some("nobody needs you right now"));
     }
 
     #[test]

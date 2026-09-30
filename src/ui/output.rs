@@ -13,7 +13,7 @@ use ratatui::widgets::{Block, BorderType, Paragraph};
 use crate::app::model::{Focus, Model};
 use crate::app::sessions::{Card, State};
 use crate::term::screen::Screen;
-use crate::ui::mascot::{self, Mascot};
+use crate::ui::mascot::{self, Mascot, Mood};
 use crate::ui::pane;
 use crate::ui::theme::{Theme, Token, bg, rgb, spec};
 
@@ -52,12 +52,66 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
                 bg,
             };
             let cursor = screen.cursor(inner);
+            let busy = pty
+                .last_output
+                .is_some_and(|t| model.now.saturating_duration_since(t) < BUSY);
+            let (w, h) = if busy {
+                (mascot::MINI_WIDTH, mascot::MINI_HEIGHT)
+            } else {
+                (mascot::WIDTH, mascot::HEIGHT)
+            };
+            let corner = (inner.width > w + 1 && inner.height > h)
+                .then(|| Rect::new(inner.width - 1 - w, 0, w, h));
+            let blank = corner.is_some_and(|c| screen.is_blank(c));
             frame.render_widget(screen, inner);
+            let mood = mood(&card.state);
+            match corner {
+                Some(c) if blank => {
+                    let pose = mood.pose(model.frame, !theme.no_color());
+                    let at = Rect {
+                        x: inner.x + c.x,
+                        y: inner.y + c.y,
+                        ..c
+                    };
+                    frame.render_widget(
+                        Mascot {
+                            theme,
+                            pose,
+                            mini: busy,
+                        },
+                        at,
+                    );
+                }
+                Some(_) if area.width > 12 => {
+                    let (text, token) = if mood == Mood::Failed {
+                        ("/xx\\", Token::Err)
+                    } else {
+                        ("/..\\", Token::Ok)
+                    };
+                    let at = Rect::new(area.right() - 8, area.y, 6, 1);
+                    frame.render_widget(Line::styled(format!(" {text} "), theme.fg(token)), at);
+                }
+                _ => {}
+            }
             if let (true, Some(position)) = (interact, cursor) {
                 frame.set_cursor_position(position);
             }
         }
         _ => draw_message(frame, inner, card, theme),
+    }
+}
+
+/// How recently the agent must have written to count as busy (mini sprite).
+const BUSY: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Returns the mascot's mood for a session state (DESIGN §5.7).
+fn mood(state: &State) -> Mood {
+    match state {
+        State::NeedsYou => Mood::NeedsYou,
+        State::Working => Mood::Working,
+        State::YourTurn => Mood::YourTurn,
+        State::Failed(_) => Mood::Failed,
+        State::Stopped | State::Wrapped => Mood::Idle,
     }
 }
 
@@ -78,7 +132,7 @@ fn default_colors(theme: Theme) -> (Color, Color) {
 fn draw_message(frame: &mut Frame, inner: Rect, card: &Card, theme: Theme) {
     let (text, token) = match &card.state {
         State::Failed(reason) => (reason.clone(), Token::Err),
-        State::Running | State::Stopped | State::Wrapped => {
+        State::Working | State::YourTurn | State::NeedsYou | State::Stopped | State::Wrapped => {
             ("Warming up the wok…".to_owned(), Token::FgMuted)
         }
     };
@@ -106,7 +160,7 @@ fn draw_empty(frame: &mut Frame, area: Rect, theme: Theme) {
         let [sprite] = Layout::horizontal([Constraint::Length(mascot::WIDTH)])
             .flex(Flex::Center)
             .areas(content);
-        frame.render_widget(Mascot { theme }, sprite);
+        frame.render_widget(Mascot::idle(theme), sprite);
         Rect {
             y: content.y + mascot::HEIGHT + 1,
             height: 2,

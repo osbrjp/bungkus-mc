@@ -31,6 +31,21 @@ pub(crate) struct Config {
     pub interact_exit: Option<String>,
     /// Whether mc captures the mouse.
     pub mouse: bool,
+    /// How mc announces needs-you and failed sessions (DESIGN §9).
+    pub notify: Notify,
+}
+
+/// The `notify` setting.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Notify {
+    /// Ring the terminal bell.
+    #[default]
+    Bell,
+    /// Bell plus a desktop notification where the terminal supports one.
+    Desktop,
+    /// Stay quiet (the title and tallies still update).
+    Off,
 }
 
 impl Default for Config {
@@ -43,6 +58,7 @@ impl Default for Config {
             agents: Agents::default(),
             interact_exit: None,
             mouse: true,
+            notify: Notify::default(),
         }
     }
 }

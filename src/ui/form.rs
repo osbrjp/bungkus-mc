@@ -51,7 +51,7 @@ pub(super) fn draw_wizard(
         Constraint::Fill(1),
     ])
     .areas(top);
-    frame.render_widget(Mascot { theme }, sprite);
+    frame.render_widget(Mascot::idle(theme), sprite);
     frame.render_widget(Paragraph::new(title_lines(form.field, theme)), title);
 
     let rows = if form.field == Field::Workspace {

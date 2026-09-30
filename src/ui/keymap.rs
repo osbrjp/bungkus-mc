@@ -59,6 +59,8 @@ pub(crate) enum Action {
     Stop,
     /// Toggle the zoomed output pane.
     Zoom,
+    /// Jump to the next session that needs you, across projects.
+    NextNeedsYou,
 }
 
 /// One key, or `gg`-style double press.
@@ -214,6 +216,18 @@ pub(crate) const BINDINGS: &[Binding] = &[
         action: Action::HalfUp,
         help: "half page up",
         hint: None,
+        scope: Scope::Global,
+    },
+    Binding {
+        keys: &[
+            c('!'),
+            Key::Press(KeyCode::Char('!'), KeyModifiers::SHIFT),
+            ctrl(']'),
+        ],
+        label: "! ctrl-]",
+        action: Action::NextNeedsYou,
+        help: "next needs you",
+        hint: Some("! next"),
         scope: Scope::Global,
     },
     Binding {
