@@ -51,6 +51,14 @@ pub(crate) enum Action {
     Quit,
     /// Focus the sessions pane of the selected project.
     OpenProject,
+    /// Focus the output pane on the selected session (INTERACT).
+    Interact,
+    /// Open the `n` picker for the selected project.
+    NewSession,
+    /// Stop the selected session (with a confirm).
+    Stop,
+    /// Toggle the zoomed output pane.
+    Zoom,
 }
 
 /// One key, or `gg`-style double press.
@@ -103,6 +111,38 @@ pub(crate) const BINDINGS: &[Binding] = &[
         help: "its sessions",
         hint: Some("enter → sessions"),
         scope: Scope::Projects,
+    },
+    Binding {
+        keys: &[c('n')],
+        label: "n",
+        action: Action::NewSession,
+        help: "new session",
+        hint: Some("n new"),
+        scope: Scope::Projects,
+    },
+    Binding {
+        keys: &[k(KeyCode::Enter)],
+        label: "enter l → tab",
+        action: Action::Interact,
+        help: "→ agent",
+        hint: Some("enter → agent (ctrl-\\ back)"),
+        scope: Scope::Sessions,
+    },
+    Binding {
+        keys: &[c('n')],
+        label: "n",
+        action: Action::NewSession,
+        help: "new session",
+        hint: Some("n new"),
+        scope: Scope::Sessions,
+    },
+    Binding {
+        keys: &[c('x')],
+        label: "x",
+        action: Action::Stop,
+        help: "stop (confirm)",
+        hint: Some("x stop"),
+        scope: Scope::Sessions,
     },
     Binding {
         keys: &[
@@ -173,6 +213,14 @@ pub(crate) const BINDINGS: &[Binding] = &[
         label: "ctrl-u pgup",
         action: Action::HalfUp,
         help: "half page up",
+        hint: None,
+        scope: Scope::Global,
+    },
+    Binding {
+        keys: &[c('z')],
+        label: "z",
+        action: Action::Zoom,
+        help: "zoom output",
         hint: None,
         scope: Scope::Global,
     },
@@ -362,7 +410,7 @@ mod tests {
                 Scope::Sessions,
                 key(KeyCode::Enter, KeyModifiers::NONE),
                 None,
-                Lookup::Unbound,
+                Lookup::Action(Action::Interact),
             ),
             (
                 Scope::Sessions,

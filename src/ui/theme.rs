@@ -12,10 +12,6 @@ use ratatui::style::{Color, Modifier, Style};
 use serde::{Deserialize, Serialize};
 
 /// A named colour role (DESIGN §2.1).
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "state colours are used from M4 on")
-)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Token {
     /// Primary text.

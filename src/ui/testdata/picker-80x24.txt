@@ -1,0 +1,25 @@
+ bungkus-mc  kedai-web › projects                                        v0.1.0
+┏ projects ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃>  kedai-web                                                                  ┃
+┃   pasar-mobile                                                               ┃
+┃   roti-docs                                                                  ┃
+┃   teh-cli                                                                    ┃
+┃   warung-api                                                                 ┃
+┃            ╔ new session · kedai-web ═══════════════════════════╗            ┃
+┃            ║                                                    ║            ┃
+┃            ║  agent   > claude    codex (not on PATH)           ║            ┃
+┃            ║  model   > default    haiku    sonnet    opus      ║            ┃
+┃            ║  name    ┃fix the flaky date test         ┃        ║            ┃
+┃            ║  prompt  ┃fix the flaky date test         ┃        ║            ┃
+┃            ║                                                    ║            ┃
+┃            ║  prompt and name are optional                      ║            ┃
+┃            ║               enter start · tab next · esc cancel  ║            ┃
+┃            ║                                                    ║            ┃
+┃            ╚════════════════════════════════════════════════════╝            ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+ NORMAL  enter → sessions · n new · j/k · / filter · , settings · ? help
+cursor: 48,12

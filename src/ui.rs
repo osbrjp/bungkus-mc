@@ -3,12 +3,16 @@
 //!
 //! Views draw the [`Model`] into a ratatui [`Frame`]; they never read the
 //! environment or the terminal. The only thing a view writes back is the
-//! number of list rows on screen, for half-page moves.
+//! number of list rows on screen, for half-page moves. [`panes`] is the
+//! one layout function: drawing, mouse hit tests and PTY sizes all use it.
 
+mod cards;
+mod dialogs;
 mod form;
 mod help;
 pub(crate) mod keymap;
 pub(crate) mod mascot;
+mod output;
 pub(crate) mod sanitise;
 pub(crate) mod theme;
 
@@ -16,12 +20,12 @@ use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Flex, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Paragraph, Wrap};
+use ratatui::widgets::{Block, BorderType, Paragraph};
 
 use crate::app::form::FormKind;
 use crate::app::model::{Focus, Model, Overlay};
 use crate::store::config::tilde;
-use crate::ui::mascot::Mascot;
+use crate::term::session::Size;
 use crate::ui::sanitise::truncate;
 use crate::ui::theme::{Theme, Token};
 
@@ -36,12 +40,70 @@ const PROJECTS_WIDTH: u16 = 22;
 /// See [`PROJECTS_WIDTH`].
 const SESSIONS_WIDTH: u16 = 38;
 
+/// Where each pane is on screen; `None` when it is not shown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Panes {
+    /// The projects pane.
+    pub projects: Option<Rect>,
+    /// The sessions pane.
+    pub sessions: Option<Rect>,
+    /// The output pane.
+    pub output: Option<Rect>,
+}
+
+/// Lays out the panes for a screen of `area` (DESIGN §4).
+///
+/// Three side by side from [`THREE_PANE_WIDTH`] columns, otherwise only
+/// the focused pane (the single-pane stack); `zoom` gives the body to the
+/// output pane. The header and getah bar take one line each.
+#[must_use]
+pub(crate) fn panes(area: Rect, focus: Focus, zoom: bool) -> Panes {
+    let [_, body, _] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Fill(1),
+        Constraint::Length(1),
+    ])
+    .areas(area);
+    let only = |which: Focus| Panes {
+        projects: (which == Focus::Projects).then_some(body),
+        sessions: (which == Focus::Sessions).then_some(body),
+        output: (which == Focus::Output).then_some(body),
+    };
+    if zoom {
+        return only(Focus::Output);
+    }
+    if area.width < THREE_PANE_WIDTH {
+        return only(focus);
+    }
+    let [projects, sessions, output] = Layout::horizontal([
+        Constraint::Length(PROJECTS_WIDTH),
+        Constraint::Length(SESSIONS_WIDTH),
+        Constraint::Fill(1),
+    ])
+    .areas(body);
+    Panes {
+        projects: Some(projects),
+        sessions: Some(sessions),
+        output: Some(output),
+    }
+}
+
+/// Returns the output pane's inner size, which every session's PTY has
+/// (the size the pane has whenever it is shown).
+#[must_use]
+pub(crate) fn output_size(area: Rect, zoom: bool) -> Size {
+    let pane = panes(area, Focus::Output, zoom).output.unwrap_or(area);
+    Size {
+        cols: pane.width.saturating_sub(2).max(1),
+        rows: pane.height.saturating_sub(2).max(1),
+    }
+}
+
 /// Draws the whole screen.
 ///
 /// Below [`MIN_SIZE`] only a one-line notice is drawn. Before the first
 /// run is finished the wizard takes the whole screen. Otherwise: header,
-/// panes (three side by side from [`THREE_PANE_WIDTH`] columns, else only
-/// the focused one), getah bar, and the help or settings overlay on top.
+/// the panes of [`panes`], getah bar, and any overlay on top.
 ///
 /// # Arguments
 ///
@@ -61,35 +123,36 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
         form::draw_wizard(frame, area, f, theme, model.host_light);
         return;
     }
-    let [header, body, getah] = Layout::vertical([
+    let [header, _, getah] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Fill(1),
         Constraint::Length(1),
     ])
     .areas(area);
-    model.list_rows = usize::from(body.height.saturating_sub(2));
-    let wide = area.width >= THREE_PANE_WIDTH;
-    draw_header(frame, header, model, theme, wide);
-    if wide {
-        let [projects, sessions, output] = Layout::horizontal([
-            Constraint::Length(PROJECTS_WIDTH),
-            Constraint::Length(SESSIONS_WIDTH),
-            Constraint::Fill(1),
-        ])
-        .areas(body);
-        draw_projects(frame, projects, model, theme);
-        draw_sessions(frame, sessions, model, theme);
-        draw_output(frame, output, theme);
-    } else {
-        match model.focus {
-            Focus::Projects => draw_projects(frame, body, model, theme),
-            Focus::Sessions => draw_sessions(frame, body, model, theme),
-        }
+    model.list_rows = usize::from(area.height.saturating_sub(4));
+    let layout = panes(area, model.focus, model.zoom);
+    draw_header(
+        frame,
+        header,
+        model,
+        theme,
+        layout.projects.is_some() && layout.output.is_some(),
+    );
+    if let Some(rect) = layout.projects {
+        draw_projects(frame, rect, model, theme);
+    }
+    if let Some(rect) = layout.sessions {
+        cards::draw(frame, rect, model, theme);
+    }
+    if let Some(rect) = layout.output {
+        output::draw(frame, rect, model, theme);
     }
     draw_getah(frame, getah, model, theme);
     match &model.overlay {
         Some(Overlay::Help) => help::draw(frame, area, model.focus.scope(), theme),
         Some(Overlay::Form(f)) => form::draw_settings(frame, area, f, theme, model.host_light),
+        Some(Overlay::Picker(p)) => dialogs::draw_picker(frame, area, p, theme),
+        Some(Overlay::Confirm(c)) => dialogs::draw_confirm(frame, area, *c, model, theme),
         None => {}
     }
 }
@@ -122,21 +185,26 @@ fn draw_header(frame: &mut Frame, area: Rect, model: &Model, theme: Theme, wide:
         let pane = match model.focus {
             Focus::Projects => "projects",
             Focus::Sessions => "sessions",
+            Focus::Output => "output",
         };
         match project {
             Some(name) => format!("{name} › {pane}"),
             None => pane.to_owned(),
         }
     };
+    let version = format!("v{} ", env!("CARGO_PKG_VERSION"));
+    let room = usize::from(area.width).saturating_sub(" bungkus-mc  ".len() + version.len() + 1);
     let line = Line::from(vec![
         Span::styled(
             " bungkus-mc",
             theme.fg(Token::Accent).add_modifier(Modifier::BOLD),
         ),
-        Span::styled(format!("  {crumbs}"), theme.fg(Token::FgMuted)),
+        Span::styled(
+            format!("  {}", truncate(&crumbs, room)),
+            theme.fg(Token::FgMuted),
+        ),
     ]);
     frame.render_widget(line, area);
-    let version = format!("v{} ", env!("CARGO_PKG_VERSION"));
     frame.render_widget(
         Line::styled(version, theme.fg(Token::FgMuted)).alignment(Alignment::Right),
         area,
@@ -195,89 +263,27 @@ fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
-/// Draws the sessions pane for the selected project, with the empty-state
-/// copy of DESIGN §11.
-fn draw_sessions(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
-    let project = model.selected_project();
-    let title = project.map_or_else(
-        || "sessions".to_owned(),
-        |p| format!("sessions · {}", p.name),
-    );
-    let block = pane(&title, model.focus == Focus::Sessions, theme);
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-    let workspace = workspace_label(model);
-    let text = match (&model.scan_error, project) {
-        (Some(error), _) => format!("Can't open {workspace}: {error}. w to pick another folder."),
-        (None, Some(p)) => {
-            format!(
-                "No sessions in {}. n to start one. Only sessions started here show up.",
-                p.name
-            )
-        }
-        (None, None) if !model.filter.is_empty() => {
-            format!("No project matches /{}.", model.filter)
-        }
-        (None, None) => format!(
-            "No projects in {workspace}. A project is a folder with CLAUDE.md, AGENTS.md or .git \
-             in it — w to pick another folder."
-        ),
-    };
-    let [text_area] = Layout::horizontal([Constraint::Fill(1)])
-        .horizontal_margin(1)
-        .areas(inner);
-    frame.render_widget(
-        Paragraph::new(text)
-            .style(theme.fg(Token::FgMuted))
-            .wrap(Wrap { trim: true }),
-        text_area,
-    );
-}
-
-/// Draws the output pane's empty state: the mascot and two lines, centred
-/// (DESIGN §5.7); the mascot is left out when the pane is too short.
-fn draw_output(frame: &mut Frame, area: Rect, theme: Theme) {
-    let block = pane("output", false, theme);
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-    let with_mascot = inner.height >= mascot::HEIGHT + 4;
-    let height = if with_mascot { mascot::HEIGHT + 3 } else { 2 };
-    let [content] = Layout::vertical([Constraint::Length(height)])
-        .flex(Flex::Center)
-        .areas(inner);
-    let text_area = if with_mascot {
-        let [sprite] = Layout::horizontal([Constraint::Length(mascot::WIDTH)])
-            .flex(Flex::Center)
-            .areas(content);
-        frame.render_widget(Mascot { theme }, sprite);
-        Rect {
-            y: content.y + mascot::HEIGHT + 1,
-            height: 2,
-            ..content
-        }
-    } else {
-        content
-    };
-    let lines = vec![
-        Line::styled("Nothing wrapped yet.", theme.fg(Token::Fg)),
-        Line::styled("n to start a session", theme.fg(Token::FgMuted)),
-    ];
-    frame.render_widget(
-        Paragraph::new(lines).alignment(Alignment::Center),
-        text_area,
-    );
-}
-
 /// Draws the last line: the mode word as a badge, then the focused pane's
-/// key hints or the current message.
+/// key hints or the current message (DESIGN §5.1).
 fn draw_getah(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
-    let (mode, token) = if model.filtering {
+    let interact = model.focus == Focus::Output;
+    let (mode, token) = if interact {
+        (" INTERACT ", Token::Warn)
+    } else if model.filtering {
         (" FILTER ", Token::Info)
     } else {
         (" NORMAL ", Token::FgMuted)
     };
     let text = if let Some(message) = &model.message {
         message.clone()
+    } else if interact {
+        let agent = model
+            .selected_card()
+            .map_or("the agent", |i| model.cards[i].kind.command());
+        format!(
+            "keys go to {agent} · {} back to mc",
+            model.exit_chord.label()
+        )
     } else if model.filtering {
         "type to filter · enter keep · esc clear".to_owned()
     } else if let Some(ch) = model.pending {
@@ -292,7 +298,7 @@ fn draw_getah(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
     frame.render_widget(line, area);
 }
 
-/// Returns an empty pane: heavy `ok` border when focused, light `border`
+/// Returns a pane: heavy `ok` border when focused, light `border`
 /// otherwise (DESIGN §3, borders).
 fn pane(title: &str, focused: bool, theme: Theme) -> Block<'static> {
     let (border_type, border, text) = if focused {
@@ -392,7 +398,10 @@ pub(crate) mod tests {
 
     /// Sends one plain key press to `model`.
     pub(crate) fn key(model: &mut Model, code: KeyCode) {
-        model.update(&Event::Key(KeyEvent::new(code, KeyModifiers::NONE)));
+        model.update(crate::app::AppEvent::Input(Event::Key(KeyEvent::new(
+            code,
+            KeyModifiers::NONE,
+        ))));
     }
 
     #[test]
@@ -421,6 +430,46 @@ pub(crate) mod tests {
         let mut model = sample(PROJECTS);
         key(&mut model, KeyCode::Char('?'));
         assert_golden("help-120x40.txt", &render(&mut model, 120, 40));
+    }
+
+    #[test]
+    fn sessions_and_interact_match_goldens() {
+        use crate::app::model::tests::with_session;
+        use crate::term::PtyEvent;
+
+        let mut model = sample(PROJECTS);
+        let (first, _w1) = with_session(&mut model, "checkout redesign");
+        let (second, _w2) = with_session(&mut model, "flaky payment test");
+        let (third, _w3) = with_session(&mut model, "bump deps");
+        let output =
+            |id, bytes: &[u8]| crate::app::AppEvent::Pty(PtyEvent::Output(id, bytes.to_vec()));
+        model.update(output(
+            second,
+            b"\x1b[1m> fix the flaky date test\x1b[0m\r\n  run it twice",
+        ));
+        model.update(crate::app::AppEvent::Pty(PtyEvent::Exited(third, Some(0))));
+        model.update(output(first, b"boom"));
+        model.update(crate::app::AppEvent::Pty(PtyEvent::Exited(first, Some(1))));
+        model.focus = Focus::Sessions;
+        model.card = 1;
+        assert_golden("sessions-120x40.txt", &render(&mut model, 120, 40));
+        model.interact();
+        assert_golden("interact-120x40.txt", &render(&mut model, 120, 40));
+        assert_golden("interact-80x24.txt", &render(&mut model, 80, 24));
+        key(&mut model, KeyCode::Char('\x1c'));
+        model.focus = Focus::Sessions;
+        key(&mut model, KeyCode::Char('q'));
+        assert_golden("quit-confirm-80x24.txt", &render(&mut model, 80, 24));
+    }
+
+    #[test]
+    fn picker_matches_golden() {
+        let mut model = sample(PROJECTS);
+        key(&mut model, KeyCode::Char('n'));
+        for ch in "fix the flaky date test".chars() {
+            key(&mut model, KeyCode::Char(ch));
+        }
+        assert_golden("picker-80x24.txt", &render(&mut model, 80, 24));
     }
 
     #[test]

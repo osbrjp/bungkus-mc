@@ -40,10 +40,12 @@ major-pinned by caret, and `cargo update` is a reviewed commit.
 Transitive crate count in the spike: 118 (7 direct). The stack above adds
 `thiserror`, `uuid`, `lexopt`, `ureq`+`rustls`, `semver`, `rustix` —
 expect ~160 crates in `Cargo.lock`. `deny.toml` denies duplicate crate
-versions (`multiple-versions = "deny"`) with two named exceptions, both
-inside ratatui 0.30's own tree and listed in `skip` with the reason:
+versions (`multiple-versions = "deny"`) with named exceptions, all
+inside upstream crates' own trees and listed in `skip` with the reason:
 `syn` 2 and 3 (strum/derive_more vs instability) and `hashbrown` 0.16 and
-0.17 (kasuari vs lru). Any other duplicate fails CI. `windows-sys` stays out
+0.17 (kasuari vs lru); from M3 also `signal-hook` 0.3/0.4 (crossterm vs
+alacritty_terminal) and `thiserror` 1/2 (portable-pty's `filedescriptor`).
+Any other duplicate fails CI. `windows-sys` stays out
 because `[graph] targets` is the four unix triples (`aarch64-apple-darwin`,
 `x86_64-apple-darwin`, `aarch64-unknown-linux-gnu`,
 `x86_64-unknown-linux-gnu`). Every crate here is on crates.io with a

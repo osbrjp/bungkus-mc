@@ -1168,6 +1168,12 @@ Setting `notify: "bell" | "desktop" | "off"`, **default `bell`**.
 
 ## 10. Model routing (opt-in)
 
+An optional add-on (ARCHITECTURE.md §13): with routing disabled — the
+default — none of this section appears anywhere, and the picker's model row
+is the plain choice. Enabled without a key, routing is skipped silently and
+the settings screen says `Jev: no key — routing skipped`. The setup wizard
+never mentions it.
+
 When `routing.enabled` is true (ARCHITECTURE.md §13), the `n` picker's
 `model` row defaults to `auto`; on `enter` mc asks Jev for a tier and
 launches the agent with the mapped model. What the user sees:
