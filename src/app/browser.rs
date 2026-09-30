@@ -35,7 +35,8 @@ pub(crate) struct Browser {
     pub dir: PathBuf,
     /// Its visible subfolders, sorted by name.
     pub entries: Vec<Entry>,
-    /// Highlighted entry.
+    /// Highlighted row: 0 is the folder itself (`./`), `i` is
+    /// `entries[i - 1]`.
     pub selected: usize,
 }
 
@@ -75,16 +76,21 @@ impl Browser {
         self.entries.iter().filter(|e| e.project).count()
     }
 
-    /// Moves the highlight by `delta`, clamped to the list.
+    /// Moves the highlight by `delta`, clamped to the rows (`./` first).
     pub(crate) fn step(&mut self, delta: isize) {
-        let last = self.entries.len().saturating_sub(1);
-        self.selected = self.selected.saturating_add_signed(delta).min(last);
+        self.selected = self
+            .selected
+            .saturating_add_signed(delta)
+            .min(self.entries.len());
     }
 
-    /// Returns the highlighted folder, if the list is not empty.
+    /// Returns the highlighted subfolder; `None` on the `./` row.
     #[must_use]
     pub(crate) fn highlighted(&self) -> Option<&Path> {
-        self.entries.get(self.selected).map(|e| e.path.as_path())
+        self.selected
+            .checked_sub(1)
+            .and_then(|i| self.entries.get(i))
+            .map(|e| e.path.as_path())
     }
 }
 
