@@ -39,13 +39,19 @@ major-pinned by caret, and `cargo update` is a reviewed commit.
 
 Transitive crate count in the spike: 118 (7 direct). The stack above adds
 `thiserror`, `uuid`, `lexopt`, `ureq`+`rustls`, `semver`, `rustix` —
-expect ~160 crates in `Cargo.lock`; `cargo deny` bans duplicates of the
-heavy ones (`syn`, `windows-sys` families) from creeping in twice, with
-`[graph] targets` in `deny.toml` set to the four unix triples
-(`aarch64-apple-darwin`, `x86_64-apple-darwin`, `aarch64-unknown-linux-gnu`,
-`x86_64-unknown-linux-gnu`) — otherwise the `windows-sys` duplicate ban
-fails on crates we never build. Every crate here is on crates.io with a
-permissive licence (MIT/Apache-2.0/ISC; `cargo deny` enforces the allowlist).
+expect ~160 crates in `Cargo.lock`. `deny.toml` denies duplicate crate
+versions (`multiple-versions = "deny"`) with two named exceptions, both
+inside ratatui 0.30's own tree and listed in `skip` with the reason:
+`syn` 2 and 3 (strum/derive_more vs instability) and `hashbrown` 0.16 and
+0.17 (kasuari vs lru). Any other duplicate fails CI. `windows-sys` stays out
+because `[graph] targets` is the four unix triples (`aarch64-apple-darwin`,
+`x86_64-apple-darwin`, `aarch64-unknown-linux-gnu`,
+`x86_64-unknown-linux-gnu`). Every crate here is on crates.io with a
+permissive licence; the `cargo deny` allowlist is MIT, Apache-2.0,
+Unicode-3.0 (`unicode-ident`, via ratatui) and Zlib (`foldhash`, via
+ratatui). Both of the last two are permissive and allow use in proprietary
+software with the notice shipped. ISC is added when a crate that needs it
+(`ring` via `ureq`, M9) arrives.
 bungkus-mc itself is proprietary: `Cargo.toml` sets `license-file = "LICENSE"`
 and `publish = false`, and `deny.toml` sets `[licenses.private] ignore = true`
 so our own crate isn't checked against the allowlist. The release job
