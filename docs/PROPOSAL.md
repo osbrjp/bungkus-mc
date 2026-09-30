@@ -87,14 +87,14 @@ palette.
 
 | Milestone | Scope | Done when |
 |-----------|-------|-----------|
-| M1 Skeleton | repo, CI (`gofmt`, test, govulncheck), release pipeline, `update`, theme package with colour/width tests, three empty panes with layout/breakpoints/modes/keymap + generated help, goldens at 120×40 and 80×24 | `bungkus-mcc` installs via install.sh, renders, `?` shows generated help, `q` quits |
+| M1 Skeleton | repo, CI (`gofmt`, test, govulncheck), release pipeline, `update`, theme package (painted + fallback sets, TrueColor gate, `background` config) with colour/width tests, mascot pixel map + static half-block/ASCII renderers, three empty panes with layout/breakpoints/modes/keymap + generated help, goldens at 120×40 and 80×24 | `bungkus-mcc` installs via install.sh, renders green at TrueColor and plain at 256, `?` shows generated help, `q` quits |
 | M2 Workspace + projects | config/state files, first-run screen, workspace by CLI arg/config/text input, project list = child folders with `CLAUDE.md`/`AGENTS.md`/`.git`, sanitised names | pick a folder, see projects |
 | M3 Live pane | PTY + x/vt session with reply pump, key translation table (incl. `shift-enter`; full passthrough incl. `esc`/`tab`/arrows/ctrl), sanitiser allowlist + hostile corpus, wheel scrollback, resize-all, INTERACT-on-focus with configurable exit chord, `n` launches `claude`/`codex` with `--` and `--name`, `x` stops, quit confirm; tests: DSR/DA feed returns, hostile streams, CJK/emoji width; decide Codex `--no-alt-screen`; JIS/German chord check; confirm interactive `claude`/`codex` accept `--` before a dash-leading prompt | a full Claude Code session runs inside mcc on kitty, Ghostty, tmux (+navigator), VS Code, including answering a permission prompt via passthrough |
 | M4 Structure + notifications (Claude) | `bungkus-mcc hook` (silent, trimmed, quoted path), socket server, Claude adapter via `--settings` (new + resume argv, unit-tested), decided state machine with `background_tasks`, subagent list, sidebar precedence, `!` across projects, session names (`--name`, `session_title`, verify `/rename` → `session_name`), `notify` bell/desktop/off + OSC 2 title push/pop | cards and sidebar update live during a real session with parallel subagents; bell rings on needs-you; card titles follow renames |
 | M5 Usage (Claude) | `bungkus-mcc statusline` wrapper (200 ms concurrent forward, then the user's status line under `sh` with buffered stdin; resolver with `CLAUDE_CONFIG_DIR`, recursion guard), `Usage` messages, compact card line, expanded selected card (sessions pane focused), getah-bar limits with thresholds and stale dimming; record a multi-turn session to settle `total_input_tokens` semantics and check which shell Claude uses | tokens/cost/ctx on every Claude card; limits in the bar on a subscription account; `-` on API-key accounts; the user's own status line still renders |
 | M6 Codex | verify `/hooks` trust persistence for `-c` injected hooks (delete or build `setup codex`), record real Codex SubagentStart/PreToolUse payloads, Codex adapter, resume rules, "hooks off" hints; **Codex usage reader** (`codexusage.go`: validated path under `CODEX_HOME`, tail-only 256 KiB, `token_count` only, tolerant, fixtures) feeding cards and the `X` limits | Codex session with subagents shows structure and `312k tok · - · ctx 22%`; untrusted path degrades to output only; bad/missing rollout shows `-` |
 | M7 Descendant tracking + cleanup | `internal/proc`: 2 s process-tree scan (Linux `/proc`, macOS `ps`), pid + start-time identity, port annotation (Linux `/proc/net/tcp`, macOS `lsof`), quit/`x` dialog listing, SIGTERM → 3 s → SIGKILL; fixture tests per OS, identity-mismatch refusal, kill order, missing-`lsof` path | a session that started `vite` is quit; the dialog shows `vite :5173 pid …`; the port is free afterwards; a reused pid is never signalled (test) |
-| M8 Resume + polish | `sessions.json`, `r`/`d` with confirms, light theme, `--icons unicode|nerd`, `NO_COLOR`, non-UTF-8 locale, full terminal/keyboard matrix pass, README (exit-chord alternates, manual hook removal) | release **v0.1.0** on the `release` branch, together with bungkus-cli's Daun Pisang release |
+| M8 Resume + polish | `sessions.json`, `r`/`d` with confirms, light theme, `--icons unicode|nerd`, `NO_COLOR`, non-UTF-8 locale, mascot animation in the empty state (tick only while visible), full terminal/keyboard matrix pass, README (exit-chord alternates, manual hook removal) | release **v0.1.0** on the `release` branch, together with bungkus-cli's Daun Pisang release |
 | M9 Model routing (opt-in) | `internal/route` (net/http to TypeSafe, one Choice question, tier→model map from config, 1.5 s budget, fallback), API key from env/keychain command, consent dialog, picker `model` row, card `model` line, `--model`/`-m` in Launch; `httptest` fake-server tests | release **v0.2.0**; a routed session shows `haiku · routed 0.82`; the API down → default model, no error |
 
 M9 is in stage 1 because it is ~200 isolated lines (one package, one
@@ -143,6 +143,20 @@ picker row, one argv flag) and it is opt-in; it does not hold v0.1.0.
    the `n` picker gets a name field prefilled from the prompt.
 10. **Model routing with TypeSafe Jev**, opt-in and off by default, scoped
     to the start prompt (M9, ARCHITECTURE.md §13).
+11. **mcc paints a low-saturation green background** ("Daun Teduh"
+    `#1c2a21`, body text ~11:1; light "Santan" `#f0f3d8`) when the terminal
+    is TrueColor; otherwise the terminal's own bg/fg. Config `background:
+    paint | terminal`. The output-pane emulator uses the same colours and
+    answers OSC 11 with them. bungkus-cli keeps "never paint" for now
+    (possible follow-up).
+12. **Mascot:** the banana-leaf packet character (Figma
+    `HwlCHEFqRm9hfOfUbtuL4h` node `17:3`; `docs/assets/mascot.svg`, `.gif`,
+    generator `mascot-gif.py`) replaces the logomark; a 16×14 half-block
+    sprite (idle/blink/hop/stepL/stepR, 350 ms sequence) animates only in
+    the output pane's empty state, static under `NO_COLOR` or
+    `motion: false`, ASCII triangle without half-blocks; cross-eyed variant
+    proposed for the failed empty state and error dialog; fixed brand
+    colours, never drawn over agent output.
 
 Closed earlier: `--settings` hooks merge with user hooks (verified); Codex
 hook injection per launch via `-c` (verified); the start prompt is optional

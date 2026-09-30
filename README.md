@@ -1,5 +1,7 @@
 # bungkus-mcc
 
+<p align="center"><img src="docs/assets/mascot.gif" width="160" alt="the bungkus mascot: a green banana-leaf packet with tan paper corners, hopping"></p>
+
 **Status: proposal / pre-development.** No application code yet; this repo
 holds the design documents for review (revision 2).
 

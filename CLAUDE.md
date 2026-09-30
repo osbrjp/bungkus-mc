@@ -57,7 +57,8 @@ internal/workspace/          # project dir scan
 - States: running / your turn / needs you / failed / wrapped / stopped; `background_tasks` is authoritative for subagents; `idle_prompt` ignored; sidebar precedence failed > needs you > running > your turn.
 - Quitting stops sessions (confirm); resumable. No daemon in stage 1.
 - Modes: NORMAL (projects/sessions panes, vim + arrows) and INTERACT (output pane); exit chord `ctrl-\` by default, configurable (`interactExit`); `ctrl-z` swallowed. All keys in `internal/tui/keymap.go`, unique per pane/mode.
-- Never paint a background; `fg` is the terminal default; every state is glyph + word + colour; state glyphs are East-Asian-Narrow; `notify` default `bell`.
+- mcc paints a low-saturation green background (`#1c2a21` dark / `#f0f3d8` light) **only at TrueColor** (`background: paint`, default); at 256/16/`NO_COLOR` the terminal's own bg/fg and the declared indices. Every state is glyph + word + colour; state glyphs are East-Asian-Narrow; `notify` default `bell`.
+- Mascot (banana-leaf packet, Figma `HwlCHEFqRm9hfOfUbtuL4h` 17:3, `docs/assets/`): a 16×14 half-block sprite (idle/blink/hop/stepL/stepR + cross for failed), fixed brand colours, shown only in the output pane's empty state, ticking only while visible and `motion` is on; never over agent output.
 - Separate repo and binary from bungkus-cli; shared code is copied with a `// copied from …@<sha>` header. Eight direct deps; adding one requires a TECH_STACK.md entry.
 - Every string not from the PTY (hook fields, prompts, dir names) goes through `sanitise()`.
 

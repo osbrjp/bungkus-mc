@@ -99,10 +99,16 @@ Inherit `os.Environ()` and then:
 - add `BUNGKUS_MCC_SOCK`, `BUNGKUS_MCC_SESSION`, and for Claude
   `BUNGKUS_MCC_USER_STATUSLINE` (§6.2).
 
-The emulator's default foreground/background come from
-`tea.BackgroundColorMsg`/`ForegroundColor` (or the theme's reference values
-when the host does not answer), so the agent's "default colour" text looks
-like the host's.
+The emulator's default foreground/background are **the theme's painted
+`bg`/`fg`** (`#1c2a21`/`#d6e2d3` dark, `#f0f3d8`/`#1f2a22` light) whenever
+mcc paints (TrueColor and `background: "paint"`), so the agent's screen
+blends into the pane; otherwise they come from `tea.BackgroundColorMsg`/
+`ForegroundColor` (or the theme's reference values when the host does not
+answer). The emulator answers the agent's OSC 10/11 queries with those
+same colours, so agents pick their dark (or light) theme to match —
+ASSUMPTION that x/vt answers OSC 10/11 from its configured defaults; if it
+does not, the reply is produced in the emulator wrapper's OSC callback
+(M3 check).
 
 ### 3.2 What happens when mcc quits while agents run (decided by the owner)
 
@@ -483,6 +489,8 @@ shown dimmed as stale.
 {
   "workspace": "/Users/me/Works/OSBR",
   "theme": "auto",
+  "background": "paint",
+  "motion": true,
   "icons": "ascii",
   "mouse": true,
   "notify": "bell",
@@ -539,7 +547,12 @@ name. Other folders are ignored. No recursion, no project file.
 6. The Codex usage tailer and the process-tree scanner are `tea.Tick`-driven
    commands, not free-running goroutines; each tick does one bounded read
    (≤ 256 KiB / one `ps`) and sends one message.
-7. No `time.Sleep` in the model; the spinner tick only while something runs.
+7. No `time.Sleep` in the model; the spinner tick only while something
+   runs; the mascot tick (350 ms, sequence in DESIGN.md §5.7) only while
+   the output pane's empty state is actually visible (no session selected /
+   project has no sessions, not zoomed away, not `NO_COLOR`, `motion` not
+   `false`) — it is re-armed from `View()` state, so a hidden or static
+   mascot costs no wake-ups.
 8. Shutdown (§3.2) runs as a `tea.Cmd` with a "stopping…" view; `tea.Quit`
    only after it completes.
 
@@ -553,7 +566,8 @@ cmd/
   setup.go                     # `setup codex` (only if M6 proves it necessary)
   update.go                    # copied from bungkus-cli (header: // copied from osbrjp/bungkus-cli@<sha> …)
 internal/
-  theme/    theme.go           # Daun Pisang tokens, Icon(), styles — reference copy for bungkus-cli
+  theme/    theme.go           # Daun Pisang tokens (painted + terminal-fallback sets), Icon(), styles — reference copy for bungkus-cli
+            mascot.go          # 16×14 pixel map, frames idle/blink/hop/stepL/stepR/cross, fixed brand colours; half-block and ascii renderers
   tui/      app.go keymap.go projects.go sessions.go output.go dialogs.go firstrun.go
             testdata/          # goldens (120×40, 80×24), hostile streams
   agent/    agent.go claude.go codex.go codexusage.go   testdata/{claude,codex}/
@@ -613,7 +627,7 @@ wizard in the output pane.
 
 | Concern | Handled by | Our part |
 |---------|-----------|----------|
-| colour depth, `NO_COLOR`, tmux RGB | Bubble Tea v2 + colorprofile | declared 256/16 values per token |
+| colour depth, `NO_COLOR`, tmux RGB | Bubble Tea v2 + colorprofile | **painted green bg + fg only at TrueColor** (`tea.ColorProfileMsg`); at 256/16/`NO_COLOR` the terminal's own bg/fg and the declared 256/16 indices per token (DESIGN.md §2). `background: "terminal"` forces the fallback |
 | kitty keyboard vs legacy | Bubble Tea negotiates for *our* input | never bind protocol-only keys; exit chord is a C0 byte; own key table for the child |
 | mouse | Bubble Tea | `mouse: false`; wheel = scrollback; modifier-drag for selection documented |
 | synchronized output | Bubble Tea | — |

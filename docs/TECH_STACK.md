@@ -32,6 +32,11 @@ kitty-keyboard client encoder** (→ our key table); it builds against the
 `ultraviolet` version Bubble Tea pins. Contained in one package
 (`internal/term`) behind a 6-method wrapper.
 
+The mascot is data, not a dependency: a 16×14 pixel map in
+`internal/theme/mascot.go` rendered with `▀`/`▄`/`█` and four fixed colours;
+`docs/assets/mascot.svg|gif` and `mascot-gif.py` are documentation assets
+(the Python generator is not part of the build).
+
 East Asian Width for the glyph-width test: a **hard-coded table** for our
 ~40 glyphs (generated once from `unicodedata`, checked into the test),
 not `rivo/uniseg` — the set is tiny and the table doubles as documentation.

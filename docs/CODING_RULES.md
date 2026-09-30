@@ -82,9 +82,24 @@ cosmetics have goldens; glue has none. Coverage is not a target.
   each `tea.Key` produces the expected bytes in normal and DECCKM mode,
   `shift-enter` → ESC CR, `ctrl-z` → nothing; bracketed paste only when
   mode 2004 is on.
-- **Theme**: contrast ≥ 4.5 for `fg-muted, accent, ok, warn, err` against
-  the reference backgrounds; `ok/warn/err/accent` pairwise distinct at 256
-  and 16 in both themes; `fg-muted ≠ info` at 256 and 16; every glyph in
+- **Theme**: contrast ≥ 4.5 for `fg, fg-muted, accent, ok, warn, err, info`
+  against the painted backgrounds (`#1c2a21`, `#f0f3d8`) and for the
+  fallback set against the reference backgrounds; `ok/warn/err/accent`
+  pairwise distinct at 256 and 16 in both themes; `fg-muted ≠ info` at 256
+  and 16; painting happens only when the profile is TrueColor and
+  `background` is `paint` (table over profile × config → paints? and which
+  token set); the emulator's default colours equal the painted `bg`/`fg`
+  when painting;
+- **Mascot**: the Go pixel table equals the base rows in DESIGN.md §5.7
+  (14 rows × 16); every rendered frame (idle, blink, hop, stepL, stepR,
+  cross) is exactly 7 rows × 16 cells; only the four brand colours plus
+  transparent appear; the ASCII form is 4 lines ≤ 16 cells; the sequence
+  is the documented 14-step loop; the tick command is returned only when
+  the empty state is visible and motion is allowed (table: session
+  selected / zoomed / `NO_COLOR` / `motion: false` / narrow stack on
+  another pane → no tick, static frame); the sprite is never emitted while
+  a session is selected; the cross frame is used only for the failed
+  empty state and the error dialog; every glyph in
   every icon set is exactly 1 cell (`lipgloss.Width`) and East Asian width
   Narrow for state/marker glyphs, checked against a hard-coded EAW table
   for our glyph set (no uniseg dependency in tests).
