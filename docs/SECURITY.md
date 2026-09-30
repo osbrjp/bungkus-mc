@@ -62,7 +62,7 @@ agents already store.** No `tool_input` beyond a 200-char description, no
 | Config and state files | Tampering; world-readable | JSON under `~/.config/bungkus/mc` and `~/.local/state/bungkus/mc`, dirs 0700, files 0600, atomic writes. Values validated on load; a bad config is reported and replaced by defaults in memory. mc never writes `config.json`; consent is recorded in the state dir (`consent.json`) |
 | `setup codex` (only if M6 proves it necessary) | Silent modification of `~/.codex/hooks.json` | Round-trips `serde_json::Value`, aborts on malformed JSON, writes `.bak`, keeps the file mode, `canonicalize`s and writes next to the target, idempotent, prints the block and asks y/N, manual removal documented. Nothing in mc modifies `~/.claude/settings.json` |
 | Hook trust bypass | Running untrusted hooks | **Never pass `--dangerously-bypass-hook-trust`** or any `--dangerously-*` flag to either agent |
-| Update check / self-update | MITM, tampered binary | HTTPS to `api.github.com` (release tag only; 3 s; daily; `BUNGKUS_NO_UPDATE_CHECK` disables). Cached tag validated as semver before display (cache 0600). `bungkus-mc update` fetches `install.sh` at the resolved release tag, which verifies SHA-256 from that tag's `checksums.txt`. Control: TLS + integrity checksum; no signature (as bungkus-cli). The updater is a behaviour-identical Rust port of bungkus-cli's; `install.sh` is the same script with the repo/binary names changed, and fixes to it apply to both repos |
+| Update check / self-update | MITM, tampered binary, token exposure | Private repo: the release tag comes from `gh release view` (argv, 3 s, daily; `BUNGKUS_NO_UPDATE_CHECK` disables; skipped silently without `gh` or login). mc never reads, stores or logs a GitHub token; `gh` owns auth. Cached tag validated as semver before display (cache 0600). `bungkus-mc update` fetches `install.sh` at the resolved release tag, which verifies SHA-256 from that tag's `checksums.txt`. Control: TLS + integrity checksum; no signature (as bungkus-cli). The updater is a behaviour-identical Rust port of bungkus-cli's; `install.sh` is the same script with the repo/binary names changed, and fixes to it apply to both repos |
 | Debug log | Secrets in logs | Off by default; `--debug` writes a 0600 file with event names, sizes, errors, routing tier — no payload bodies, no prompts, no env, no keys |
 | Signals / child lifetime | Orphaned agents after a crash | Children are in their own session and get SIGHUP when the PTY master closes (also on a mc crash); descendants that survive a *crash* are not cleaned (no dialog, no scan) — a normal quit is required for cleanup |
 
@@ -102,13 +102,15 @@ agents already store.** No `tool_input` beyond a 200-char description, no
 
 ## External communication
 
-- **Release check.** Host `https://api.github.com/repos/osbrjp/bungkus-mc/releases/latest`
-  (hardcoded, HTTPS). Trigger: once a day on start when stderr is a
-  terminal and `BUNGKUS_NO_UPDATE_CHECK` is unset; `bungkus-mc update
-  --check`. Auth: none. Policy: 3 s / 10 s timeout, no retries, no
-  redirects, ureq/rustls defaults.
-- **Self-update.** `curl -fsSL <install.sh at tag> | bash` → asset +
-  `checksums.txt` from `github.com`, SHA-256 verified. The installer's
+- **Release check.** mc runs `gh release view --repo osbrjp/bungkus-mc
+  --json tagName` (fixed argv, no shell). `gh` talks to `api.github.com`
+  with the user's own login; mc sees only the tag. Trigger: once a day on
+  start when stderr is a terminal and `BUNGKUS_NO_UPDATE_CHECK` is unset;
+  `bungkus-mc update --check`. Policy: 3 s timeout, no retries, skipped
+  silently if `gh` is missing or not logged in.
+- **Self-update.** `gh release download --pattern install.sh` at the
+  resolved tag, piped to `bash`; the script downloads the asset and
+  `checksums.txt` through `gh` and verifies SHA-256. The installer's
   `bkmc` symlink is created only when no `bkmc` exists on `PATH` or in
   the install dir. It never replaces another program's command.
 - **Model routing (opt-in, off by default).** Host

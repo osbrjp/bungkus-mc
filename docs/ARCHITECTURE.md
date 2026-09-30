@@ -730,12 +730,21 @@ INTERACT. `n` targets the selected project.
 **Decided: A now, E later.** Since mc is Rust, nothing is copied from the
 Go code any more:
 
-- The updater (~150 lines: GitHub latest-release lookup with a daily
-  0600 cache, semver compare, `update --check`, re-running the installer
-  at the resolved tag) is **ported** to `src/update/`, behaviour-identical
-  (same `BUNGKUS_NO_UPDATE_CHECK`, same one-line hint).
-- `install.sh` is **reused as-is** with `REPO=osbrjp/bungkus-mc` and
-  `BIN_NAME=bungkus-mc`. One addition: after installing, it creates the
+- **The repo is private (owner decision)**, so anonymous GitHub downloads
+  and API calls don't work. Everything release-related goes through the
+  user's authenticated `gh` CLI; mc never reads or stores a GitHub token.
+- The updater (~150 lines: latest-release lookup with a daily 0600 cache,
+  semver compare, `update --check`, re-running the installer at the
+  resolved tag) is **ported** to `src/update/`, with the same
+  `BUNGKUS_NO_UPDATE_CHECK` and the same one-line hint. The lookup runs
+  `gh release view --repo osbrjp/bungkus-mc --json tagName` (argv, 3 s
+  timeout). If `gh` is missing or not logged in, the check is skipped
+  silently.
+- `install.sh` starts from bungkus-cli's script with `REPO=osbrjp/bungkus-mc`
+  and `BIN_NAME=bungkus-mc`. It is attached to every release, and fetches
+  the binary and `checksums.txt` with `gh release download` (SHA-256
+  verified as before). It falls back to `curl` only when the repo is
+  public, so it keeps working if the repo is opened later. One addition: after installing, it creates the
   short command `bkmc` as a symlink next to the binary, but only if nothing
   named `bkmc` is already on `PATH` or in the install dir. Otherwise it
   prints one line suggesting `alias bkmc=bungkus-mc` and leaves the existing

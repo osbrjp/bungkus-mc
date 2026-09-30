@@ -44,8 +44,11 @@ cargo fmt --all --check && cargo clippy --all-targets --all-features -- -D warni
 
 ## Planned install (not yet available)
 
+The repo is private, so install through the GitHub CLI with an account
+that has access (`gh auth login` first):
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/osbrjp/bungkus-mc/main/install.sh | bash
+gh release download --repo osbrjp/bungkus-mc --pattern install.sh -O - | bash
 bkmc        # short command; same as bungkus-mc
 ```
 

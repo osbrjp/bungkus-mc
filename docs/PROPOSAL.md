@@ -239,25 +239,24 @@ with the last agent preselected.
     part of the bungkus voice, the help screen explains it, and the `+`
     icon marks it as finished.
 
+21. **Private GitHub repo** (`osbrjp/bungkus-mc`) for now. Install, update
+    check and self-update go through the user's authenticated `gh` CLI;
+    `install.sh` is a release asset and falls back to `curl` if the repo
+    is made public later. mc never handles a GitHub token.
+
 ## 7. Open questions for the product owner
 
-1. **Public or private GitHub repo?** The planned installer (`curl … |
-   bash`) downloads release binaries anonymously, which only works if the
-   repo or its releases are public. A proprietary licence can still sit in
-   a public repo (source visible, no rights granted). A private repo would
-   need an authenticated install (`gh release download`) and no one-line
-   curl installer.
-2. **Routing tiers per agent:** Claude `quick → haiku`, `standard → sonnet`,
+1. **Routing tiers per agent:** Claude `quick → haiku`, `standard → sonnet`,
    `deep → opus` is the proposed default; exact model ids per tier?
-3. **Route Codex too?** Codex's `-m` accepts model ids, but the tier map is
+2. **Route Codex too?** Codex's `-m` accepts model ids, but the tier map is
    empty by default (no obvious cheap/standard/deep triple); provide one,
    or Claude-only for M9?
-4. **Jev cost vs tokens saved:** a Jev call is ~$0.00002 per routed start
+3. **Jev cost vs tokens saved:** a Jev call is ~$0.00002 per routed start
    (≤ 4 KiB prompt at $0.042/Mtok), negligible; the real trade is
    quality-on-misroute vs cheaper sessions. Is the 0.6 confidence floor
    right, and should a fallback default to the *cheaper* or the *default*
    model?
-5. **Codex thread names:** extend the approved rollout reader to the
+4. **Codex thread names:** extend the approved rollout reader to the
    thread-name record once its type is confirmed, or leave Codex titles to
    mc's own name/prompt?
 

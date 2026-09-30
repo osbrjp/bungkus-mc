@@ -99,5 +99,7 @@ job compiles `--release` for darwin/linux × arm64/amd64 on native runners
 (`macos-latest` for both macOS targets, `ubuntu-latest` + `ubuntu-24.04-arm`
 for Linux), or `cargo-zigbuild` from one runner if the ARM Linux runner is
 unavailable; uploads `bungkus-mc-<os>-<arch>` + `checksums.txt`.
-`install.sh` is bungkus-cli's script with `REPO`/`BIN_NAME` changed and is
-fetched at the resolved release tag.
+`install.sh` (bungkus-cli's script with `REPO`/`BIN_NAME` changed, using
+`gh release download` while the repo is private) is attached to every
+release. `ureq` is only needed for model routing (M9): the update check
+goes through `gh`, so it adds no HTTP code.
