@@ -33,9 +33,9 @@ use crate::workspace::Project;
 /// (ARCHITECTURE §3.3).
 const SCAN_EVERY: std::time::Duration = std::time::Duration::from_secs(2);
 
-/// How long a first digit waits for a second one when the workspace has
-/// more than nine projects (DESIGN §8).
-pub(crate) const JUMP_WAIT: std::time::Duration = std::time::Duration::from_millis(400);
+/// How long after a project-number digit a next digit extends the number
+/// instead of starting a new one (DESIGN §8; bungkus-cli's `jumpWindow`).
+pub(crate) const JUMP_WINDOW: std::time::Duration = std::time::Duration::from_millis(700);
 
 /// Which pane has focus. The output pane's focus is INTERACT (DESIGN §8).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -150,8 +150,7 @@ pub(crate) struct Model {
     pub filtering: bool,
     /// First key of a pending double press.
     pub pending: Option<char>,
-    /// A first project-number digit waiting for a second one, and when it
-    /// was typed.
+    /// The project number typed so far and when its last digit came.
     pub jump: Option<(usize, Instant)>,
     /// Help, a form, the picker or a confirm on top of the panes.
     pub overlay: Option<Overlay>,
@@ -357,9 +356,7 @@ impl Model {
             .next_scan
             .filter(|_| self.cards.iter().any(Card::running));
         let plans = self.plan_deadline();
-        let jump = self.jump.map(|(_, at)| at + JUMP_WAIT);
         syncs
-            .chain(jump)
             .chain(stops)
             .chain(silent)
             .chain(tick)
@@ -403,12 +400,6 @@ impl Model {
         match event {
             AppEvent::Tick => {
                 self.frame = self.frame.wrapping_add(1);
-                if let Some((n, at)) = self.jump
-                    && self.now >= at + JUMP_WAIT
-                {
-                    self.jump = None;
-                    self.jump_to(n);
-                }
                 self.enforce_stops();
                 if let Some(cmd) = self.plan_kill_due() {
                     return Some(cmd);
@@ -582,17 +573,7 @@ impl Model {
             return None;
         }
         let lookup = keymap::lookup(self.focus.scope(), key, self.pending.take());
-        let digit = match (lookup, key.code) {
-            (Lookup::Action(Action::Jump), KeyCode::Char(ch)) => ch.to_digit(10),
-            _ => None,
-        };
-        if let Some((first, _)) = self.jump.take() {
-            if let Some(d) = digit {
-                self.jump_to(first * 10 + d as usize);
-                return None;
-            }
-            self.jump_to(first);
-        }
+        let jump = self.jump.take();
         match lookup {
             Lookup::Pending(ch) => {
                 self.pending = Some(ch);
@@ -600,8 +581,10 @@ impl Model {
             }
             Lookup::Unbound => None,
             Lookup::Action(Action::Jump) => {
-                if let Some(d) = digit {
-                    self.jump_digit(d as usize);
+                if let KeyCode::Char(ch) = key.code
+                    && let Some(d) = ch.to_digit(10)
+                {
+                    self.jump_digit(jump, d as usize);
                 }
                 None
             }
@@ -609,25 +592,24 @@ impl Model {
         }
     }
 
-    /// Handles a first project-number digit: with more than nine projects
-    /// it waits [`JUMP_WAIT`] for a second digit, unless no two-digit
-    /// number starts with it; otherwise it jumps at once.
-    fn jump_digit(&mut self, d: usize) {
-        let len = self.visible().len();
-        if len > 9 && d * 10 <= len {
-            self.jump = Some((d, self.now));
-        } else {
-            self.jump_to(d);
+    /// Handles a project-number digit, as bungkus-cli's wizard does: the
+    /// selection moves on every digit, never after a wait. Within
+    /// [`JUMP_WINDOW`] of the previous digit it extends the number (`1`
+    /// then `6` is 16), otherwise it starts a new one. A number with no
+    /// project leaves the last jump in place; any other key ends the
+    /// number, and `0` alone does nothing.
+    fn jump_digit(&mut self, previous: Option<(usize, Instant)>, d: usize) {
+        let n = match previous {
+            Some((n, at)) if self.now < at + JUMP_WINDOW => n * 10 + d,
+            _ => d,
+        };
+        if n == 0 {
+            return;
         }
-    }
-
-    /// Selects visible project number `n` (1-based), or says there is none.
-    fn jump_to(&mut self, n: usize) {
-        if (1..=self.visible().len()).contains(&n) {
+        self.jump = Some((n, self.now));
+        if n <= self.visible().len() {
             self.selected = n - 1;
             self.card = 0;
-        } else {
-            self.message = Some(format!("No project {n}."));
         }
     }
 
@@ -1006,42 +988,36 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn digits_jump_to_projects_and_wait_for_a_second_one_past_nine() {
-        let tick = |m: &mut Model, after| {
-            m.update(AppEvent::Tick);
-            m.now += after;
-            m.update(AppEvent::Tick);
-        };
-        let mut few = sample(&["a", "b", "c"]);
-        few.update(press(KeyCode::Char('3')));
-        assert_eq!(
-            (few.selected, few.jump),
-            (2, None),
-            "nine or fewer jump at once"
-        );
-        few.update(press(KeyCode::Char('7')));
-        assert_eq!(few.message.as_deref(), Some("No project 7."));
-
-        let names: Vec<String> = (1..=12).map(|i| format!("p{i:02}")).collect();
+    fn digits_move_at_once_and_extend_within_the_window() {
+        let names: Vec<String> = (1..=20).map(|i| format!("p{i:02}")).collect();
         let names: Vec<&str> = names.iter().map(String::as_str).collect();
         let mut m = sample(&names);
-        let cases = [
-            ("12", 11, "two digits"),
-            ("3", 2, "no two-digit number starts with 3"),
-            ("1", 2, "1 waits"),
-        ];
-        for (keys, selected, why) in cases {
+        let type_keys = |m: &mut Model, keys: &str| {
             for ch in keys.chars() {
                 m.update(press(KeyCode::Char(ch)));
             }
+        };
+        let cases = [
+            ("1", 0, "the first digit moves at once"),
+            ("6", 15, "a digit within the window extends: 16"),
+            ("9", 15, "169 is out of range; 16 stays"),
+            ("j3", 2, "another key ends the number"),
+            ("0", 2, "30 is out of range; 3 stays"),
+        ];
+        for (keys, selected, why) in cases {
+            type_keys(&mut m, keys);
             assert_eq!(m.selected, selected, "{why}");
         }
-        assert!(m.jump.is_some());
-        tick(&mut m, JUMP_WAIT);
-        assert_eq!((m.selected, m.jump), (0, None), "the wait ends on 1");
-        m.update(press(KeyCode::Char('1')));
-        m.update(press(KeyCode::Char('j')));
-        assert_eq!(m.selected, 1, "another key takes 1, then moves down");
+        m.now += JUMP_WINDOW;
+        type_keys(&mut m, "2");
+        assert_eq!(
+            m.selected, 1,
+            "after the window a digit starts a new number"
+        );
+        m.now += JUMP_WINDOW;
+        type_keys(&mut m, "0");
+        assert_eq!(m.selected, 1, "0 alone does nothing");
+        assert!(m.message.is_none());
     }
 
     #[test]

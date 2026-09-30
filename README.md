@@ -67,7 +67,7 @@ below it as a branch: `├ i746` under `nrha-timii`.
 | `r` · `d` | resume · forget a finished session |
 | `z` | zoom the output pane |
 | `/` | search projects (`↑` `↓` pick, `enter` open, `esc` clear) |
-| `1`–`9` | jump to project N; past nine projects type two digits (`1` `2` → 12) |
+| `1`–`9` | jump to project N; type the next digit quickly for two digits (`1` `6` → 16) |
 | `,` · `w` | settings · workspace |
 | `?` | all keys |
 | `q` | quit (stops sessions and what they started, after a confirm) |

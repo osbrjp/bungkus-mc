@@ -399,7 +399,7 @@ fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
                 Span::styled(marker.to_string(), theme.fg(Token::Ok)),
                 Span::styled(spinner.to_string(), theme.fg(Token::Ok)),
                 Span::raw(" "),
-                Span::styled(format!("{:>digits$} ", i + 1), theme.fg(Token::FgMuted)),
+                Span::styled(format!("{:>digits$} ", i + 1), theme.fg(Token::Ok)),
                 Span::styled(branch.unwrap_or_default(), theme.fg(Token::FgMuted)),
                 Span::styled(text, name),
                 Span::raw(" ".repeat(pad)),
@@ -478,8 +478,6 @@ fn draw_getah(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
         )
     } else if model.filtering {
         "type to search · ↑↓ pick · enter open · esc clear".to_owned()
-    } else if let Some((n, _)) = model.jump {
-        format!("{n}… second digit, or wait")
     } else if let Some(ch) = model.pending {
         format!("{ch}…")
     } else {
