@@ -34,11 +34,19 @@ curl -fsSL https://raw.githubusercontent.com/osbrjp/bungkus-mcc/main/install.sh 
 
 Notes for later users (from the design):
 
-- Font: any monospace font with Unicode symbols works; a Nerd Font is
-  optional (`icons: "nerd"`); `--icons ascii` needs nothing.
-- Leaving interact mode is `ctrl-\` by default; if tmux's
-  vim-tmux-navigator, VS Code, or a JIS/German keyboard takes that key, set
-  `interactExit` in `~/.config/bungkus/mcc/config.json` (suggested: `ctrl-^`).
-- Only sessions started from bungkus-mcc appear in it.
+- Font: any monospace font works; the default icon set is ASCII, with
+  `icons: "unicode"` or `"nerd"` as opt-ins.
+- The right pane talks to the agent whenever it has focus; `ctrl-\` brings
+  you back. If tmux's vim-tmux-navigator, VS Code, or a JIS/German keyboard
+  takes that key, set `interactExit` in `~/.config/bungkus/mcc/config.json`
+  (suggested: `ctrl-^`).
+- Only sessions started from bungkus-mcc appear in it. A project is a
+  folder in the workspace that contains `CLAUDE.md`, `AGENTS.md` or `.git`.
+- Quitting stops the agents and the processes they started (dev servers);
+  the quit dialog lists them first. Sessions can be resumed later.
+- Codex usage figures are read from Codex's own session log
+  (`token_count` records only); Claude's come from its status line.
+- Model routing via TypeSafe Jev is off by default and sends only the
+  start prompt you type, after a consent dialog.
 - Two instances on the same workspace work but share `sessions.json`
   (last writer wins).

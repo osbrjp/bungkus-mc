@@ -68,10 +68,12 @@ cosmetics have goldens; glue has none. Coverage is not a target.
   never answers does not delay the user's line beyond 200 ms; forwarded
   line contains no `model` field.
 - **Views**: (1) unit — `View()` substring asserts; (2) golden — `teatest/v2`
-  at 120×40 and 80×24 with `NO_COLOR=1` and `--icons ascii`, scenarios:
-  empty workspace, first run, three sessions in five states, needs-you and
-  failed gutters, expanded usage card, INTERACT banner, zoom, help overlay,
-  `n` picker, quit confirm, narrow stack. Goldens are updated only with
+  at 120×40 and 80×24 with `NO_COLOR=1` and the default (ascii) icon set,
+  scenarios: empty workspace, first run, three sessions in five states,
+  needs-you and failed gutters, expanded usage card, INTERACT banner, zoom,
+  help overlay, `n` picker with name/model rows, quit confirm with
+  descendants, routing consent, narrow stack. The generated mockups in
+  DESIGN.md are the first goldens. Goldens are updated only with
   `-update` and reviewed line by line.
 - **Keymap**: walks every `key.Binding`: help text non-empty; no key bound
   twice **within the same pane/mode**; the exit chord bound in INTERACT
@@ -102,9 +104,39 @@ cosmetics have goldens; glue has none. Coverage is not a target.
   >104-byte path).
 - **workspace**: dot-dirs skipped, symlinked dirs followed, names with
   control characters sanitised for display.
+- **INTERACT passthrough** (`internal/tui`): with the output pane focused,
+  every `tea.KeyPressMsg` in a generated set (printable, `esc`, `tab`,
+  `shift-tab`, arrows, F-keys, every ctrl chord) reaches the PTY writer
+  except the configured exit chord and `ctrl-z`; focusing the output pane
+  by `l`, `→`, `tab`, `enter`-on-session and click each flips the mode in
+  the same `Update`; the exit chord lands on the sessions pane; a
+  `sessionExitedMsg` while in INTERACT returns to NORMAL.
+- **Session names**: resolution order (`session_name` → `session_title` →
+  picker name → prompt → `untitled`); a later `session_name` overrides;
+  names are sanitised and ≤ 80 chars; `--name` appears in the new argv and
+  not in the resume argv.
+- **Descendant tracking** (`internal/proc`): fixtures of `ps -axo
+  pid=,ppid=,lstart=,comm=` output (macOS) and `/proc/<pid>/stat` +
+  `/proc/net/tcp` trees (Linux) → expected descendant sets across three
+  snapshots including a reparent-to-init case; identity check refuses a
+  pid whose start time changed; kill order (group first, then descendants;
+  SIGTERM, grace, SIGKILL) with a fake signaller; port annotation parser
+  for `lsof` output and the missing-`lsof` path; every name sanitised.
+- **Codex usage reader** (`codexusage.go`): fixtures with `token_count`
+  records among decoy lines; path validation (outside `CODEX_HOME`, symlink
+  escape, non-`.jsonl`, directory); tail from `size − 256 KiB`; file
+  shrink; partial trailing line; `null` `info`/`rate_limits`; malformed
+  JSON lines skipped; a decoy line is never decoded beyond `type`.
+- **Routing** (`internal/route`, `httptest` server): 200 with each tier,
+  `unclear`, low confidence, unknown choice, 401/429/529, malformed JSON,
+  slow server past the budget, empty tier map (no request made), missing
+  key (no request made); golden request body containing only `prompt`,
+  `model` and the fixed question; prompt sanitiser and 4 KiB truncation;
+  `apiKeyCommand` argv runner with a fake command; consent gate.
 - **CLI smoke** (CI; skipped if binaries absent): `claude --help` and
-  `codex --help` contain the flags `Launch` uses. M3 manual check: the
-  interactive entry points accept `--` before a prompt starting with `-`.
+  `codex --help` contain the flags `Launch` uses (incl. `--name`,
+  `--model`, `-m`). M3 manual check: the interactive entry points accept
+  `--` before a prompt starting with `-`.
 
 ## 3. Error handling and UX of failure
 
@@ -139,7 +171,7 @@ cosmetics have goldens; glue has none. Coverage is not a target.
 - [ ] Every new state/badge: glyph + word + colour, an ascii glyph, Narrow width.
 - [ ] Every new string from outside the PTY goes through `sanitise()`.
 - [ ] Tested with `NO_COLOR=1`, `--icons ascii`, inside tmux, at 80×24.
-- [ ] Security rules (SECURITY.md): argv not shell; paths under mcc dirs or workspace; no transcript reads; no secrets persisted; socket limits; no `--dangerously-*`.
+- [ ] Security rules (SECURITY.md): argv not shell; paths under mcc dirs or workspace; no transcript reads outside `codexusage.go`; no signal outside the observed-descendant set; no secrets persisted; socket limits; no `--dangerously-*`; no new egress without consent.
 - [ ] Hook/statusline fields read optionally; recorded payload added to testdata.
 - [ ] Golden diffs reviewed, not rubber-stamped.
 - [ ] Docs touched if behaviour, keys, files or deps changed.
@@ -148,8 +180,9 @@ cosmetics have goldens; glue has none. Coverage is not a target.
 
 1. Build for Claude Code and Codex. A third agent gets a file when requested.
 2. No daemon until detach is a confirmed requirement.
-3. No transcript parsing. The one proposed exception (Codex `token_count`)
-   ships only with the owner's yes, off by default, reviewed against SECURITY.md.
+3. No transcript parsing, **except the one documented reader**
+   (`codexusage.go`, Codex `token_count` records only, approved by the
+   owner). Widening it, or adding another, is a SECURITY.md review.
 4. One workspace, one socket, one process, one config file, one state file.
 5. Stdlib first: `encoding/json`, `net` (unix), `os/exec`, `log/slog`,
    `time.Ticker`.
