@@ -1,0 +1,25 @@
+ bungkus-mc  kedai-web › projects                                        v0.1.0
+┏ projects ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃>  kedai-web                                                                  ┃
+┃   teh-cli                                                                    ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┃      ╔ settings ══════════════════════════════════════════════════════╗      ┃
+┃      ║                                                                ║      ┃
+┃      ║   workspace   ┃~/Works/OSBR                                  ┃ ║      ┃
+┃      ║ > agent       > claude    codex (not on PATH)                  ║      ┃
+┃      ║   theme         auto  > dark    light                          ║      ┃
+┃      ║               + ~/.local/bin/claude   - codex not on PATH      ║      ┃
+┃      ║                                                                ║      ┃
+┃      ║                                                                ║      ┃
+┃      ║                                                                ║      ┃
+┃      ║                                                                ║      ┃
+┃      ║               ↑ ↓ field · ← → change · enter save · esc cancel ║      ┃
+┃      ╚════════════════════════════════════════════════════════════════╝      ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+ NORMAL  enter → sessions · j/k · / filter · , settings · ? help
+cursor: hidden

@@ -1,0 +1,25 @@
+
+
+
+            ▄▄
+          ▄████▄         bungkus-mc  v0.1.0
+         ████████        mission control for AI agents
+       ▄██████████▄
+     ▄██████████████▄    step 3 of 4 · theme
+           █  █
+          ▀▀ ▀▀
+
+     theme       > auto    dark    light
+
+                 follows your terminal's background (now dark)
+                 / working  ! needs you  x failed  ~ your turn
+
+
+
+
+
+                                         ← → choose · enter next · esc back
+
+
+
+cursor: hidden

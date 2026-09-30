@@ -1,0 +1,25 @@
+ bungkus-mc  pasar-mobile › projects                                     v0.1.0
+┏ projects ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃   kedai-web                                                                  ┃
+┃>  pasar-mobile                                                               ┃
+┃   roti-docs                                                                  ┃
+┃   teh-cli                                                                    ┃
+┃   warung-api                                                                 ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+ NORMAL  enter → sessions · j/k · / filter · , settings · ? help
+cursor: hidden
