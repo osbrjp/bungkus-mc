@@ -1,10 +1,11 @@
 //! The Daun Pisang palette as a token spec, and colour-profile detection.
 //!
-//! [`spec`] mirrors the "Daun Teduh" tables of DESIGN §2.1, which are shared
-//! with bungkus-cli's `styles.go`; a test parses DESIGN.md so the two cannot
-//! drift. Colours are never downsampled automatically: 256- and 16-colour
-//! terminals get the declared indices (DESIGN §2.3). The background is
-//! painted only at TrueColor.
+//! [`spec`] mirrors both "Daun Teduh" sets of DESIGN §2.1, the painted set
+//! and the terminal fallback set; bungkus-cli's `styles.go` implements the
+//! fallback set. A test parses DESIGN.md so the implementations cannot
+//! drift. The background is painted only at TrueColor, so 256- and
+//! 16-colour terminals get the fallback set's declared indices, never an
+//! automatic downsample (DESIGN §2.3).
 
 use ratatui::style::{Color, Modifier, Style};
 
@@ -46,9 +47,9 @@ pub(crate) struct TokenSpec {
     /// Hex used at TrueColor on the terminal's own background; `None` is
     /// the terminal's default colour.
     pub fallback: Option<u32>,
-    /// Declared xterm-256 index.
+    /// Declared xterm-256 index of the fallback set.
     pub ansi256: u8,
-    /// Declared 16-colour index.
+    /// Declared 16-colour index of the fallback set.
     pub ansi16: u8,
 }
 
@@ -82,13 +83,13 @@ pub(crate) const fn spec(token: Token) -> TokenSpec {
         Token::FgDim => TokenSpec {
             painted: 0x5c_7062,
             fallback: Some(0x55_5555),
-            ansi256: 241,
+            ansi256: 240,
             ansi16: 8,
         },
         Token::Border => TokenSpec {
             painted: 0x3b_4d40,
             fallback: Some(0x2a_2a2a),
-            ansi256: 238,
+            ansi256: 235,
             ansi16: 8,
         },
         Token::Accent => same(0xff_aa88, 216, 3),
@@ -272,90 +273,93 @@ mod tests {
         }
     }
 
-    /// One row of the DESIGN §2.1 table.
-    struct DocRow {
+    /// One row of the DESIGN §2.1 fallback table.
+    struct FallbackRow {
         name: String,
-        painted: u32,
-        contrast: Option<f64>,
+        /// `None` is the terminal default.
+        hex: Option<u32>,
         ansi256: Option<u8>,
         ansi16: Option<u8>,
     }
 
-    /// Parses the DESIGN §2.1 token table.
-    fn doc_rows() -> Vec<DocRow> {
+    /// The DESIGN §2.1 tables: painted rows and fallback rows.
+    struct DocTables {
+        /// `(token, painted hex, contrast vs bg)`, including `bg`.
+        painted: Vec<(String, u32, Option<f64>)>,
+        fallback: Vec<FallbackRow>,
+    }
+
+    /// Parses both token tables of DESIGN §2.1, telling them apart by
+    /// column count.
+    fn doc_tables() -> DocTables {
         let design = include_str!("../../docs/DESIGN.md");
-        let section = design
-            .split("### 2.1")
-            .nth(1)
-            .unwrap()
-            .split("### 2.2")
-            .next()
-            .unwrap();
+        let section = design.split("### 2.1").nth(1).unwrap();
+        let section = section.split("### 2.2").next().unwrap();
         let clean = |s: &str| s.trim().trim_matches('`').replace('★', "");
-        section
-            .lines()
-            .filter(|l| l.starts_with("| `"))
-            .map(|line| {
-                let cols: Vec<&str> = line.split('|').collect();
-                DocRow {
-                    name: clean(cols[1]),
-                    painted: u32::from_str_radix(&clean(cols[3])[1..], 16).unwrap(),
-                    contrast: clean(cols[4])
+        let hex = |s: &str| u32::from_str_radix(clean(s).strip_prefix('#')?, 16).ok();
+        let mut tables = DocTables {
+            painted: Vec::new(),
+            fallback: Vec::new(),
+        };
+        for line in section.lines().filter(|l| l.starts_with("| `")) {
+            let cols: Vec<&str> = line.split('|').collect();
+            match cols.len() {
+                9 => tables.painted.push((
+                    clean(cols[1]),
+                    hex(cols[3]).unwrap(),
+                    clean(cols[4])
                         .split_whitespace()
                         .next()
                         .unwrap()
                         .parse()
                         .ok(),
-                    ansi256: clean(cols[6]).parse().ok(),
-                    ansi16: clean(cols[7]).parse().ok(),
-                }
-            })
-            .collect()
+                )),
+                6 => tables.fallback.push(FallbackRow {
+                    name: clean(cols[1]),
+                    hex: hex(cols[2]),
+                    ansi256: clean(cols[3]).parse().ok(),
+                    ansi16: clean(cols[4]).parse().ok(),
+                }),
+                n => panic!("unexpected {n}-column row: {line}"),
+            }
+        }
+        tables
     }
 
     #[test]
-    fn token_table_equals_design_spec() {
-        let rows = doc_rows();
+    fn painted_set_equals_design_spec() {
+        let rows = doc_tables().painted;
         assert_eq!(
             rows.len(),
             ALL.len() + 1,
-            "DESIGN §2.1 rows: tokens plus bg"
+            "DESIGN §2.1 painted rows: tokens plus bg"
         );
-        let bg = rows.iter().find(|r| r.name == "bg").unwrap();
-        assert_eq!(bg.painted, BG);
+        let bg = rows.iter().find(|r| r.0 == "bg").unwrap();
+        assert_eq!(bg.1, BG);
         for token in ALL {
-            let row = rows.iter().find(|r| r.name == name(token)).unwrap();
-            let s = spec(token);
-            assert_eq!(s.painted, row.painted, "{} painted", row.name);
-            assert_eq!(Some(s.ansi256), row.ansi256, "{} 256", row.name);
-            assert_eq!(Some(s.ansi16), row.ansi16, "{} 16", row.name);
+            let row = rows.iter().find(|r| r.0 == name(token)).unwrap();
+            assert_eq!(spec(token).painted, row.1, "{} painted", row.0);
         }
     }
 
     #[test]
     fn fallback_set_equals_design_spec() {
-        let expected = [
-            (Token::Fg, None),
-            (Token::FgMuted, Some(0x8a_99a8)),
-            (Token::FgDim, Some(0x55_5555)),
-            (Token::Border, Some(0x2a_2a2a)),
-        ];
-        for (token, want) in expected {
-            assert_eq!(spec(token).fallback, want, "{}", name(token));
-        }
-        for token in [
-            Token::Accent,
-            Token::Ok,
-            Token::Warn,
-            Token::Err,
-            Token::Info,
-        ] {
-            assert_eq!(
-                spec(token).fallback,
-                Some(spec(token).painted),
-                "{}",
-                name(token)
-            );
+        let rows = doc_tables().fallback;
+        assert_eq!(rows.len(), ALL.len(), "DESIGN §2.1 fallback rows");
+        for token in ALL {
+            let row = rows.iter().find(|r| r.name == name(token)).unwrap();
+            let s = spec(token);
+            assert_eq!(s.fallback, row.hex, "{} fallback hex", row.name);
+            if token == Token::Fg {
+                assert_eq!(
+                    (row.ansi256, row.ansi16),
+                    (None, None),
+                    "fg is the terminal default"
+                );
+            } else {
+                assert_eq!(Some(s.ansi256), row.ansi256, "{} 256", row.name);
+                assert_eq!(Some(s.ansi16), row.ansi16, "{} 16", row.name);
+            }
         }
     }
 
@@ -379,16 +383,15 @@ mod tests {
 
     #[test]
     fn painted_contrast_matches_design_and_text_passes_aa() {
-        for row in doc_rows().iter().filter(|r| r.name != "bg") {
-            let ratio = contrast(row.painted, BG);
-            let doc = row.contrast.unwrap();
+        for (row_name, hex, doc) in doc_tables().painted.iter().filter(|r| r.0 != "bg") {
+            let ratio = contrast(*hex, BG);
+            let doc = doc.unwrap();
             assert!(
                 (ratio - doc).abs() < 0.01,
-                "{}: {ratio:.2} vs doc {doc}",
-                row.name
+                "{row_name}: {ratio:.2} vs doc {doc}"
             );
-            if !matches!(row.name.as_str(), "fg-dim" | "border") {
-                assert!(ratio >= 4.5, "{} fails AA: {ratio:.2}", row.name);
+            if !matches!(row_name.as_str(), "fg-dim" | "border") {
+                assert!(ratio >= 4.5, "{row_name} fails AA: {ratio:.2}");
             }
         }
     }
