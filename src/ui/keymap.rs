@@ -61,6 +61,10 @@ pub(crate) enum Action {
     Zoom,
     /// Jump to the next session that needs you, across projects.
     NextNeedsYou,
+    /// Resume the selected finished session.
+    Resume,
+    /// Forget the selected finished session (with a confirm).
+    Forget,
 }
 
 /// One key, or `gg`-style double press.
@@ -144,6 +148,22 @@ pub(crate) const BINDINGS: &[Binding] = &[
         action: Action::Stop,
         help: "stop (confirm)",
         hint: Some("x stop"),
+        scope: Scope::Sessions,
+    },
+    Binding {
+        keys: &[c('r')],
+        label: "r",
+        action: Action::Resume,
+        help: "resume",
+        hint: None,
+        scope: Scope::Sessions,
+    },
+    Binding {
+        keys: &[c('d')],
+        label: "d",
+        action: Action::Forget,
+        help: "forget (confirm)",
+        hint: None,
         scope: Scope::Sessions,
     },
     Binding {

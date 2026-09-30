@@ -13,9 +13,10 @@ use crate::agent::Kind;
 use crate::agent::usage::tokens;
 use crate::app::model::{Focus, Model};
 use crate::app::sessions::{Card, State};
+use crate::ui::icons::{Icon, IconSet};
 use crate::ui::sanitise::truncate;
 use crate::ui::theme::{Theme, Token};
-use crate::ui::{SPINNER, pane, workspace_label};
+use crate::ui::{pane, workspace_label};
 
 /// Most subagent rows shown per card; the newest are kept.
 const SUBAGENT_ROWS: usize = 5;
@@ -43,10 +44,14 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
         .enumerate()
         .map(|(pos, &i)| {
             let selected = pos == model.card && focused;
-            let marker = if selected { ">" } else { " " };
+            let marker = if selected {
+                theme.icons.icon(Icon::Marker).to_string()
+            } else {
+                " ".to_owned()
+            };
             let mut lines = card_lines(
                 &model.cards[i],
-                marker,
+                &marker,
                 selected,
                 width,
                 spin,
@@ -68,13 +73,14 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
-/// Returns the spinner frame for `frame`, or its first frame without
-/// colour (motion off, DESIGN §7).
+/// Returns the spinner frame for `frame`, or its first frame when motion
+/// or colour is off (DESIGN §7).
 pub(super) fn spinner(frame: usize, theme: Theme) -> char {
-    if theme.no_color() {
-        SPINNER[0]
+    let frames = theme.icons.spinner();
+    if theme.animated() {
+        frames[frame % frames.len()]
     } else {
-        SPINNER[frame % SPINNER.len()]
+        frames[0]
     }
 }
 
@@ -109,14 +115,14 @@ fn draw_empty(frame: &mut Frame, inner: Rect, model: &Model, theme: Theme) {
 }
 
 /// Returns the glyph, its colour and the state word (DESIGN §5.3).
-pub(super) fn glyph(state: &State, spin: char) -> (char, Token, &'static str) {
+pub(super) fn glyph(state: &State, spin: char, icons: IconSet) -> (char, Token, &'static str) {
     match state {
         State::Working => (spin, Token::Ok, "working"),
-        State::YourTurn => ('~', Token::Info, "your turn"),
-        State::NeedsYou => ('!', Token::Warn, "needs you"),
-        State::Failed(_) => ('x', Token::Err, "failed"),
-        State::Stopped => ('#', Token::FgMuted, "stopped"),
-        State::Wrapped => ('+', Token::Ok, "wrapped"),
+        State::YourTurn => (icons.icon(Icon::YourTurn), Token::Info, "your turn"),
+        State::NeedsYou => (icons.icon(Icon::NeedsYou), Token::Warn, "needs you"),
+        State::Failed(_) => (icons.icon(Icon::Failed), Token::Err, "failed"),
+        State::Stopped => (icons.icon(Icon::Stopped), Token::FgMuted, "stopped"),
+        State::Wrapped => (icons.icon(Icon::Wrapped), Token::Ok, "wrapped"),
     }
 }
 
@@ -136,7 +142,7 @@ fn card_lines(
     now: Instant,
     theme: Theme,
 ) -> Vec<Line<'static>> {
-    let (glyph, glyph_token, word) = glyph(&card.state, spin);
+    let (glyph, glyph_token, word) = glyph(&card.state, spin, theme.icons);
     let (gutter, gutter_token) = match card.state {
         State::NeedsYou => ("┃", Token::Warn),
         State::Failed(_) => ("┃", Token::Err),
@@ -199,7 +205,11 @@ fn card_lines(
     }
     let skip = card.subagents.len().saturating_sub(SUBAGENT_ROWS);
     for sub in card.subagents.iter().skip(skip) {
-        let mark = if sub.ended.is_some() { '+' } else { spin };
+        let mark = if sub.ended.is_some() {
+            theme.icons.icon(Icon::Wrapped)
+        } else {
+            spin
+        };
         let time = format!("{}m", minutes(sub.started, sub.ended.unwrap_or(now)));
         let right_len = time.len() + 2;
         let desc = truncate(&sub.description, body_width.saturating_sub(right_len + 2));
@@ -207,7 +217,10 @@ fn card_lines(
         lines.push(Line::from(vec![
             Span::raw(" "),
             Span::styled(gutter, theme.fg(gutter_token)),
-            Span::styled("  * ", theme.fg(Token::FgMuted)),
+            Span::styled(
+                format!("  {} ", theme.icons.icon(Icon::Subagent)),
+                theme.fg(Token::FgMuted),
+            ),
             Span::styled(desc, text),
             Span::raw(" ".repeat(pad)),
             Span::styled(format!("{mark} "), theme.fg(Token::Ok)),
@@ -308,7 +321,7 @@ fn detail(card: &Card, now: Instant) -> String {
         State::Stopped => "stopped".to_owned(),
         State::Wrapped => {
             let m = minutes(card.started, card.ended.unwrap_or(now));
-            let subs = card.subagents.len();
+            let subs = card.subagents.len() + card.restored_subagents as usize;
             let plural = if subs == 1 { "" } else { "s" };
             format!("{m}m · {} tools · {subs} subagent{plural}", card.tool_calls)
         }

@@ -1,7 +1,7 @@
 # bungkus-mc — Proposal
 
-Status: **proposal / pre-development** (product-owner decisions of
-2026-09-30 applied). Companion documents: ARCHITECTURE.md
+Status: **M1–M8 built** (v0.1.0 candidate, not yet released; M9 not
+started); product-owner decisions of 2026-09-30 applied. Companion documents: ARCHITECTURE.md
 (how), DESIGN.md (look and keys), TECH_STACK.md (deps), CODING_RULES.md,
 SECURITY.md.
 

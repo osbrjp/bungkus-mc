@@ -65,6 +65,8 @@ pub(crate) enum Overlay {
     Picker(Picker),
     /// The quit / stop dialog.
     Stop(StopDialog),
+    /// "Forget this session?"
+    Forget(SessionId),
 }
 
 /// A session the loop must start.
@@ -76,6 +78,8 @@ pub(crate) struct LaunchRequest {
     pub kind: Kind,
     /// The picker's choices.
     pub launch: Launch,
+    /// The finished card a resume replaces.
+    pub replaces: Option<SessionId>,
 }
 
 /// Something the host terminal should announce (DESIGN §9).
@@ -170,6 +174,8 @@ pub(crate) struct Model {
     pub keep: Vec<String>,
     /// When the next background process scan is due.
     pub next_scan: Option<Instant>,
+    /// Whether `sessions.json` must be written.
+    pub state_dirty: bool,
 }
 
 impl Model {
@@ -218,6 +224,7 @@ impl Model {
             unix_now: 0,
             keep: Vec::new(),
             next_scan: None,
+            state_dirty: false,
         }
     }
 
@@ -272,15 +279,18 @@ impl Model {
         [self.found[0].is_some(), self.found[1].is_some()]
     }
 
-    /// Returns whether anything on screen animates (a working card of the
-    /// selected project), so the 350 ms tick must run.
+    /// Returns whether anything on screen animates (a running card of the
+    /// selected project, or the empty-state mascot), so the 350 ms tick
+    /// must run.
     #[must_use]
     pub(crate) fn animating(&self) -> bool {
-        !self.theme.no_color()
-            && self
-                .project_cards()
-                .iter()
-                .any(|&i| self.cards[i].running())
+        let empty_output = self.selected_card().is_none();
+        self.theme.animated()
+            && (empty_output
+                || self
+                    .project_cards()
+                    .iter()
+                    .any(|&i| self.cards[i].running()))
     }
 
     /// Returns when the loop must wake without input: a synchronized update
@@ -367,6 +377,9 @@ impl Model {
             }
             AppEvent::Procs(snapshot) => self.track(&snapshot),
             AppEvent::HostGone => return self.host_gone(),
+            AppEvent::UpdateAvailable(tag) => {
+                self.message = Some(format!("bungkus-mc {tag} is out — bungkus-mc update"));
+            }
             AppEvent::Pty(PtyEvent::Output(id, bytes)) => {
                 if let Some(pty) = self.card_mut(id).and_then(|c| c.pty.as_mut()) {
                     pty.advance(&bytes);
@@ -380,6 +393,7 @@ impl Model {
             AppEvent::Usage(id, usage) => self.codex_usage(id, usage),
             AppEvent::Pty(PtyEvent::Exited(id, code)) => {
                 let now = self.now;
+                self.state_dirty = true;
                 if let Some(card) = self.card_mut(id) {
                     card.exited(code, now);
                     if let State::Failed(reason) = &card.state {
@@ -550,6 +564,14 @@ impl Model {
                 picker::Outcome::Start => self.launch(&p),
             },
             Overlay::Stop(dialog) => self.stop_key(dialog, key),
+            Overlay::Forget(id) => {
+                if key.code == KeyCode::Char('y') {
+                    self.cards.retain(|c| c.id != id);
+                    self.card = self.card.min(self.project_cards().len().saturating_sub(1));
+                    self.state_dirty = true;
+                }
+                None
+            }
         }
     }
 
@@ -571,17 +593,49 @@ impl Model {
             prompt: text(&p.prompt),
             settings: None,
             hook_args: Vec::new(),
+            resume: None,
         };
         Some(Cmd::Launch(LaunchRequest {
             project,
             kind: p.agent,
             launch,
+            replaces: None,
+        }))
+    }
+
+    /// Resumes the selected finished session in its folder (ARCHITECTURE
+    /// §5); a Codex session that never reported through hooks has no id to
+    /// resume.
+    fn resume(&mut self) -> Option<Cmd> {
+        let card = &self.cards[self.selected_card()?];
+        if card.running() {
+            return None;
+        }
+        let Some(id) = card.resume_id() else {
+            self.message = Some("not resumable — hooks off".into());
+            return None;
+        };
+        let launch = Launch {
+            id: SessionId::new(),
+            model: None,
+            name: Some(card.name.clone()),
+            prompt: None,
+            settings: None,
+            hook_args: Vec::new(),
+            resume: Some(id),
+        };
+        Some(Cmd::Launch(LaunchRequest {
+            project: card.project.clone(),
+            kind: card.kind,
+            launch,
+            replaces: Some(card.id),
         }))
     }
 
     /// Adds a started (or failed-to-start) session and enters INTERACT on
     /// it when it runs.
     pub(crate) fn add_card(&mut self, card: Card) {
+        self.state_dirty = true;
         let running = card.running();
         let id = card.id;
         self.cards.push(card);
@@ -699,6 +753,12 @@ impl Model {
                 }
             }
             Action::Zoom => self.zoom = !self.zoom,
+            Action::Resume => return self.resume(),
+            Action::Forget => {
+                if let Some(i) = self.selected_card().filter(|&i| !self.cards[i].running()) {
+                    self.overlay = Some(Overlay::Forget(self.cards[i].id));
+                }
+            }
             Action::NextNeedsYou => self.next_needs_you(),
             Action::Workspace => self.open_form(FormKind::Settings, Field::Workspace),
             Action::Settings => self.open_form(FormKind::Settings, Field::Agent),
@@ -1038,6 +1098,24 @@ pub(crate) mod tests {
         };
         m.update(AppEvent::Usage(id, usage));
         assert_eq!(m.limits[Kind::Codex as usize].len(), 1);
+    }
+
+    #[test]
+    fn resume_and_forget_act_on_finished_sessions() {
+        let mut m = sample(&["a"]);
+        let (id, _w) = with_session(&mut m, "s");
+        m.update(AppEvent::Pty(PtyEvent::Exited(id, Some(0))));
+        assert!(m.state_dirty);
+        m.focus = Focus::Sessions;
+        let Some(Cmd::Launch(req)) = m.update(press(KeyCode::Char('r'))) else {
+            panic!("r resumes");
+        };
+        assert_eq!(req.replaces, Some(id));
+        assert_eq!(req.launch.resume, Some(id.0.hyphenated().to_string()));
+        m.update(press(KeyCode::Char('d')));
+        assert_eq!(m.overlay, Some(Overlay::Forget(id)));
+        m.update(press(KeyCode::Char('y')));
+        assert!(m.cards.is_empty());
     }
 
     #[test]

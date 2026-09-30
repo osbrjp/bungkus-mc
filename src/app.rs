@@ -15,7 +15,7 @@ pub(crate) mod sessions;
 pub(crate) mod stop;
 
 use std::ffi::OsStr;
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, RecvTimeoutError, SyncSender};
 use std::thread;
@@ -64,6 +64,8 @@ pub(crate) enum AppEvent {
     Procs(Vec<crate::proc::Proc>),
     /// The host terminal went away (input closed).
     HostGone,
+    /// A newer release exists (the daily check).
+    UpdateAvailable(String),
     /// A deadline passed: animation frame, sync flush or stop grace.
     Tick,
 }
@@ -119,6 +121,8 @@ pub(crate) struct Env {
     pub wizard_prefill: Option<String>,
     /// The config as loaded (agent commands, mouse, notify).
     pub config: Config,
+    /// Where `sessions.json` lives; `None` when no home directory is known.
+    pub state_path: Option<PathBuf>,
 }
 
 /// What launches need besides the model: the socket for hooks and mc's
@@ -170,21 +174,7 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<()> {
 
     let (tx, rx) = mpsc::sync_channel::<AppEvent>(CHANNEL_CAPACITY);
     let uid = rustix::process::getuid().as_raw();
-    let dir = server::socket_dir(|n| std::env::var(n).ok(), uid);
-    let listener = server::start(&dir, uid, tx.clone(), AppEvent::Hook);
-    let exe = std::env::current_exe().and_then(|p| p.canonicalize());
-    let hooks = match (&listener, exe) {
-        (Ok(server), Ok(exe)) => Some(Hooks {
-            socket: server.path.clone(),
-            exe,
-        }),
-        (Err(e), _) => {
-            model.message = Some(format!("No live tree this run ({e}); output still works."));
-            None
-        }
-        (_, Err(_)) => None,
-    };
-    write_host(b"\x1b[22;0t");
+    let (hooks, _listener) = start_background(&mut model, &tx, uid);
     let mut title = String::new();
     let input = tx.clone();
     thread::spawn(move || {
@@ -206,6 +196,9 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<()> {
         resize_sessions(&mut model);
         terminal.draw(|frame| ui::draw(frame, &mut model))?;
         announce(&mut model, env.config.notify, &mut title);
+        if model.state_dirty {
+            save_state(&mut model, env);
+        }
         let first = match model.deadline(next_tick) {
             Some(at) => match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
                 Ok(event) => event,
@@ -230,12 +223,49 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<()> {
                 continue;
             };
             match run_cmd(&mut model, env, hooks.as_ref(), &tx, uid, cmd) {
-                Next::Quit => return Ok(()),
+                Next::Quit => {
+                    save_state(&mut model, env);
+                    return Ok(());
+                }
                 Next::Redraw => terminal.clear()?,
                 Next::Continue => {}
             }
         }
     }
+}
+
+/// Starts the hook socket and the daily update check; returns what
+/// launches need for hooks and the listener that must live as long as mc.
+fn start_background(
+    model: &mut Model,
+    tx: &SyncSender<AppEvent>,
+    uid: u32,
+) -> (Option<Hooks>, Option<server::Server>) {
+    let dir = server::socket_dir(|n| std::env::var(n).ok(), uid);
+    let listener = server::start(&dir, uid, tx.clone(), AppEvent::Hook);
+    let exe = std::env::current_exe().and_then(|p| p.canonicalize());
+    let hooks = match (&listener, exe) {
+        (Ok(server), Ok(exe)) => Some(Hooks {
+            socket: server.path.clone(),
+            exe,
+        }),
+        (Err(e), _) => {
+            model.message = Some(format!("No live tree this run ({e}); output still works."));
+            None
+        }
+        (_, Err(_)) => None,
+    };
+    write_host(b"\x1b[22;0t");
+    if std::io::stderr().is_terminal() {
+        let tx = tx.clone();
+        thread::spawn(move || {
+            if let Some(tag) = crate::update::available(|n| std::env::var(n).ok()) {
+                // reason: mc may have quit meanwhile.
+                let _ = tx.send(AppEvent::UpdateAvailable(tag));
+            }
+        });
+    }
+    (hooks, listener.ok())
 }
 
 /// What the loop does after a command.
@@ -300,6 +330,21 @@ fn run_cmd(
     Next::Continue
 }
 
+/// Writes every card to `sessions.json`; a failure is shown once and
+/// retried on the next change.
+fn save_state(model: &mut Model, env: &Env) {
+    model.state_dirty = false;
+    let Some(path) = &env.state_path else { return };
+    let records: Vec<_> = model
+        .cards
+        .iter()
+        .map(|c| c.to_record(model.now, model.unix_now))
+        .collect();
+    if let Err(e) = crate::store::state::save(path, &records) {
+        model.message = Some(format!("Sessions not saved: {e}"));
+    }
+}
+
 /// Saves settings, rescans the workspace and recolours running sessions.
 fn apply(model: &mut Model, env: &Env, settings: config::Settings) {
     if let Some(path) = &env.config_path
@@ -328,6 +373,7 @@ fn launch(
         project,
         kind,
         mut launch,
+        replaces,
     } = request;
     if let (Some(hooks), Kind::Codex) = (hooks, kind) {
         launch.hook_args = agent::codex::hook_args(&hooks.exe);
@@ -379,6 +425,10 @@ fn launch(
     let child = child_env(std::env::vars_os(), &extra);
     if launch.settings.is_some() || !launch.hook_args.is_empty() {
         card.expect_hooks();
+    }
+    card.agent_session.clone_from(&launch.resume);
+    if let Some(old) = replaces {
+        model.cards.retain(|c| c.id != old);
     }
     let size = ui::output_size(model.screen, model.zoom);
     match Session::spawn(

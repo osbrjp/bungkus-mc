@@ -10,6 +10,7 @@ mod cards;
 mod dialogs;
 mod form;
 mod help;
+pub(crate) mod icons;
 pub(crate) mod keymap;
 pub(crate) mod mascot;
 mod output;
@@ -40,9 +41,6 @@ const THREE_PANE_WIDTH: u16 = 100;
 const PROJECTS_WIDTH: u16 = 22;
 /// See [`PROJECTS_WIDTH`].
 const SESSIONS_WIDTH: u16 = 38;
-
-/// The ascii spinner (DESIGN §3); one frame per animation tick.
-const SPINNER: [char; 4] = ['|', '/', '-', '\\'];
 
 /// Session counts across every project, for the header and the title.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -192,6 +190,7 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
         Some(Overlay::Form(f)) => form::draw_settings(frame, area, f, theme, model.host_light),
         Some(Overlay::Picker(p)) => dialogs::draw_picker(frame, area, p, theme),
         Some(Overlay::Stop(d)) => dialogs::draw_stop(frame, area, d, model, theme),
+        Some(Overlay::Forget(id)) => dialogs::draw_forget(frame, area, *id, model, theme),
         None => {}
     }
 }
@@ -300,9 +299,10 @@ fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
         .map(|(i, project)| {
             let selected = i == model.selected;
             let marker = match (selected, focused) {
-                (true, true) => ">",
-                (true, false) => ":",
-                (false, _) => " ",
+                (true, true) => theme.icons.icon(icons::Icon::Marker),
+                (true, false) if theme.icons == icons::IconSet::Ascii => ':',
+                (true, false) => '▌',
+                (false, _) => ' ',
             };
             let name = if selected {
                 theme.fg(Token::Accent)
@@ -322,7 +322,7 @@ fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
             .iter()
             .find_map(|want| {
                 let n = states.iter().filter(|s| s.rank() == want.rank()).count();
-                (n > 0).then(|| (cards::glyph(want, spin), n))
+                (n > 0).then(|| (cards::glyph(want, spin, theme.icons), n))
             });
             let badge_text = badge.map_or_else(String::new, |((g, _, _), n)| format!("{g} {n} "));
             let badge_token = badge.map_or(Token::Fg, |((_, t, _), _)| t);
@@ -331,7 +331,7 @@ fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
             let pad = room.saturating_sub(text.chars().count());
             let spinner = if working { spin } else { ' ' };
             Line::from(vec![
-                Span::styled(marker, theme.fg(Token::Ok)),
+                Span::styled(marker.to_string(), theme.fg(Token::Ok)),
                 Span::styled(spinner.to_string(), theme.fg(Token::Ok)),
                 Span::raw(" "),
                 Span::styled(text, name),
@@ -419,7 +419,12 @@ fn limit_spans(model: &Model, theme: Theme, wide: bool) -> Vec<Span<'static>> {
             };
             let bar = if bars {
                 let filled = (0..5).filter(|n| f64::from(*n) * 20.0 < w.used_pct).count();
-                format!("{}{} ", "#".repeat(filled), "-".repeat(5 - filled))
+                let (on, off) = theme.icons.bar();
+                format!(
+                    "{}{} ",
+                    on.to_string().repeat(filled),
+                    off.to_string().repeat(5 - filled)
+                )
             } else {
                 String::new()
             };
@@ -435,16 +440,52 @@ fn limit_spans(model: &Model, theme: Theme, wide: bool) -> Vec<Span<'static>> {
     spans
 }
 
+/// Border weights (DESIGN §3): light, heavy (focused), double (INTERACT
+/// and dialogs).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Weight {
+    /// Inactive pane.
+    Light,
+    /// Focused pane.
+    Heavy,
+    /// INTERACT and dialogs.
+    Double,
+}
+
+/// Returns a bordered block of `weight`: box-drawing on a UTF-8 locale,
+/// the ASCII forms `+-|`, `#=|` and `*=*` otherwise.
+fn bordered(weight: Weight, theme: Theme) -> Block<'static> {
+    use ratatui::symbols::border::Set;
+    let ascii = |corner: &'static str, horizontal: &'static str, vertical: &'static str| Set {
+        top_left: corner,
+        top_right: corner,
+        bottom_left: corner,
+        bottom_right: corner,
+        vertical_left: vertical,
+        vertical_right: vertical,
+        horizontal_top: horizontal,
+        horizontal_bottom: horizontal,
+    };
+    let block = Block::bordered();
+    match (weight, theme.utf8) {
+        (Weight::Light, true) => block.border_type(BorderType::Plain),
+        (Weight::Heavy, true) => block.border_type(BorderType::Thick),
+        (Weight::Double, true) => block.border_type(BorderType::Double),
+        (Weight::Light, false) => block.border_set(ascii("+", "-", "|")),
+        (Weight::Heavy, false) => block.border_set(ascii("#", "=", "|")),
+        (Weight::Double, false) => block.border_set(ascii("*", "=", "*")),
+    }
+}
+
 /// Returns a pane: heavy `ok` border when focused, light `border`
 /// otherwise (DESIGN §3, borders).
 fn pane(title: &str, focused: bool, theme: Theme) -> Block<'static> {
-    let (border_type, border, text) = if focused {
-        (BorderType::Thick, Token::Ok, Token::Fg)
+    let (weight, border, text) = if focused {
+        (Weight::Heavy, Token::Ok, Token::Fg)
     } else {
-        (BorderType::Plain, Token::Border, Token::FgMuted)
+        (Weight::Light, Token::Border, Token::FgMuted)
     };
-    Block::bordered()
-        .border_type(border_type)
+    bordered(weight, theme)
         .border_style(theme.fg(border))
         .title(Span::styled(format!(" {title} "), theme.fg(text)))
 }
@@ -463,8 +504,7 @@ fn centred(area: Rect, width: u16, height: u16) -> Rect {
 /// Returns a dialog frame: double border, title in the top border
 /// (DESIGN §5.5).
 fn dialog(title: &str, theme: Theme) -> Block<'static> {
-    Block::bordered()
-        .border_type(BorderType::Double)
+    bordered(Weight::Double, theme)
         .border_style(theme.fg(Token::Accent))
         .style(theme.base())
         .title(Span::styled(format!(" {title} "), theme.fg(Token::Fg)))
@@ -686,6 +726,20 @@ pub(crate) mod tests {
             "",
             "nothing when no session reported limits"
         );
+    }
+
+    #[test]
+    fn a_non_utf8_locale_with_unicode_icons_matches_golden() {
+        use crate::app::model::tests::with_session;
+        let mut model = sample(PROJECTS);
+        model.theme = model.theme.with_view(icons::IconSet::Unicode, false, true);
+        let (id, _w) = with_session(&mut model, "checkout redesign");
+        model.update(crate::app::AppEvent::Pty(crate::term::PtyEvent::Exited(
+            id,
+            Some(0),
+        )));
+        model.focus = Focus::Sessions;
+        assert_golden("ascii-borders-120x40.txt", &render(&mut model, 120, 40));
     }
 
     #[test]

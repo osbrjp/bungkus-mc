@@ -11,6 +11,8 @@
 use ratatui::style::{Color, Modifier, Style};
 use serde::{Deserialize, Serialize};
 
+use crate::ui::icons::IconSet;
+
 /// A named colour role (DESIGN §2.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Token {
@@ -201,13 +203,21 @@ pub(crate) enum Background {
     Terminal,
 }
 
-/// Resolves [`Token`]s to ratatui colours for one terminal and theme.
+/// Resolves [`Token`]s to ratatui colours for one terminal and theme, and
+/// carries the other terminal-dependent view choices (glyph set, locale,
+/// motion).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Theme {
     /// Which palette.
     pub name: ThemeName,
     profile: Profile,
     background: Background,
+    /// The state glyph set (`icons`).
+    pub icons: IconSet,
+    /// Whether the locale is UTF-8 (box-drawing borders, half-block mascot).
+    pub utf8: bool,
+    /// Whether spinners and the mascot move (`motion`).
+    pub motion: bool,
 }
 
 impl Theme {
@@ -218,7 +228,28 @@ impl Theme {
             name,
             profile,
             background,
+            icons: IconSet::Ascii,
+            utf8: true,
+            motion: true,
         }
+    }
+
+    /// Returns this theme with the given glyph set, locale and motion.
+    #[must_use]
+    pub(crate) const fn with_view(self, icons: IconSet, utf8: bool, motion: bool) -> Self {
+        Self {
+            icons,
+            utf8,
+            motion,
+            ..self
+        }
+    }
+
+    /// Returns whether anything may animate: motion on and colour on
+    /// (DESIGN §7).
+    #[must_use]
+    pub(crate) const fn animated(self) -> bool {
+        self.motion && !self.no_color()
     }
 
     /// Returns this theme with another palette, keeping the terminal.
