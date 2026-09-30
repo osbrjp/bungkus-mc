@@ -282,6 +282,13 @@ Three columns. Widths are **outer** (including the border), inner = outer − 2.
 | sessions (selected project) | 38 (drag 28–72) | 36 |
 | output (INTERACT when focused) | remainder, ≥ 40 | ≥ 38 |
 
+Projects are numbered and linked git worktrees nest below their
+repository: `.git` is a file whose `gitdir:` points into
+`<repo>/.git/worktrees/`, and when `<repo>` is also a project the worktree
+follows it with `├ `/`└ ` (ascii `|-`/`` `- ``) and its name without the
+repository's prefix (`nrha-timii-i746` → `i746`). Submodules and worktrees
+of repositories outside the workspace stay top level.
+
 Drag a pane's right border (where two panes meet) with the mouse to
 resize it; the widths stay within their range, the output pane keeps 40
 columns (sessions narrows first, then projects), and the release saves

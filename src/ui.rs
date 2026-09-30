@@ -318,6 +318,9 @@ fn workspace_label(model: &Model) -> String {
 /// Draws the projects pane: the search row, then
 /// `<marker><spinner> <number> <name>` … `<badge>` per row (DESIGN §5.3).
 ///
+/// A linked git worktree sits below its repository with `├ `/`└ ` (ascii
+/// `|-`/`` `- ``) and its name without the repository's prefix.
+///
 /// The number is the project's position in the (searched) list, the one
 /// digits jump to. The search row reads `/ search` until `/` is pressed,
 /// then shows the typed text with the cursor after it.
@@ -374,10 +377,22 @@ fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
                 let n = states.iter().filter(|s| s.rank() == want.rank()).count();
                 (n > 0).then(|| (cards::glyph(want, spin, theme.icons), n))
             });
-            let badge_text = badge.map_or_else(String::new, |((g, _, _), n)| format!("{g} {n} "));
+            let badge_text = badge.map_or_else(String::new, |((g, _, _), n)| format!(" {g} {n} "));
             let badge_token = badge.map_or(Token::Fg, |((_, t, _), _)| t);
-            let room = width.saturating_sub(badge_text.len());
-            let text = truncate(&project.name, room);
+            let branch = project.worktree_of.as_ref().map(|of| {
+                let last = visible
+                    .get(i + 1)
+                    .is_none_or(|next| next.worktree_of.as_ref() != Some(of));
+                match (theme.utf8, last) {
+                    (true, true) => "└ ",
+                    (true, false) => "├ ",
+                    (false, true) => "`-",
+                    (false, false) => "|-",
+                }
+            });
+            let label = worktree_label(project);
+            let room = width.saturating_sub(badge_text.len() + branch.map_or(0, |_| 2));
+            let text = truncate(label, room);
             let pad = room.saturating_sub(text.chars().count());
             let spinner = if working { spin } else { ' ' };
             Line::from(vec![
@@ -385,6 +400,7 @@ fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
                 Span::styled(spinner.to_string(), theme.fg(Token::Ok)),
                 Span::raw(" "),
                 Span::styled(format!("{:>digits$} ", i + 1), theme.fg(Token::FgMuted)),
+                Span::styled(branch.unwrap_or_default(), theme.fg(Token::FgMuted)),
                 Span::styled(text, name),
                 Span::raw(" ".repeat(pad)),
                 Span::styled(badge_text, theme.fg(badge_token)),
@@ -392,6 +408,19 @@ fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
         })
         .collect();
     frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// Returns the name a project row shows: a worktree drops its
+/// repository's name when it starts with it (`nrha-timii-i746` below
+/// `nrha-timii` reads `i746`).
+fn worktree_label(project: &crate::workspace::Project) -> &str {
+    project
+        .worktree_of
+        .as_deref()
+        .and_then(|of| project.name.strip_prefix(of))
+        .map(|rest| rest.trim_start_matches(['-', '_', '.']))
+        .filter(|rest| !rest.is_empty())
+        .unwrap_or(&project.name)
 }
 
 /// Draws the projects search row (FILTER mode puts the cursor after the
@@ -957,5 +986,20 @@ pub(crate) mod tests {
         );
         model.update(mouse(MouseEventKind::Drag(MouseButton::Left), 60));
         assert_eq!(model.widths, want, "no drag without a press on a border");
+    }
+
+    #[test]
+    fn worktrees_sit_below_their_repository() {
+        let mut model = sample(PROJECTS);
+        model.projects[1].name = "kedai-web-fix".into();
+        model.projects[1].worktree_of = Some("kedai-web".into());
+        model.projects[2].worktree_of = Some("kedai-web".into());
+        let screen = render(&mut model, 120, 40);
+        assert!(screen.contains("1 kedai-web"), "{screen}");
+        assert!(screen.contains("2 ├ fix "), "{screen}");
+        assert!(screen.contains("3 └ roti-docs"), "{screen}");
+        model.theme = model.theme.with_view(model.theme.icons, false, true);
+        let screen = render(&mut model, 120, 40);
+        assert!(screen.contains("2 |-fix"), "{screen}");
     }
 }

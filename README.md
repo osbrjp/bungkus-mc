@@ -48,6 +48,10 @@ are projects: they contain `CLAUDE.md`, `AGENTS.md` or `.git`), the
 "Santan"; the screen previews it). `esc` on the first step skips with
 defaults. Change these later with `,`.
 
+A project that is a linked git worktree of another project in the
+workspace (its `.git` is a file pointing into that repo) is listed right
+below it as a branch: `├ i746` under `nrha-timii`.
+
 `bungkus-mc ~/Works` opens a workspace directly.
 
 ## Keys
