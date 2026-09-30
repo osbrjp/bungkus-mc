@@ -308,7 +308,7 @@ fn detail(card: &Card, now: Instant) -> String {
         State::Stopped => "stopped".to_owned(),
         State::Wrapped => {
             let m = minutes(card.started, card.ended.unwrap_or(now));
-            let subs = card.subagents.len();
+            let subs = card.subagents.len() + card.restored_subagents as usize;
             let plural = if subs == 1 { "" } else { "s" };
             format!("{m}m · {} tools · {subs} subagent{plural}", card.tool_calls)
         }

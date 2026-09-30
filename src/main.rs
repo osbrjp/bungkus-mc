@@ -160,11 +160,23 @@ fn main() -> Result<()> {
                 .unwrap_or_default(),
         ),
     };
+    let state_path = store::state::state_file(var);
+    if let Some(path) = &state_path {
+        let now = std::time::Instant::now();
+        let unix_now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        model.cards = store::state::load(path)
+            .iter()
+            .filter_map(|r| app::sessions::Card::from_record(r, now, unix_now))
+            .collect();
+    }
     let env = app::Env {
         config_path,
         cwd,
         wizard_prefill,
         config,
+        state_path,
     };
     app::run(model, &env).context("running the TUI")
 }

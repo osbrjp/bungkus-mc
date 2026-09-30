@@ -84,6 +84,8 @@ pub(crate) struct Launch {
     pub settings: Option<String>,
     /// Codex `-c hooks.*` arguments; empty without a socket.
     pub hook_args: Vec<String>,
+    /// The agent's own session id to resume; must be a UUID.
+    pub resume: Option<String>,
 }
 
 /// Builds the argument vector for a new session (ARCHITECTURE §5.1, §5.2).
@@ -109,22 +111,28 @@ pub(crate) fn argv(kind: Kind, program: &Path, args: &[String], launch: &Launch)
         out.push(name.into());
         out.push(value.into());
     };
-    match kind {
-        Kind::Claude => {
-            flag("--session-id", &launch.id.0.hyphenated().to_string());
+    match (kind, &launch.resume) {
+        (Kind::Claude, resume) => {
+            match resume {
+                Some(id) => flag("--resume", id),
+                None => flag("--session-id", &launch.id.0.hyphenated().to_string()),
+            }
             if let Some(settings) = &launch.settings {
                 flag("--settings", settings);
             }
             if let Some(model) = &launch.model {
                 flag("--model", model);
             }
-            if let Some(name) = &launch.name {
+            if let (Some(name), None) = (&launch.name, resume) {
                 flag("--name", name);
             }
         }
-        Kind::Codex => {
+        (Kind::Codex, resume) => {
             if let Some(model) = &launch.model {
                 flag("-m", model);
+            }
+            if let Some(id) = resume {
+                flag("resume", id);
             }
         }
     }
@@ -169,6 +177,7 @@ mod tests {
             prompt: Some("-rf everything".into()),
             settings: Some("{}".into()),
             hook_args: vec!["-c".into(), "hooks.Stop=[]".into()],
+            resume: None,
         };
         let bare = Launch {
             id,
@@ -177,6 +186,7 @@ mod tests {
             prompt: None,
             settings: None,
             hook_args: Vec::new(),
+            resume: None,
         };
         let s = |v: Vec<OsString>| {
             v.into_iter()
@@ -219,6 +229,45 @@ mod tests {
                 "haiku",
                 "--",
                 "-rf everything"
+            ]
+        );
+    }
+
+    #[test]
+    fn builds_resume_argv_without_new_session_flags() {
+        let id = SessionId(uuid::Uuid::nil());
+        let resume = Launch {
+            id,
+            model: None,
+            name: Some("ignored".into()),
+            prompt: None,
+            settings: Some("{}".into()),
+            hook_args: vec!["-c".into(), "hooks.Stop=[]".into()],
+            resume: Some("5f1c0000-0000-0000-0000-000000000000".into()),
+        };
+        let s = |v: Vec<OsString>| {
+            v.into_iter()
+                .map(|a| a.into_string().unwrap())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            s(argv(Kind::Claude, Path::new("/bin/claude"), &[], &resume)),
+            [
+                "/bin/claude",
+                "--resume",
+                "5f1c0000-0000-0000-0000-000000000000",
+                "--settings",
+                "{}"
+            ]
+        );
+        assert_eq!(
+            s(argv(Kind::Codex, Path::new("/bin/codex"), &[], &resume)),
+            [
+                "/bin/codex",
+                "-c",
+                "hooks.Stop=[]",
+                "resume",
+                "5f1c0000-0000-0000-0000-000000000000"
             ]
         );
     }

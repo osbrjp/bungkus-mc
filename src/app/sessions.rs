@@ -15,6 +15,7 @@ use crate::agent::Kind;
 use crate::agent::usage::Usage;
 use crate::ipc::HookEvent;
 use crate::proc::{Descendants, Proc};
+use crate::store::state::Record;
 use crate::term::SessionId;
 use crate::term::session::Session;
 use crate::ui::sanitise::sanitise;
@@ -143,6 +144,8 @@ pub(crate) struct Card {
     pub stop_plan: Vec<Proc>,
     /// When the plan's SIGTERM went out; SIGKILL follows [`STOP_GRACE`] later.
     pub plan_termed: Option<Instant>,
+    /// Subagents counted in an earlier run (restored from `sessions.json`).
+    pub restored_subagents: u32,
 }
 
 impl Card {
@@ -194,7 +197,89 @@ impl Card {
             descendants: Descendants::default(),
             stop_plan: Vec::new(),
             plan_termed: None,
+            restored_subagents: 0,
         }
+    }
+
+    /// Returns the stored form of this card (ARCHITECTURE §7). A running
+    /// session is stored as `stopped`: it does not outlive mc.
+    #[must_use]
+    pub(crate) fn to_record(&self, now: Instant, unix_now: u64) -> Record {
+        let unix =
+            |at: Instant| unix_now.saturating_sub(now.saturating_duration_since(at).as_secs());
+        let (status, reason) = match &self.state {
+            State::Failed(reason) => ("failed", Some(reason.clone())),
+            State::Wrapped => ("wrapped", None),
+            State::Working | State::YourTurn | State::NeedsYou | State::Stopped => {
+                ("stopped", None)
+            }
+        };
+        let usage = self.usage.clone().map(|u| Usage {
+            limits: Vec::new(),
+            ..u
+        });
+        Record {
+            id: self.id.0.hyphenated().to_string(),
+            agent: self.kind,
+            cwd: self.project.clone(),
+            agent_session_id: self.agent_session.clone(),
+            name: self.name.clone(),
+            status: status.to_owned(),
+            reason,
+            started_at: unix(self.started),
+            ended_at: Some(unix(self.ended.unwrap_or(now))),
+            tool_calls: self.tool_calls,
+            subagents: u32::try_from(self.subagents.len()).unwrap_or(u32::MAX)
+                + self.restored_subagents,
+            usage,
+        }
+    }
+
+    /// Rebuilds a finished card from a stored record; `None` when its id is
+    /// not a UUID.
+    #[must_use]
+    pub(crate) fn from_record(record: &Record, now: Instant, unix_now: u64) -> Option<Self> {
+        let id = SessionId(uuid::Uuid::parse_str(&record.id).ok()?);
+        let at = |unix: u64| {
+            now.checked_sub(Duration::from_secs(unix_now.saturating_sub(unix)))
+                .unwrap_or(now)
+        };
+        let mut card = Self::new(
+            id,
+            record.agent,
+            record.cwd.clone(),
+            Some(&record.name),
+            None,
+            at(record.started_at),
+        );
+        card.state = match record.status.as_str() {
+            "failed" => State::Failed(record.reason.clone().unwrap_or_else(|| "failed".into())),
+            "wrapped" => State::Wrapped,
+            _ => State::Stopped,
+        };
+        card.ended = Some(at(record.ended_at.unwrap_or(record.started_at)));
+        card.agent_session.clone_from(&record.agent_session_id);
+        card.tool_calls = record.tool_calls;
+        card.restored_subagents = record.subagents;
+        card.usage.clone_from(&record.usage);
+        Some(card)
+    }
+
+    /// Returns the agent session id to resume, when it is a valid UUID
+    /// (SECURITY.md: anything else would be read as a name or a picker).
+    /// A Claude session without hooks still has mc's own id, which it was
+    /// started with; a Codex session without hooks cannot be resumed.
+    #[must_use]
+    pub(crate) fn resume_id(&self) -> Option<String> {
+        let own = self.id.0.hyphenated().to_string();
+        let id = match (self.kind, &self.agent_session) {
+            (_, Some(bound)) => bound.as_str(),
+            (Kind::Claude, None) => own.as_str(),
+            (Kind::Codex, None) => return None,
+        };
+        uuid::Uuid::parse_str(id)
+            .ok()
+            .map(|u| u.hyphenated().to_string())
     }
 
     /// Marks the session as started with hooks: it now waits for them.
@@ -582,6 +667,54 @@ mod tests {
             State::YourTurn,
             "last child done after main stopped"
         );
+    }
+
+    #[test]
+    fn records_round_trip_and_running_sessions_are_stored_as_stopped() {
+        let now = Instant::now();
+        let mut c = card(Some("fix it"), None);
+        c.started = now.checked_sub(Duration::from_mins(10)).unwrap();
+        c.exited(Some(2), now);
+        let record = c.to_record(now, 10_000);
+        assert_eq!(
+            (record.status.as_str(), record.started_at),
+            ("failed", 9_400)
+        );
+        let back = Card::from_record(&record, now, 10_000).unwrap();
+        assert_eq!(
+            (back.name.as_str(), back.state.clone()),
+            ("fix it", State::Failed("exit 2".into()))
+        );
+        let running = card(None, None);
+        assert_eq!(running.to_record(now, 1).status, "stopped");
+        let bad = crate::store::state::Record {
+            id: "not-a-uuid".into(),
+            ..record
+        };
+        assert!(Card::from_record(&bad, now, 1).is_none());
+    }
+
+    #[test]
+    fn resume_ids_must_be_uuids() {
+        let mut claude = card(None, None);
+        assert_eq!(
+            claude.resume_id(),
+            Some(claude.id.0.hyphenated().to_string()),
+            "its own --session-id"
+        );
+        claude.agent_session = Some("../etc".into());
+        assert_eq!(claude.resume_id(), None, "never a name or a path");
+        let mut codex = Card::new(
+            SessionId::new(),
+            Kind::Codex,
+            "/p".into(),
+            None,
+            None,
+            Instant::now(),
+        );
+        assert_eq!(codex.resume_id(), None, "no hooks, nothing to resume");
+        codex.agent_session = Some("01a0f2cb-0303-7ae2-8133-1474fd08a780".into());
+        assert!(codex.resume_id().is_some());
     }
 
     #[test]

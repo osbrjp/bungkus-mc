@@ -6,6 +6,7 @@
 //! these directories are read here and nowhere else.
 
 pub(crate) mod config;
+pub(crate) mod state;
 
 use std::fs::{DirBuilder, OpenOptions};
 use std::io::Write;

@@ -9,6 +9,7 @@ use crate::agent::Kind;
 use crate::app::model::Model;
 use crate::app::picker::{Picker, Row};
 use crate::app::stop::{StopDialog, StopKind, Target};
+use crate::term::SessionId;
 use crate::ui::sanitise::truncate;
 use crate::ui::theme::{Theme, Token};
 use crate::ui::{bold_if, centred, dialog as dialog_block};
@@ -202,6 +203,41 @@ pub(super) fn draw_stop(
     let rect = centred(area, 50, height);
     frame.render_widget(Clear, rect);
     let block = dialog_block(title, theme);
+    let inner = block.inner(rect);
+    frame.render_widget(block, rect);
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// Draws the "forget this session?" confirm: mc drops it from its list;
+/// the agent keeps its own history.
+pub(super) fn draw_forget(
+    frame: &mut Frame,
+    area: Rect,
+    id: SessionId,
+    model: &Model,
+    theme: Theme,
+) {
+    let name = model
+        .cards
+        .iter()
+        .find(|c| c.id == id)
+        .map_or_else(String::new, |c| c.name.clone());
+    let lines = vec![
+        Line::from(""),
+        Line::styled(
+            format!("  Forget {} {}?", id.short(), truncate(&name, 28)),
+            theme.fg(Token::Fg),
+        ),
+        Line::styled(
+            "  It stays in the agent's own history.",
+            theme.fg(Token::FgMuted),
+        ),
+        Line::from(""),
+        Line::styled("y forget · n keep  ", theme.fg(Token::FgMuted)).alignment(Alignment::Right),
+    ];
+    let rect = centred(area, 50, 7);
+    frame.render_widget(Clear, rect);
+    let block = dialog_block("forget?", theme);
     let inner = block.inner(rect);
     frame.render_widget(block, rect);
     frame.render_widget(Paragraph::new(lines), inner);

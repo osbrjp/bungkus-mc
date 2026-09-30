@@ -119,6 +119,8 @@ pub(crate) struct Env {
     pub wizard_prefill: Option<String>,
     /// The config as loaded (agent commands, mouse, notify).
     pub config: Config,
+    /// Where `sessions.json` lives; `None` when no home directory is known.
+    pub state_path: Option<PathBuf>,
 }
 
 /// What launches need besides the model: the socket for hooks and mc's
@@ -206,6 +208,9 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<()> {
         resize_sessions(&mut model);
         terminal.draw(|frame| ui::draw(frame, &mut model))?;
         announce(&mut model, env.config.notify, &mut title);
+        if model.state_dirty {
+            save_state(&mut model, env);
+        }
         let first = match model.deadline(next_tick) {
             Some(at) => match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
                 Ok(event) => event,
@@ -230,7 +235,10 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<()> {
                 continue;
             };
             match run_cmd(&mut model, env, hooks.as_ref(), &tx, uid, cmd) {
-                Next::Quit => return Ok(()),
+                Next::Quit => {
+                    save_state(&mut model, env);
+                    return Ok(());
+                }
                 Next::Redraw => terminal.clear()?,
                 Next::Continue => {}
             }
@@ -300,6 +308,21 @@ fn run_cmd(
     Next::Continue
 }
 
+/// Writes every card to `sessions.json`; a failure is shown once and
+/// retried on the next change.
+fn save_state(model: &mut Model, env: &Env) {
+    model.state_dirty = false;
+    let Some(path) = &env.state_path else { return };
+    let records: Vec<_> = model
+        .cards
+        .iter()
+        .map(|c| c.to_record(model.now, model.unix_now))
+        .collect();
+    if let Err(e) = crate::store::state::save(path, &records) {
+        model.message = Some(format!("Sessions not saved: {e}"));
+    }
+}
+
 /// Saves settings, rescans the workspace and recolours running sessions.
 fn apply(model: &mut Model, env: &Env, settings: config::Settings) {
     if let Some(path) = &env.config_path
@@ -328,6 +351,7 @@ fn launch(
         project,
         kind,
         mut launch,
+        replaces,
     } = request;
     if let (Some(hooks), Kind::Codex) = (hooks, kind) {
         launch.hook_args = agent::codex::hook_args(&hooks.exe);
@@ -379,6 +403,10 @@ fn launch(
     let child = child_env(std::env::vars_os(), &extra);
     if launch.settings.is_some() || !launch.hook_args.is_empty() {
         card.expect_hooks();
+    }
+    card.agent_session.clone_from(&launch.resume);
+    if let Some(old) = replaces {
+        model.cards.retain(|c| c.id != old);
     }
     let size = ui::output_size(model.screen, model.zoom);
     match Session::spawn(

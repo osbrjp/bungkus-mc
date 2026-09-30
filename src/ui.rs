@@ -192,6 +192,7 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
         Some(Overlay::Form(f)) => form::draw_settings(frame, area, f, theme, model.host_light),
         Some(Overlay::Picker(p)) => dialogs::draw_picker(frame, area, p, theme),
         Some(Overlay::Stop(d)) => dialogs::draw_stop(frame, area, d, model, theme),
+        Some(Overlay::Forget(id)) => dialogs::draw_forget(frame, area, *id, model, theme),
         None => {}
     }
 }
