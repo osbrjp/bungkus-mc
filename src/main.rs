@@ -1,35 +1,47 @@
 //! `bungkus-mc`: mission control for AI coding agents in the terminal.
 //!
-//! This file parses the command line and hands off to the TUI in [`app`].
-//! It is the only place besides subcommand entry points that uses `anyhow`.
+//! This file parses the command line, reads the config, and hands off to
+//! the TUI in [`app`]. It is the only place besides subcommand entry points
+//! that uses `anyhow`.
 
+mod agent;
 mod app;
+mod store;
 mod ui;
+mod workspace;
 
 use std::io::{IsTerminal, Write};
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 
-use crate::ui::theme::{Background, Profile, Theme};
+use crate::agent::{Kind, find_on_path};
+use crate::app::model::Model;
+use crate::store::config::{self, Config, Settings, tilde};
+use crate::ui::theme::{Profile, Theme, ThemeName};
 
 /// Usage text printed by `--help`.
 const HELP: &str = "\
 bungkus-mc - mission control for AI coding agents
 
-Usage: bungkus-mc [options]
+Usage: bungkus-mc [options] [WORKSPACE]
+
+  WORKSPACE        folder whose child folders are projects
+                   (default: the workspace in config.json; first run asks)
 
 Options:
   -h, --help       print this help
   -V, --version    print the version
 
-Keys: q or ctrl-c quits.
+Keys: ? in the app shows them all; , opens settings; q quits.
+Config: ~/.config/bungkus/mc/config.json
 ";
 
 /// What the command line asks for.
 #[derive(Debug, PartialEq, Eq)]
 enum Command {
-    /// Run the TUI.
-    Tui,
+    /// Run the TUI, optionally on a workspace given on the command line.
+    Tui(Option<String>),
     /// Print [`HELP`].
     Help,
     /// Print the version.
@@ -44,20 +56,22 @@ enum Command {
 ///
 /// # Errors
 ///
-/// Returns a [`lexopt::Error`] for any option or positional argument that
-/// is not listed in [`HELP`].
+/// Returns a [`lexopt::Error`] for an unknown option or a second
+/// positional argument.
 fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, lexopt::Error> {
     use lexopt::prelude::*;
 
     let mut parser = lexopt::Parser::from_args(args);
-    if let Some(arg) = parser.next()? {
-        return match arg {
-            Short('h') | Long("help") => Ok(Command::Help),
-            Short('V') | Long("version") => Ok(Command::Version),
-            _ => Err(arg.unexpected()),
-        };
+    let mut workspace = None;
+    while let Some(arg) = parser.next()? {
+        match arg {
+            Short('h') | Long("help") => return Ok(Command::Help),
+            Short('V') | Long("version") => return Ok(Command::Version),
+            Value(value) if workspace.is_none() => workspace = Some(value.string()?),
+            _ => return Err(arg.unexpected()),
+        }
     }
-    Ok(Command::Tui)
+    Ok(Command::Tui(workspace))
 }
 
 /// Parses the command line and runs the chosen command.
@@ -69,19 +83,71 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, lexopt:
 fn main() -> Result<()> {
     let command = parse_args(std::env::args().skip(1)).context("reading arguments")?;
     let mut stdout = std::io::stdout();
-    match command {
-        Command::Help => stdout.write_all(HELP.as_bytes()).context("printing help")?,
-        Command::Version => writeln!(stdout, "bungkus-mc {}", env!("CARGO_PKG_VERSION"))
-            .context("printing version")?,
-        Command::Tui => {
-            if !stdout.is_terminal() {
-                bail!("bungkus-mc needs a terminal on stdout");
-            }
-            let profile = Profile::detect(|name| std::env::var(name).ok());
-            app::run(Theme::new(profile, Background::Paint)).context("running the TUI")?;
+    let workspace_arg = match command {
+        Command::Help => return stdout.write_all(HELP.as_bytes()).context("printing help"),
+        Command::Version => {
+            return writeln!(stdout, "bungkus-mc {}", env!("CARGO_PKG_VERSION"))
+                .context("printing version");
         }
+        Command::Tui(workspace) => workspace,
+    };
+    if !stdout.is_terminal() {
+        bail!("bungkus-mc needs a terminal on stdout");
     }
-    Ok(())
+    let var = |name: &str| std::env::var(name).ok();
+    let home = var("HOME").map(PathBuf::from);
+    let cwd = std::env::current_dir().context("reading the current directory")?;
+    let config_path = store::config_file(var);
+    let (config, message) = match config_path.as_deref().map(config::load) {
+        Some(Ok(config)) => (config, None),
+        Some(Err(e)) => (Config::default(), Some(format!("{e} — using defaults."))),
+        None => (Config::default(), None),
+    };
+    let path_var = std::env::var_os("PATH").unwrap_or_default();
+    let found = Kind::ALL
+        .map(|kind| find_on_path(kind.command(), &path_var).map(|p| tilde(&p, home.as_deref())));
+    let git_parent = app::form::git_parent(&cwd);
+    let fallback = git_parent.clone().unwrap_or_else(|| cwd.clone());
+    let theme = Theme::new(ThemeName::Dark, Profile::detect(var), config.background);
+    let mut model = Model::new(theme, home.clone(), found, fallback);
+    model.message = message;
+
+    let workspace = workspace_arg
+        .map(|arg| app::absolute(&arg, &cwd, home.as_deref()))
+        .or_else(|| {
+            config
+                .workspace
+                .as_deref()
+                .and_then(|w| config::expand(w, home.as_deref()))
+        });
+    let wizard_prefill = match workspace {
+        Some(workspace) => {
+            apply(&mut model, &config, workspace, &cwd);
+            None
+        }
+        None => Some(
+            git_parent
+                .map(|p| tilde(&p, home.as_deref()))
+                .unwrap_or_default(),
+        ),
+    };
+    let env = app::Env {
+        config_path,
+        cwd,
+        wizard_prefill,
+    };
+    app::run(model, &env).context("running the TUI")
+}
+
+/// Applies the config's settings on `workspace` and scans it.
+fn apply(model: &mut Model, config: &Config, workspace: PathBuf, cwd: &Path) {
+    let scan = workspace::scan(&workspace);
+    let settings = Settings {
+        workspace,
+        theme: config.theme,
+        default_agent: config.default_agent,
+    };
+    model.apply(settings, scan, cwd);
 }
 
 #[cfg(test)]
@@ -91,7 +157,8 @@ mod tests {
     #[test]
     fn parses_each_flag_to_its_command() {
         let cases: &[(&[&str], Command)] = &[
-            (&[], Command::Tui),
+            (&[], Command::Tui(None)),
+            (&["~/Works"], Command::Tui(Some("~/Works".into()))),
             (&["-h"], Command::Help),
             (&["--help"], Command::Help),
             (&["-V"], Command::Version),
@@ -105,7 +172,7 @@ mod tests {
 
     #[test]
     fn rejects_unknown_arguments() {
-        for args in [&["--nope"][..], &["-x"], &["some/dir"]] {
+        for args in [&["--nope"][..], &["-x"], &["a", "b"]] {
             assert!(
                 parse_args(args.iter().map(ToString::to_string)).is_err(),
                 "{args:?}"

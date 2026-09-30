@@ -158,7 +158,8 @@ At 16 colours the converter maps `accent`, `warn` and `err` all to 1 and
 
 Theme selection: `theme: "auto" | "dark" | "light"` in config (auto sends
 one OSC 11 query at start and reads the reply with a 200 ms budget; when
-the terminal does not answer, dark). No runtime toggle key (edit the config).
+the terminal does not answer, dark). Changed live from the settings
+screen (`,`, §5.8), which previews the theme before saving.
 
 ### 2.3 Fallback ladder
 
@@ -553,7 +554,7 @@ The `n` picker has four rows — agent, model, name, prompt:
 ╚════════════════════════════════════════════╝
 ```
 
-The picker preselects the last-used agent, so `n` `enter` starts a session
+The picker preselects the default agent (§5.8), so `n` `enter` starts a session
 with no prompt; missing agents are listed greyed with "not on PATH". The
 `model` row defaults to `auto` when routing is on (§10) and to the agent's
 default otherwise; `←`/`→` (or `h`/`l`) change it — that is the override.
@@ -826,39 +827,148 @@ Empty state, output pane at 60 columns:
 └──────────────────────────────────────────────────────────┘
 ```
 
-Splash / first run (80×24; also the `w` workspace screen) — the mascot with
-the product name beside it, static:
+The first-run wizard's steps show the static mascot beside the product
+name (§5.8).
+
+### 5.8 Setup wizard and settings screen
+
+Three settings belong to the user's first minutes and are edited in mc
+itself: the **workspace**, the **default agent** and the **theme**.
+
+**First run** (no workspace on the command line or in `config.json`): a
+four-step wizard, full screen, the static mascot beside the product name on
+every step. `enter` goes on, `esc` goes back, and `esc` on the first step
+**skips the wizard with defaults** (the prefilled folder, else the current
+directory; the installed agent; `auto` theme). The workspace field is
+prefilled with the parent of the git repository mc was started in, if any,
+and that project is then preselected. The agent step lists both agents
+with where they were found; only installed agents can be chosen (both, if
+neither is installed). The theme step **previews live**: the whole screen
+repaints in the chosen theme, with a sample of the state colours. Finishing
+(or skipping) writes the three keys to `config.json` (ARCHITECTURE §7).
+
+Generated from the goldens in `src/ui/testdata/` (80×24, `NO_COLOR`):
 
 ```
-                                                                                
-                                                                                
-                                                                                
-                                   ▄▄                                           
-                                 ▄████▄         bungkus-mc  v0.1.0             
-                                ████████        mission control for AI agents   
-                              ▄██████████▄                                      
-                            ▄██████████████▄                                    
-                                  █  █                                          
-                                 ▀▀ ▀▀                                          
-                                                                                
-        workspace  ┃~/Works/OSBR                                     ┃          
-                   projects = folders with CLAUDE.md, AGENTS.md or .git         
-                                                                                
-        agents     + claude 2.1.285      + codex 0.153.4                        
-                                                                                
-        only sessions started here show up in bungkus-mc                       
-                                                                                
-                                                                                
-                                                                                
-                                                                                
-                                                                                
-                                                                                
-                                                     enter continue · q quit    
+            ▄▄
+          ▄████▄         bungkus-mc  v0.1.0
+         ████████        mission control for AI agents
+       ▄██████████▄
+     ▄██████████████▄    step 1 of 4 · workspace
+           █  █
+          ▀▀ ▀▀
+
+     workspace   ┃/tmp                                                    ┃
+
+                 projects = folders with CLAUDE.md, AGENTS.md or .git
+                 only sessions started here show up in bungkus-mc
+
+
+
+
+
+                                        enter next · esc skip · ctrl-c quit
 ```
 
-If mc is started inside a git repository, the workspace is prefilled with
-the parent directory and that project is preselected; otherwise the field
-starts empty. It is a plain text input (no file-picker widget).
+```
+            ▄▄
+          ▄████▄         bungkus-mc  v0.1.0
+         ████████        mission control for AI agents
+       ▄██████████▄
+     ▄██████████████▄    step 2 of 4 · default agent
+           █  █
+          ▀▀ ▀▀
+
+     agent       > claude    codex (not on PATH)
+
+                 + ~/.local/bin/claude   - codex not on PATH
+                 n starts this agent; the n picker can still switch
+
+
+
+
+
+                                         ← → choose · enter next · esc back
+```
+
+```
+            ▄▄
+          ▄████▄         bungkus-mc  v0.1.0
+         ████████        mission control for AI agents
+       ▄██████████▄
+     ▄██████████████▄    step 3 of 4 · theme
+           █  █
+          ▀▀ ▀▀
+
+     theme       > auto    dark    light
+
+                 follows your terminal's background (now dark)
+                 / working  ! needs you  x failed  ~ your turn
+
+
+
+
+
+                                         ← → choose · enter next · esc back
+```
+
+```
+            ▄▄
+          ▄████▄         bungkus-mc  v0.1.0
+         ████████        mission control for AI agents
+       ▄██████████▄
+     ▄██████████████▄    step 4 of 4 · all set
+           █  █
+          ▀▀ ▀▀
+
+     workspace   /tmp
+     agent       claude
+     theme       auto
+
+                 change these any time with , (settings)
+
+
+
+
+                                                     enter start · esc back
+```
+
+**Settings screen** — `,` in NORMAL (and `w`, which opens it on the
+workspace field). A dialog with all three fields; `↑`/`↓`/`tab` move between
+them, `←`/`→` change a choice, typing edits the workspace, `enter` saves and
+rescans, `esc` cancels and reverts the theme preview. Never reachable from
+INTERACT: every key there goes to the agent.
+
+```
+ bungkus-mc  kedai-web › projects                                        v0.1.0
+┏ projects ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃>  kedai-web                                                                  ┃
+┃   teh-cli                                                                    ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┃      ╔ settings ══════════════════════════════════════════════════════╗      ┃
+┃      ║                                                                ║      ┃
+┃      ║   workspace   ┃~/Works/OSBR                                  ┃ ║      ┃
+┃      ║ > agent       > claude    codex (not on PATH)                  ║      ┃
+┃      ║   theme         auto  > dark    light                          ║      ┃
+┃      ║               + ~/.local/bin/claude   - codex not on PATH      ║      ┃
+┃      ║                                                                ║      ┃
+┃      ║                                                                ║      ┃
+┃      ║                                                                ║      ┃
+┃      ║                                                                ║      ┃
+┃      ║               ↑ ↓ field · ← → change · enter save · esc cancel ║      ┃
+┃      ╚════════════════════════════════════════════════════════════════╝      ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┃                                                                              ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+ NORMAL  enter → sessions · j/k · / filter · , settings · ? help
+```
+
+**Default agent vs last used (decided):** the `n` picker preselects the
+**default agent** from settings; the picker can still switch it for one
+session. There is no "last used" memory.
 
 ## 6. Usage figures (tokens, cost, context, plan limits)
 
@@ -956,7 +1066,8 @@ the same frame.
 | `!` · `ctrl-]`                                    | jump to the next needs-you session **across projects**: switches the sidebar selection to that project, selects the card, and enters the output pane (INTERACT) so the answer can be typed at once |
 | `z`                                               | zoom the output pane (toggle; stays in the current mode — from INTERACT: `ctrl-\` then `z`) |
 | `/`                                               | filter the focused list (FILTER mode: type, `enter` keep, `esc` clear). The list *is* the filter result, so `j`/`k` walk matches; there is no match-next key |
-| `w`                                               | workspace screen                        |
+| `w`                                               | settings, on the workspace field (§5.8) |
+| `,`                                               | settings: workspace, default agent, theme (§5.8) |
 | `?`                                               | help                                    |
 | `ctrl-l` · `R`                                    | redraw (`R` for tmux + vim-tmux-navigator users, whose `ctrl-l` never arrives) |
 | `q` · `ctrl-c`                                    | quit (confirm if anything is running)   |
@@ -973,7 +1084,7 @@ cleared by the next key).
 | `n`         | new session for the selected project (same picker as below)   |
 
 `n` `enter` from the projects pane therefore starts a session for the
-highlighted project with the last-used agent and no prompt.
+highlighted project with the default agent and no prompt.
 
 ### 8.3 Sessions pane (selected project)
 
@@ -1089,7 +1200,7 @@ launches the agent with the mapped model. What the user sees:
 
 | Where                          | Copy                                                                       |
 |--------------------------------|----------------------------------------------------------------------------|
-| first run / no workspace       | first-run screen (§5.7)                                                    |
+| first run / no workspace       | setup wizard (§5.8)                                                        |
 | workspace has no projects      | `No projects in ~/Works/OSBR. A project is a folder with CLAUDE.md, AGENTS.md or .git in it — w to pick another folder.` |
 | project has no sessions        | `No sessions in kedai-web. n to start one. Only sessions started here show up.` |
 | session running, no output yet | `Warming up the wok…`                                                      |

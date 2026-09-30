@@ -1,0 +1,25 @@
+
+
+
+            ▄▄
+          ▄████▄         bungkus-mc  v0.1.0
+         ████████        mission control for AI agents
+       ▄██████████▄
+     ▄██████████████▄    step 4 of 4 · all set
+           █  █
+          ▀▀ ▀▀
+
+     workspace   /tmp
+     agent       claude
+     theme       auto
+
+                 change these any time with , (settings)
+
+
+
+
+                                                     enter start · esc back
+
+
+
+cursor: hidden

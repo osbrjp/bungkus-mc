@@ -11,6 +11,10 @@ publish = false
 anyhow = "1.0.104"
 lexopt = "0.3.2"
 ratatui = "0.30.2"
+rustix = { version = "1.1.5", features = ["event", "stdio"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.151", features = ["preserve_order"] }
+thiserror = "2.0.21"
 
 [lints.rust]
 missing_docs = "deny"

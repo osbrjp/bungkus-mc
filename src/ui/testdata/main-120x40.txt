@@ -1,0 +1,41 @@
+ bungkus-mc  ~/Works/OSBR › pasar-mobile                                                                         v0.1.0
+┏ projects ━━━━━━━━━━┓┌ sessions · pasar-mobile ───────────┐┌ output ──────────────────────────────────────────────────┐
+┃   kedai-web        ┃│ No sessions in pasar-mobile. n to  ││                                                          │
+┃>  pasar-mobile     ┃│ start one. Only sessions started   ││                                                          │
+┃   roti-docs        ┃│ here show up.                      ││                                                          │
+┃   teh-cli          ┃│                                    ││                                                          │
+┃   warung-api       ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                            ▄▄                            │
+┃                    ┃│                                    ││                          ▄████▄                          │
+┃                    ┃│                                    ││                         ████████                         │
+┃                    ┃│                                    ││                       ▄██████████▄                       │
+┃                    ┃│                                    ││                     ▄██████████████▄                     │
+┃                    ┃│                                    ││                           █  █                           │
+┃                    ┃│                                    ││                          ▀▀ ▀▀                           │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                   Nothing wrapped yet.                   │
+┃                    ┃│                                    ││                   n to start a session                   │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┗━━━━━━━━━━━━━━━━━━━━┛└────────────────────────────────────┘└──────────────────────────────────────────────────────────┘
+ NORMAL  enter → sessions · j/k · / filter · , settings · ? help
+cursor: hidden

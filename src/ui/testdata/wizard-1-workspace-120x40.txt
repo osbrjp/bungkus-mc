@@ -1,0 +1,41 @@
+
+
+
+
+
+
+
+
+
+
+
+                                ▄▄
+                              ▄████▄         bungkus-mc  v0.1.0
+                             ████████        mission control for AI agents
+                           ▄██████████▄
+                         ▄██████████████▄    step 1 of 4 · workspace
+                               █  █
+                              ▀▀ ▀▀
+
+                         workspace   ┃/tmp                                                    ┃
+
+                                     projects = folders with CLAUDE.md, AGENTS.md or .git
+                                     only sessions started here show up in bungkus-mc
+
+
+
+
+
+                                                            enter next · esc skip · ctrl-c quit
+
+
+
+
+
+
+
+
+
+
+
+cursor: 42,19

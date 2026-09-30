@@ -1,0 +1,41 @@
+ bungkus-mc  ~/Works/OSBR › kedai-web                                                                            v0.1.0
+┏ projects ━━━━━━━━━━┓┌ sessions · kedai-web ──────────────┐┌ output ──────────────────────────────────────────────────┐
+┃>  kedai-web        ┃│ No sessions in kedai-web. n to     ││                                                          │
+┃   pasar-mobile     ┃│ start one. Only sessions started   ││                                                          │
+┃   roti-docs        ┃│ here show up.                      ││                                                          │
+┃   teh-cli          ┃│                                    ││                                                          │
+┃   warung-api       ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│   ╔ keys · projects pane ════════════════════════════════════════════╗                         │
+┃                    ┃│   ║                                                                  ║                         │
+┃                    ┃│   ║  enter           its sessions                                    ║                         │
+┃                    ┃│   ║                                                                  ║                         │
+┃                    ┃│   ║  everywhere                                                      ║                         │
+┃                    ┃│   ║  h ← shift-tab   pane left       l → tab         pane right      ║█▄                       │
+┃                    ┃│   ║  j ↓             down            k ↑             up              ║███▄                     │
+┃                    ┃│   ║  gg home         first           G end           last            ║                         │
+┃                    ┃│   ║  ctrl-d pgdn     half page down  ctrl-u pgup     half page up    ║                         │
+┃                    ┃│   ║  /               filter          w               workspace       ║                         │
+┃                    ┃│   ║  ,               settings        ctrl-l R        redraw          ║d yet.                   │
+┃                    ┃│   ║  ?               this help       q ctrl-c        quit            ║ession                   │
+┃                    ┃│   ║                                                                  ║                         │
+┃                    ┃│   ║                                                       esc close  ║                         │
+┃                    ┃│   ╚══════════════════════════════════════════════════════════════════╝                         │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┗━━━━━━━━━━━━━━━━━━━━┛└────────────────────────────────────┘└──────────────────────────────────────────────────────────┘
+ NORMAL  enter → sessions · j/k · / filter · , settings · ? help
+cursor: hidden
