@@ -377,6 +377,9 @@ impl Model {
             }
             AppEvent::Procs(snapshot) => self.track(&snapshot),
             AppEvent::HostGone => return self.host_gone(),
+            AppEvent::UpdateAvailable(tag) => {
+                self.message = Some(format!("bungkus-mc {tag} is out — bungkus-mc update"));
+            }
             AppEvent::Pty(PtyEvent::Output(id, bytes)) => {
                 if let Some(pty) = self.card_mut(id).and_then(|c| c.pty.as_mut()) {
                     pty.advance(&bytes);

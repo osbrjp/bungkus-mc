@@ -1,70 +1,91 @@
 name: Release
+# A release PR (main -> release, opened by prepare-release.yml) merged into
+# `release` builds the four binaries and publishes them as v<Cargo.toml
+# version>, with checksums.txt, install.sh and THIRD-PARTY-NOTICES.
 on:
   pull_request:
     types: [closed]
     branches:
       - release
+permissions:
+  contents: read
+
 jobs:
-  deployment:
-    name: Deploy
-    # 'merged == true' to prevent from being triggered when PR is closed
+  version:
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Deployment
+      - uses: actions/checkout@v7
+        with:
+          ref: release
+      - id: tag
+        name: Tag from Cargo.toml
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "Deployment pipeline here"
+          tag="v$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::$tag is already released; bump version in Cargo.toml in the release PR"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
-  publish-release-note:
-    name: Publish release note
-    if: github.event.pull_request.merged == true
-    needs: deployment
+  build:
+    needs: version
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { runner: macos-latest, target: aarch64-apple-darwin, asset: bungkus-mc-darwin-arm64 }
+          - { runner: macos-latest, target: x86_64-apple-darwin, asset: bungkus-mc-darwin-amd64 }
+          - { runner: ubuntu-latest, target: x86_64-unknown-linux-gnu, asset: bungkus-mc-linux-amd64 }
+          - { runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, asset: bungkus-mc-linux-arm64 }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: release
+      - run: rustup target add ${{ matrix.target }}
+      - run: cargo build --release --locked --target ${{ matrix.target }}
+      - run: cp target/${{ matrix.target }}/release/bungkus-mc ${{ matrix.asset }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+
+  publish:
+    needs: [version, build]
     permissions:
       contents: write
       pull-requests: write
     runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.version.outputs.tag }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: Generate CalVer version
-        id: calver
-        uses: actions/github-script@v9
+      - uses: actions/checkout@v7
         with:
-          script: |
-            const now = new Date();
-            const year = now.getFullYear().toString();
-            const month = (now.getMonth() + 1).toString().padStart(2, '0');
-            const day = now.getDate();
-            const week = Math.floor((day - 1) / 7) + 1;
-
-            let version = `${year}.${month}.week${week}`;
-            console.log(`Version set to ${version}`);
-
-            const { owner, repo } = context.repo;
-
-            const releases = await github.rest.repos.listReleases({
-              owner,
-              repo,
-              per_page: 50,
-            });
-
-            const tagLine = releases.data.find(release => release.tag_name.includes(version));
-            const count = tagLine ? Number(tagLine.tag_name.split('release')[1]) + 1 : 1;
-
-            version = `${version}.release${count}`;
-            const releaseNoteName = `${year}-${month} Week ${week}（Release No.${count}）`;
-            console.log(`Final Version set to ${version}`);
-            console.log(`Release Note Name set to ${releaseNoteName}`);
-
-            core.setOutput('version', version);
-            core.setOutput('release_note_name', releaseNoteName);
+          ref: release
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Third-party notices
+        run: |
+          cargo install --locked cargo-about --features cli
+          cargo about generate about.hbs > dist/THIRD-PARTY-NOTICES
+      - name: Checksums and installer
+        run: |
+          cp install.sh dist/
+          cd dist && sha256sum bungkus-mc-* > checksums.txt
       - uses: release-drafter/release-drafter@v7
         with:
           config-name: ./release-drafter-config.yml
-          tag: ${{ steps.calver.outputs.version }}
-          name: ${{ steps.calver.outputs.release_note_name }}
-          version: ${{ steps.calver.outputs.version }}
+          tag: ${{ needs.version.outputs.tag }}
+          name: ${{ needs.version.outputs.tag }}
+          version: ${{ needs.version.outputs.tag }}
           publish: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload assets
+        run: gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"

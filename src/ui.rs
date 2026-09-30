@@ -734,7 +734,10 @@ pub(crate) mod tests {
         let mut model = sample(PROJECTS);
         model.theme = model.theme.with_view(icons::IconSet::Unicode, false, true);
         let (id, _w) = with_session(&mut model, "checkout redesign");
-        model.update(crate::app::AppEvent::Pty(crate::term::PtyEvent::Exited(id, Some(0))));
+        model.update(crate::app::AppEvent::Pty(crate::term::PtyEvent::Exited(
+            id,
+            Some(0),
+        )));
         model.focus = Focus::Sessions;
         assert_golden("ascii-borders-120x40.txt", &render(&mut model, 120, 40));
     }

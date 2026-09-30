@@ -11,6 +11,7 @@ mod proc;
 mod store;
 mod term;
 mod ui;
+mod update;
 mod workspace;
 
 use std::io::{IsTerminal, Write};
@@ -31,6 +32,7 @@ bungkus-mc - mission control for AI coding agents
 Usage: bungkus-mc [options] [WORKSPACE]
        bungkus-mc hook        (run by agent hooks; silent)
        bungkus-mc statusline  (Claude's status line inside mc)
+       bungkus-mc update [--check]
 
   WORKSPACE        folder whose child folders are projects
                    (default: the workspace in config.json; first run asks)
@@ -57,6 +59,11 @@ enum Command {
     Hook,
     /// The status-line wrapper Claude runs.
     StatusLine,
+    /// Update to the latest release (or only check, with `--check`).
+    Update {
+        /// Only report whether a newer release exists.
+        check: bool,
+    },
 }
 
 /// Parses command-line arguments (without the program name).
@@ -82,6 +89,14 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, lexopt:
             Value(value) if workspace.is_none() && value == "hook" => return Ok(Command::Hook),
             Value(value) if workspace.is_none() && value == "statusline" => {
                 return Ok(Command::StatusLine);
+            }
+            Value(value) if workspace.is_none() && value == "update" => {
+                let check = match parser.next()? {
+                    None => false,
+                    Some(Long("check")) => true,
+                    Some(other) => return Err(other.unexpected()),
+                };
+                return Ok(Command::Update { check });
             }
             Long("icons") => {
                 let value = parser.value()?.string()?;
@@ -123,6 +138,10 @@ fn main() -> Result<()> {
             return Ok(());
         }
         Command::StatusLine => std::process::exit(ipc::statusline::run()),
+        Command::Update { check } => {
+            let text = update::run(check).context("update")?;
+            return writeln!(stdout, "{text}").context("printing");
+        }
         Command::Tui(workspace, icons) => (workspace, icons),
     };
     if !stdout.is_terminal() {
@@ -246,6 +265,8 @@ mod tests {
                 Command::Tui(None, Some(IconSet::Unicode)),
             ),
             (&["statusline"], Command::StatusLine),
+            (&["update"], Command::Update { check: false }),
+            (&["update", "--check"], Command::Update { check: true }),
             (&["--version"], Command::Version),
         ];
         for (args, want) in cases {

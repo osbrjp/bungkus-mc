@@ -15,7 +15,7 @@ pub(crate) mod sessions;
 pub(crate) mod stop;
 
 use std::ffi::OsStr;
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, RecvTimeoutError, SyncSender};
 use std::thread;
@@ -64,6 +64,8 @@ pub(crate) enum AppEvent {
     Procs(Vec<crate::proc::Proc>),
     /// The host terminal went away (input closed).
     HostGone,
+    /// A newer release exists (the daily check).
+    UpdateAvailable(String),
     /// A deadline passed: animation frame, sync flush or stop grace.
     Tick,
 }
@@ -172,21 +174,7 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<()> {
 
     let (tx, rx) = mpsc::sync_channel::<AppEvent>(CHANNEL_CAPACITY);
     let uid = rustix::process::getuid().as_raw();
-    let dir = server::socket_dir(|n| std::env::var(n).ok(), uid);
-    let listener = server::start(&dir, uid, tx.clone(), AppEvent::Hook);
-    let exe = std::env::current_exe().and_then(|p| p.canonicalize());
-    let hooks = match (&listener, exe) {
-        (Ok(server), Ok(exe)) => Some(Hooks {
-            socket: server.path.clone(),
-            exe,
-        }),
-        (Err(e), _) => {
-            model.message = Some(format!("No live tree this run ({e}); output still works."));
-            None
-        }
-        (_, Err(_)) => None,
-    };
-    write_host(b"\x1b[22;0t");
+    let (hooks, _listener) = start_background(&mut model, &tx, uid);
     let mut title = String::new();
     let input = tx.clone();
     thread::spawn(move || {
@@ -244,6 +232,40 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<()> {
             }
         }
     }
+}
+
+/// Starts the hook socket and the daily update check; returns what
+/// launches need for hooks and the listener that must live as long as mc.
+fn start_background(
+    model: &mut Model,
+    tx: &SyncSender<AppEvent>,
+    uid: u32,
+) -> (Option<Hooks>, Option<server::Server>) {
+    let dir = server::socket_dir(|n| std::env::var(n).ok(), uid);
+    let listener = server::start(&dir, uid, tx.clone(), AppEvent::Hook);
+    let exe = std::env::current_exe().and_then(|p| p.canonicalize());
+    let hooks = match (&listener, exe) {
+        (Ok(server), Ok(exe)) => Some(Hooks {
+            socket: server.path.clone(),
+            exe,
+        }),
+        (Err(e), _) => {
+            model.message = Some(format!("No live tree this run ({e}); output still works."));
+            None
+        }
+        (_, Err(_)) => None,
+    };
+    write_host(b"\x1b[22;0t");
+    if std::io::stderr().is_terminal() {
+        let tx = tx.clone();
+        thread::spawn(move || {
+            if let Some(tag) = crate::update::available(|n| std::env::var(n).ok()) {
+                // reason: mc may have quit meanwhile.
+                let _ = tx.send(AppEvent::UpdateAvailable(tag));
+            }
+        });
+    }
+    (hooks, listener.ok())
 }
 
 /// What the loop does after a command.
