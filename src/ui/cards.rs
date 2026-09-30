@@ -79,17 +79,24 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
         ));
         for (pos, ext) in external.into_iter().enumerate() {
             let selected = focused && pos + indices.len() == model.card;
-            lines.extend(external_lines(ext, selected, width, spin, theme));
+            let place = if project.is_some_and(|p| p.path.as_os_str().is_empty()) {
+                crate::store::config::tilde(&ext.cwd, model.home.as_deref())
+            } else {
+                "in its own terminal".to_owned()
+            };
+            lines.extend(external_lines(ext, selected, &place, width, spin, theme));
         }
     }
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
 /// Returns a session running outside mc as two lines: marker, glyph,
-/// agent badge, name and state word, then where it runs.
+/// agent badge, name and state word, then its pid and `place` (its own
+/// terminal, or its folder in the elsewhere group).
 fn external_lines(
     ext: &External,
     selected: bool,
+    place: &str,
     width: usize,
     spin: char,
     theme: Theme,
@@ -126,7 +133,7 @@ fn external_lines(
             format!(
                 "     {}",
                 truncate(
-                    &format!("pid {} · in its own terminal", ext.pid),
+                    &format!("pid {} · {place}", ext.pid),
                     width.saturating_sub(5)
                 )
             ),
