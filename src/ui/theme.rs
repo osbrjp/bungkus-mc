@@ -304,7 +304,7 @@ mod tests {
         for line in section.lines().filter(|l| l.starts_with("| `")) {
             let cols: Vec<&str> = line.split('|').collect();
             match cols.len() {
-                9 => tables.painted.push((
+                7 => tables.painted.push((
                     clean(cols[1]),
                     hex(cols[3]).unwrap(),
                     clean(cols[4])

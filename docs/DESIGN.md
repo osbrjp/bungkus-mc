@@ -57,10 +57,10 @@ Rules:
    (TrueColor) and `Color::Indexed` (256/16 — the declared index, never an
    automatic downsample); bungkus-cli, which never paints, implements the
    fallback set in `styles.go`. A token-table test in each repo compares
-   its implementation with these tables. The indices started from the nearest-colour output of a
-   standard xterm-256 converter (checked during review) and are
-   overridden only where the converter makes two roles collide (marked
-   ★). A test asserts `ok/warn/err/accent` are pairwise distinct at 256
+   its implementation with these tables. The indices started from the
+   nearest-colour output of a standard xterm-256 converter (checked during
+   review) and are overridden only where the converter makes two roles
+   collide (marked ★). A test asserts `ok/warn/err/accent` are pairwise distinct at 256
    and at 16 in both themes, and `fg-muted ≠ info`.
 
 WCAG formula: (L1 + 0.05)/(L2 + 0.05), sRGB relative luminance. AA text
@@ -68,27 +68,23 @@ WCAG formula: (L1 + 0.05)/(L2 + 0.05), sRGB relative luminance. AA text
 
 ### 2.1 Dark — "Daun Teduh" (`daun-pisang-dark`, default), painted on `#1c2a21`
 
-| Token        | Nickname     | Painted hex | vs `#1c2a21` | Role                                     | 256† | 16† |
-|--------------|--------------|-------------|--------------|------------------------------------------|-----|----|
-| `bg`         | Daun teduh   | `#1c2a21`   | —            | the screen background (shaded leaf)       | —   | —  |
-| `fg`         | Nasi         | `#d6e2d3`   | 11.18        | primary text                              | 253 | 15 |
-| `fg-muted`   | Surat khabar | `#9aab9c`   | 6.19         | hints, timestamps, secondary text         | 245★| 7★ |
-| `fg-dim`     | Dim          | `#5c7062`   | 2.82 (decorative) | rules, inactive border               | 241 | 8  |
-| `border`     | Dark         | `#3b4d40`   | 1.66 (decorative) | inactive pane border                 | 238 | 8★ |
-| `accent`     | Minyak       | `#ffaa88`   | 8.10         | app title, selected row text, agent badge | 216 | 3★ |
-| `ok`         | Daun         | `#7fb069`   | 5.93         | running, wrapped, focused border          | 107 | 2  |
-| `warn`       | Kuning       | `#e8c547`   | 8.92         | needs you, INTERACT mode word             | 185 | 11 |
-| `err`        | Sambal       | `#ff7361`   | 5.62         | failed                                    | 209 | 9  |
-| `info`       | Biru         | `#6f8fc7`   | 4.58         | session ids, links, "your turn"           | 68  | 12 |
+| Token        | Nickname     | Painted hex | vs `#1c2a21` | Role                                     |
+|--------------|--------------|-------------|--------------|------------------------------------------|
+| `bg`         | Daun teduh   | `#1c2a21`   | —            | the screen background (shaded leaf)       |
+| `fg`         | Nasi         | `#d6e2d3`   | 11.18        | primary text                              |
+| `fg-muted`   | Surat khabar | `#9aab9c`   | 6.19         | hints, timestamps, secondary text         |
+| `fg-dim`     | Dim          | `#5c7062`   | 2.82 (decorative) | rules, inactive border               |
+| `border`     | Dark         | `#3b4d40`   | 1.66 (decorative) | inactive pane border                 |
+| `accent`     | Minyak       | `#ffaa88`   | 8.10         | app title, selected row text, agent badge |
+| `ok`         | Daun         | `#7fb069`   | 5.93         | running, wrapped, focused border          |
+| `warn`       | Kuning       | `#e8c547`   | 8.92         | needs you, INTERACT mode word             |
+| `err`        | Sambal       | `#ff7361`   | 5.62         | failed                                    |
+| `info`       | Biru         | `#6f8fc7`   | 4.58         | session ids, links, "your turn"           |
 
 All text tokens pass AA on the painted background (the owner's figures,
 re-computed here). Inverse badges (`#1c2a21` text on the token as
 background — the mode word in the getah bar, the `!`/`x` gutter): on warn
 8.92, ok 5.93, err 5.62, accent 8.10.
-
-† Nearest indices to the *painted* hex, kept for reference only: nothing
-is painted at 256/16, so no product renders these columns. The rendered
-indices are the fallback set's, below.
 
 **Terminal fallback set** (TrueColor with `background: "terminal"`, and
 every 256/16 rendering). Where the hex equals the painted one, so do the
@@ -117,29 +113,29 @@ state or must-read text) and `fg-muted` 4.28 (hints and timestamps; the
 painted set fixes it at 6.19). The theme test's exception list is exactly
 these two.
 
-Index notes. `fg-muted` converts to 109/6 (cyan) painted and 103/4 (blue)
-fallback, so it is declared 245/7 (gray / normal white) to read as "muted"
-and to stay distinct from `info` (68/12). `accent` converts to 16-colour 9,
+The painted set has no 256/16 indices: nothing is painted at 256/16, so
+those profiles always render the fallback set.
+
+Index notes. `fg-muted`'s fallback hex converts to 103/4 (blue), so it is
+declared 245/7 (gray / normal white) to read as "muted" and to stay distinct from `info` (68/12). `accent` converts to 16-colour 9,
 the same as `err`, so it is declared 3 (most 16-colour "yellows" are an
 ochre — close to sambal oil). `border` at 16 is declared 8 because 0
 vanishes on a black background.
 
 ### 2.2 Light — "Santan" (`daun-pisang-light`), painted on `#f0f3d8`
 
-| Token        | Painted hex | vs `#f0f3d8` | 256† | 16† |
-|--------------|-------------|--------------|-----|----|
-| `bg`         | `#f0f3d8`   | —            | —   | —  |
-| `fg`         | `#1f2a22`   | 13.11        | 235 | 0  |
-| `fg-muted`   | `#56645a`   | 5.50         | 59  | 8  |
-| `fg-dim`     | `#8a9a88`   | 2.62 (decorative) | 245 | 8★ |
-| `border`     | `#c9d1b4`   | 1.40 (decorative) | 187 | 7★ |
-| `accent`     | `#9e3a18`   | 6.03         | 130 | 5★ |
-| `ok`         | `#2e7a3e`   | 4.66         | 29  | 2  |
-| `warn`       | `#7a5200`   | 6.10         | 94  | 3★ |
-| `err`        | `#a8261e`   | 6.25         | 124 | 1  |
-| `info`       | `#3f5f8a`   | 5.76         | 60  | 4  |
-
-† As in §2.1: painted-hex reference only, never rendered.
+| Token        | Painted hex | vs `#f0f3d8` |
+|--------------|-------------|--------------|
+| `bg`         | `#f0f3d8`   | —            |
+| `fg`         | `#1f2a22`   | 13.11        |
+| `fg-muted`   | `#56645a`   | 5.50         |
+| `fg-dim`     | `#8a9a88`   | 2.62 (decorative) |
+| `border`     | `#c9d1b4`   | 1.40 (decorative) |
+| `accent`     | `#9e3a18`   | 6.03         |
+| `ok`         | `#2e7a3e`   | 4.66         |
+| `warn`       | `#7a5200`   | 6.10         |
+| `err`        | `#a8261e`   | 6.25         |
+| `info`       | `#3f5f8a`   | 5.76         |
 
 Terminal fallback set (light; all text tokens ≥ 4.6 on `#f3eee2`, white
 and Solarized light):
