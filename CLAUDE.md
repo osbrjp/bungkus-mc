@@ -8,9 +8,9 @@ screen: projects in a workspace (left), the selected project's agent
 sessions with their subagents and usage figures (middle), the selected
 agent's real interactive UI (right), plan limits in the status bar.
 Sibling of bungkus-cli (Go); same release pipeline, installer and
-conventions; the palette is shared as a token spec. Status: **proposal /
-pre-development** — the M0 spike in `spikes/` is the only code. Read the
-docs before writing any.
+conventions; the palette is shared as a token spec. Status: **M1–M8 built**
+(v0.1.0 candidate; M9 routing not started). Read the docs before changing
+behaviour.
 
 ## Docs (read in this order)
 
@@ -83,7 +83,7 @@ cargo deny check
 
 ## Conventions
 
-- Conventional commits (`feat:`, `fix:`, `test:`, `chore:`, `docs:`); semantic-release: `main` = canary, `release` = stable (merge commit, never squash the promotion PR)
+- Conventional commits (`feat:`, `fix:`, `test:`, `chore:`, `docs:`); `main` = canary, `release` = stable via `git-pr-release` release PRs; bump `version` in `Cargo.toml` in the release PR (merge commit, never squash the promotion PR)
 - Branch naming: `i{issue#}-{date}-{seq}` (e.g. `i12-20261007-0930`)
 - Licence: proprietary (`LICENSE`, `publish = false`); never add code under a non-permissive licence.
 - GitHub repo: `osbrjp/bungkus-mc`; binary `bungkus-mc`, short command `bkmc`

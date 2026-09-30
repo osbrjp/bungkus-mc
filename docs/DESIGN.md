@@ -221,7 +221,9 @@ A TUI does not choose the font. We choose code points.
   whenever the locale is UTF-8; only a non-UTF-8 locale (or
   `TERM=linux|dumb`) switches them to `+-|`, `|` and the 4-line ASCII
   mascot. So the default screen is box-drawing borders with ascii glyphs,
-  exactly as mocked.
+  exactly as mocked. (M8 switches borders and the mascot; the `·`, `›`,
+  `→` and `…` in copy still print as-is on a non-UTF-8 locale — a known
+  gap.)
 - **Width risk (real, Japan-based team):** `●○■◆▶` and the box-drawing set
   are East Asian *Ambiguous* width. Terminals set to "ambiguous = wide"
   (common with CJK locales in iTerm2/kitty) render them 2 cells while

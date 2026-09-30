@@ -207,8 +207,9 @@ has none. Coverage is not a target.
 ## 4. Commits, branches, PRs (same as bungkus-cli)
 
 - Conventional commits (`feat:`, `fix:`, `test:`, `chore:`, `docs:`,
-  `refactor:`); semantic-release: `main` = canary, `release` = stable; the
-  promotion PR is merged with a merge commit, never squashed.
+  `refactor:`); `main` = canary, `release` = stable (release PRs from
+  `git-pr-release`; the version is bumped in `Cargo.toml`); the promotion
+  PR is merged with a merge commit, never squashed.
 - Branch `i{issue#}-{date}-{seq}`, created by the "Start Pull Request"
   workflow on issue assignment.
 - PR body: Target / Specification & Test Plan / Notes / Checklist /
