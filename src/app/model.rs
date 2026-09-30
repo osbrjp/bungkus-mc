@@ -35,7 +35,7 @@ const SCAN_EVERY: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// How long a first digit waits for a second one when the workspace has
 /// more than nine projects (DESIGN §8).
-pub(crate) const JUMP_WAIT: std::time::Duration = std::time::Duration::from_secs(1);
+pub(crate) const JUMP_WAIT: std::time::Duration = std::time::Duration::from_millis(400);
 
 /// Which pane has focus. The output pane's focus is INTERACT (DESIGN §8).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -115,6 +115,8 @@ pub(crate) enum Cmd {
     Signal(Vec<Proc>, Signal),
     /// Take a background process snapshot.
     Scan,
+    /// Write the dragged pane widths to `config.json`.
+    SaveWidths(crate::ui::Widths),
 }
 
 /// Everything the screen shows.
@@ -163,6 +165,10 @@ pub(crate) struct Model {
     pub list_rows: usize,
     /// The chord that leaves INTERACT.
     pub exit_chord: Chord,
+    /// Pane widths (dragged by the mouse, from `config.json`).
+    pub widths: crate::ui::Widths,
+    /// The pane border being dragged, if any.
+    pub drag: Option<crate::app::interact::Divider>,
     /// The whole terminal, for layout and mouse hit tests.
     pub screen: Rect,
     /// The time the view renders at.
@@ -225,6 +231,8 @@ impl Model {
             found,
             fallback_workspace: fallback,
             list_rows: 10,
+            widths: crate::ui::Widths::default(),
+            drag: None,
             exit_chord: Chord::DEFAULT,
             screen: Rect::new(0, 0, 120, 40),
             now: Instant::now(),
@@ -455,7 +463,7 @@ impl Model {
                 return self.key(key);
             }
             AppEvent::Input(Event::Paste(text)) => self.paste(&text),
-            AppEvent::Input(Event::Mouse(mouse)) => self.mouse(mouse),
+            AppEvent::Input(Event::Mouse(mouse)) => return self.mouse(mouse),
             AppEvent::Input(Event::Resize(w, h)) => self.screen = Rect::new(0, 0, w, h),
             AppEvent::Input(_) => {}
         }

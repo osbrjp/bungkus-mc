@@ -315,6 +315,13 @@ fn run_cmd(
         Cmd::Apply(settings) => apply(model, env, settings),
         Cmd::Launch(request) => launch(model, env, hooks, request, tx),
         Cmd::WatchRollout(id, path) => watch_rollout(model, id, &path, tx),
+        Cmd::SaveWidths(widths) => {
+            if let Some(path) = &env.config_path
+                && let Err(e) = config::save_widths(path, widths)
+            {
+                model.message = Some(format!("Pane widths not saved: {e}"));
+            }
+        }
         Cmd::Scan => {
             let tx = tx.clone();
             thread::spawn(move || {
@@ -452,7 +459,7 @@ fn launch(
     if let Some(old) = replaces {
         model.cards.retain(|c| c.id != old);
     }
-    let size = ui::output_size(model.screen, model.zoom);
+    let size = ui::output_size(model.screen, model.zoom, model.widths);
     match Session::spawn(
         launch.id,
         &argv,
@@ -535,7 +542,7 @@ fn watch_rollout(model: &mut Model, id: SessionId, path: &Path, tx: &SyncSender<
 
 /// Keeps every session's emulator and PTY at the output pane's size.
 fn resize_sessions(model: &mut Model) {
-    let size = ui::output_size(model.screen, model.zoom);
+    let size = ui::output_size(model.screen, model.zoom, model.widths);
     for pty in model
         .cards
         .iter_mut()

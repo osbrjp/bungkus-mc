@@ -80,7 +80,8 @@ or a JIS or German keyboard), set another chord, for example
 ## Config
 
 `~/.config/bungkus/mc/config.json` (all keys optional; the settings screen
-writes `workspace`, `defaultAgent` and `theme` and keeps everything else):
+writes `workspace`, `defaultAgent` and `theme`, a border drag writes
+`panes`, and everything else is kept):
 
 ```json
 {
@@ -97,7 +98,8 @@ writes `workspace`, `defaultAgent` and `theme` and keeps everything else):
     "claude": { "command": "claude", "args": [] },
     "codex":  { "command": "codex",  "args": [] }
   },
-  "cleanup": { "keep": ["postgres"] }
+  "cleanup": { "keep": ["postgres"] },
+  "panes": { "projects": 22, "sessions": 38 }
 }
 ```
 
@@ -106,6 +108,8 @@ writes `workspace`, `defaultAgent` and `theme` and keeps everything else):
 - `icons`: `ascii` (default), `unicode`, `nerd` (also `--icons`).
 - `notify`: `bell` (default), `desktop` (plus OSC 9/99/777), `off`.
 - `cleanup.keep`: process names the quit dialog starts as `[keep]`.
+- `panes`: pane widths; drag a pane's right border with the mouse and mc
+  saves them here (projects 16–40, sessions 28–72, output keeps 40).
 
 Sessions are remembered in `~/.local/state/bungkus/mc/sessions.json`.
 
