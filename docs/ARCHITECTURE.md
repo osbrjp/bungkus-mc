@@ -1,7 +1,6 @@
 # bungkus-mcc — Architecture
 
-Status: proposal, revision 4 (product-owner decisions of 2026-09-30
-applied). Decisions are for stage 1 unless marked "later". Facts about
+Status: proposal (product-owner decisions of 2026-09-30 applied). Decisions are for stage 1 unless marked "later". Facts about
 Claude Code / Codex were checked on 2026-09-30 against Claude Code 2.1.285
 and Codex CLI 0.153.4, the official docs, and live experiments recorded in
 the review scratchpad (`sub/ev.log`: real Claude hook payloads incl.
@@ -95,7 +94,8 @@ Inherit `os.Environ()` and then:
   host terminal;
 - unset `TERM_PROGRAM`, `TERM_PROGRAM_VERSION`, `KITTY_WINDOW_ID`, `TMUX`,
   `TMUX_PANE`, `WEZTERM_*`, `ITERM_*` — agents probe these to pick
-  notification and hyperlink strategies;
+  notification and hyperlink strategies — and `TYPESAFE_API_KEY` (the
+  routing key is mcc's, never the agent's; a test asserts it is absent);
 - add `BUNGKUS_MCC_SOCK`, `BUNGKUS_MCC_SESSION`, and for Claude
   `BUNGKUS_MCC_USER_STATUSLINE` (§6.2).
 
@@ -115,22 +115,33 @@ does not, the reply is produced in the emulator wrapper's OSC callback
 **Stop the agents, stop what they started, remember the session ids, offer
 resume.**
 
-- `q` with running sessions → confirm dialog listing the sessions **and
-  every tracked descendant** (§3.3) with its listening ports where known
-  (DESIGN.md §5.5).
+- `q` with running sessions → a **fresh process-tree scan**, then the
+  confirm dialog listing the sessions first, then every tracked descendant
+  (§3.3) as `basename(comm) [:ports] pid <n>` — never argv — with a
+  `[stop]`/`[keep]` toggle per row (`space`); after 8 rows the dialog shows
+  `… and N more` (DESIGN.md §5.5). **Exactly the listed set is signalled.**
+- **Default-keep rule.** Rows start as `[keep]`, and the SIGHUP path (no
+  dialog) never signals them, for: any `comm` under `*.app/Contents/`;
+  basenames `gpg-agent`, `ssh-agent`, `tmux`, `screen`, `watchman`,
+  `ollama`, `colima`, `docker`, `code`; and anything in config
+  `cleanup.keep`. Everything else starts as `[stop]`.
 - Confirmed, per session: SIGTERM to the agent's process group, wait ≤ 3 s,
-  SIGKILL; wait for the reader to drain and the waiter to report; then for
-  each tracked descendant still alive — identity re-checked as pid **and**
-  process start time — SIGTERM, 3 s grace, SIGKILL. Signals are sent only
-  to processes mcc created (the group) or observed as descendants (§3.3),
-  only while they are known to be alive, and never to anything merely
+  then SIGKILL to `-pgid` **only if the waiter has not yet reported exit**;
+  wait for the reader to drain; then for each `[stop]` descendant —
+  identity re-checked as pid **and** process start time (Linux: through
+  `os.FindProcess`, pidfd-backed since Go 1.23, so the check and the signal
+  cannot race; macOS: re-read `ps` for that pid) — SIGTERM, 3 s grace,
+  SIGKILL. EPERM → the row shows `could not stop`. Signals go only to the
+  group mcc created or to observed descendants, never to anything merely
   because it holds a port. The socket stays open until the last child has
   exited so `SessionEnd` hooks are delivered.
+- A user-initiated `x` or quit forces the session state to **`stopped`**,
+  even when the agent's exit code is non-zero (a test covers this).
 - `x` (stop one session) runs the same routine for that session, with the
   same dialog.
 - Each session's `agentSessionId` is in `sessions.json`; `r` runs the resume
   argv (§5) in the stored `cwd`.
-- SIGHUP/terminal close: same as quit, without the dialog.
+- SIGHUP/terminal close: same as quit, without the dialog, keep rule applied.
 
 Detach was considered and rejected for v0.1 (owner decision): both agents
 have daemons (`claude --bg`/`attach`, `codex app-server`), which are the
@@ -146,27 +157,31 @@ and outlive the agent. Design, per owner rulings:
   processes reachable from the agent's pid via `ppid` is added to that
   session's `descendants` set. A process seen once stays in the set even
   after it reparents to init/launchd; that is the whole point of scanning
-  periodically. (`// ponytail:` a process that forks and reparents between
-  two scans is missed; shorten the interval if that shows up in practice.)
-- **Identity = pid + start time.** Each entry is `{pid, startTime, name}`;
-  before any signal the start time is re-read and must match, so a reused
-  pid is never signalled.
+  periodically. Entries whose `{pid, startTime}` is **missing from a new
+  snapshot are pruned** (the process is gone; the pid may be reused).
+  (`// ponytail:` a process that forks and reparents between two scans is
+  missed; shorten the interval if that shows up in practice.)
+- **Identity = pid + start time.** Each entry is `{pid, startTime, uid,
+  comm}`; before any signal the start time is re-read and must match, so a
+  reused pid is never signalled.
 - **Discovery, minimal per OS** (one snapshot = one exec or one directory walk):
   - Linux: `/proc/<pid>/stat` for ppid, `comm` and `starttime` (clock
-    ticks since boot; stable identity); no external tools.
-  - macOS: `ps -axo pid=,ppid=,lstart=,comm=` (argv, no shell; `lstart` =
-    start time to the second, combined with pid for identity).
-- **Ports are annotation only.** For the dialog, listening TCP ports of
-  tracked pids:
-  - Linux: `/proc/net/tcp` + `/proc/net/tcp6` listening sockets → inode →
-    `/proc/<pid>/fd/*` symlinks of tracked pids; no external tools.
-  - macOS: `lsof -nP -iTCP -sTCP:LISTEN -a -p <pid,pid,…>` once when the
-    dialog opens (`lsof` ships with macOS; if it is missing or fails, the
-    dialog shows the processes without ports — nothing else changes,
-    because ports never decide what is killed).
-- The scan runs as the user, reads only the user's own processes, and its
-  output goes through `sanitise()` before display (`comm` is attacker-ish
-  input: a process can be named anything).
+    ticks since boot; stable identity); `os.Stat("/proc/<pid>")` for the
+    owner uid; no external tools.
+  - macOS: `ps -axo pid=,ppid=,uid=,lstart=,comm=` run with `LC_ALL=C` in
+    its env (argv, no shell). Parsing: three ints, then **exactly five**
+    `lstart` tokens (`Wed Sep 30 13:41:02 2026`), then `comm` as the rest
+    of the line — it may contain spaces. A ja_JP-locale fixture guards the
+    `LC_ALL=C` requirement.
+  - Entries whose uid is not ours are dropped on both OSes.
+- **Ports are annotation only,** on both OSes via
+  `lsof -nP -iTCP -sTCP:LISTEN -a -p <pid,pid,…>` once when the dialog
+  opens (`lsof` ships with macOS and most Linux distributions; if it is
+  missing or fails, the dialog shows the processes without ports — nothing
+  else changes, because ports never decide what is killed). The
+  `/proc/net/tcp` inode walk was dropped (YAGNI).
+- `comm` goes through `sanitise()` before display (a process can be named
+  anything); argv is never read.
 - Scope: descendants of mcc-launched agents only. Processes that were
   already running, or started from another terminal, are never touched.
 
@@ -269,8 +284,12 @@ Subagents (flat list, no nesting in stage 1):
 Session-id binding: Claude sessions get `--session-id <uuid>` chosen by mcc.
 Codex sessions bind on the first event carrying their `BUNGKUS_MCC_SESSION`;
 after that the reducer **ignores any event whose `session_id` differs**
-(nested `claude`/`codex` runs inherit the env). All ids match
-`^[0-9A-Za-z-]{8,64}$` before use in argv or file names.
+(nested `claude`/`codex` runs inherit the env). All ids must match the
+strict UUID regex
+`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`
+before use in argv or file names — `codex resume <non-uuid>` would be
+treated as a *name* and `claude --resume <non-uuid>` opens an interactive
+picker, both of which would leave the card bound to the wrong session.
 
 Claude runs hooks and the status line **only after the workspace-trust
 prompt has been answered**, and managed settings with `disableAllHooks` /
@@ -357,7 +376,7 @@ type Adapter interface {
 - **M6's second task**: record real `SubagentStart`/`SubagentStop`/
   `PreToolUse(spawn_agent)` payloads into `testdata/codex/`.
 
-### 5.4 Session names (decided: the card title is the session's own name)
+### 5.3 Session names (decided: the card title is the session's own name)
 
 | Source | Claude Code 2.1.285 | Codex 0.153.4 |
 |--------|---------------------|---------------|
@@ -372,7 +391,7 @@ Resolution order for the card title: live `session_name` (Claude) →
 question for the owner: extend the Codex rollout reader to the thread-name
 record once its type is confirmed, or leave Codex names to mcc.
 
-### 5.3 What is fragile and where it is contained
+### 5.4 What is fragile and where it is contained
 
 | Fragile | Blast radius | Containment |
 |---------|--------------|-------------|
@@ -424,8 +443,8 @@ own status line** (VERIFIED). To keep the user's status line working:
    runs every 30 s — documented; their `refreshInterval: 0` is honoured.
 3. **Run**: `bungkus-mcc statusline` reads stdin up to 1 MiB. Concurrently,
    with a **≤ 200 ms budget** that never delays the user's line, it forwards
-   a `Usage` line (`session_id, cost, context_window, rate_limits` — nothing
-   else) to the socket. Then it runs the user's command with
+   a `Usage` line (`session_id, session_name, cost, context_window,
+   rate_limits` — nothing else) to the socket. Then it runs the user's command with
    `exec.Command("sh", "-c", cmd)`, `Stdin = bytes.NewReader(buf)`,
    `Stdout = os.Stdout`, `Stderr` discarded, and exits with its status.
    Whether Claude uses `sh` or `$SHELL` is an M5 check. No user command →
@@ -443,24 +462,38 @@ shown dimmed as stale.
 - **One file:** `internal/agent/codexusage.go`. Nothing else in mcc opens
   a transcript.
 - **Input:** the `transcript_path` from Codex's own `SessionStart` hook,
-  validated: `filepath.EvalSymlinks` result must be under
-  `${CODEX_HOME:-~/.codex}` (also symlink-resolved), extension `.jsonl`,
-  regular file. Anything else → reader disabled for that session, usage `-`.
+  validated: `filepath.EvalSymlinks` on both the path and
+  `${CODEX_HOME:-~/.codex}`, then `filepath.Rel(codexHome, resolved)` must
+  not start with `..` and must not be absolute (a string-prefix check is
+  not enough: `~/.codex-evil/…` would pass one); extension `.jsonl`. The
+  file is opened `O_RDONLY|O_NONBLOCK` and the **fd** is `fstat`ed and
+  must be a regular file (no FIFOs, no devices, no swap under our feet).
+  Anything else → reader disabled for that session, usage `-`.
 - **Read-only, tail only, capped.** Poll every 1 s (`os.Stat` size; on
   shrink restart from 0); read from the last offset, at most 256 KiB per
   poll (a burst larger than that skips ahead to the newest 256 KiB — we
   want the latest record, not history); on attach, start from
-  `max(0, size − 256 KiB)`. Lines are split on `\n`; a partial trailing
-  line waits for the next poll.
-- **Only `token_count` records.** A line is kept only if it parses as JSON
-  with `type == "event_msg"` and `payload.type == "token_count"`; every
-  other line is discarded unparsed beyond that check (the two fields are
-  read with a minimal struct; the rest of the line is never decoded).
-  Extracted: `payload.info.total_token_usage.{input_tokens,
-  cached_input_tokens, output_tokens}`, `payload.info.last_token_usage.
-  total_tokens`, `payload.info.model_context_window`,
+  `max(0, size − 256 KiB)`. Lines are split on `\n`; **after any
+  skip-ahead the bytes up to the first `\n` are discarded** (they are a
+  partial line); a partial trailing line is carried to the next poll, and
+  a carry buffer that reaches 256 KiB without a `\n` is dropped up to the
+  next `\n`.
+- **Only `token_count` records.** A line is first prefiltered with
+  `bytes.Contains(line, []byte("\"token_count\""))`; only lines that pass
+  are `json.Unmarshal`ed into a fixed struct that reads `type`,
+  `payload.type` and the fields below (Go's decoder skips unknown fields;
+  the line is not otherwise retained). A line is kept only if
+  `type == "event_msg"` and `payload.type == "token_count"`. Extracted:
+  `payload.info.total_token_usage.{input_tokens, cached_input_tokens,
+  output_tokens}`, `payload.info.last_token_usage.total_tokens`,
+  `payload.info.model_context_window`,
   `payload.rate_limits.{primary,secondary}.{used_percent, window_minutes,
-  resets_at}`. All optional; `info` or `rate_limits` may be `null`.
+  resets_at}` (`resets_at` is **unix seconds**). All optional; `info` or
+  `rate_limits` may be `null`. Watch items seen in 0.153.4: a top-level
+  `token_usage_record` line type (carries per-turn usage; not read) and a
+  `cache_write_input_tokens` field in `turn.completed` usage — if
+  `token_count` disappears in a later release, the reader degrades to `-`
+  and these are the candidates.
 - **Tolerant.** Unknown fields ignored; missing fields → that figure `-`;
   malformed JSON → line skipped; any I/O error → reader stops, card shows
   `-`, one debug-log line. Never an error to the user.
@@ -479,6 +512,7 @@ shown dimmed as stale.
 |------|------|------|
 | config | `${XDG_CONFIG_HOME:-~/.config}/bungkus/mcc/config.json` | 0600, dir 0700 |
 | state | `${XDG_STATE_HOME:-~/.local/state}/bungkus/mcc/sessions.json` | 0600, dir 0700 |
+| routing consent | `${XDG_STATE_HOME:-~/.local/state}/bungkus/mcc/consent.json` (`{"routing": "2026-09-30T…"}`) | 0600 |
 | debug log (`--debug` only) | `${XDG_STATE_HOME:-~/.local/state}/bungkus/mcc/mcc.log` | 0600 |
 | socket | `filepath.Clean(${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}})/bungkus-mcc-<uid>/<pid>.sock` | dir 0700, sock 0600 |
 | update-check cache | `os.UserCacheDir()/bungkus-mcc/latest-release` | 0600 |
@@ -499,12 +533,9 @@ shown dimmed as stale.
     "claude": { "command": "claude", "args": [] },
     "codex":  { "command": "codex",  "args": [] }
   },
+  "cleanup": { "keep": ["postgres"] },
   "routing": {
     "enabled": false,
-    "consented": false,
-    "model": "jev-latest",
-    "minConfidence": 0.6,
-    "timeoutMs": 1500,
     "apiKeyCommand": ["security", "find-generic-password", "-s", "typesafe", "-w"],
     "tiers": {
       "claude": { "quick": "haiku", "standard": "sonnet", "deep": "opus" },
@@ -514,8 +545,9 @@ shown dimmed as stale.
 }
 ```
 
-`routing.consented` is the one key mcc writes into `config.json` itself
-(after the consent dialog); everything else is user-edited.
+mcc never writes `config.json`. The Jev model id (`jev-latest`), the
+request budget (1.5 s) and the confidence floor (0.6) are constants in
+`internal/route` (YAGNI); consent lives in the state dir.
 
 `sessions.json` (array; atomic temp + rename):
 
@@ -531,9 +563,10 @@ shown dimmed as stale.
 ```
 
 Workspace (decided): one directory; **a project is a direct child directory
-that contains `CLAUDE.md`, `AGENTS.md` or `.git`** (file or directory).
-Dot-dirs skipped, symlinks followed, names sanitised for display, sorted by
-name. Other folders are ignored. No recursion, no project file.
+that contains `CLAUDE.md`, `AGENTS.md` or `.git`** (file or directory,
+checked with `os.Stat`, so symlinked markers count). Dot-dirs skipped,
+symlinked child directories followed, names sanitised for display, sorted
+by name. Other folders are ignored. No recursion, no project file.
 
 ## 8. Concurrency rules
 
@@ -547,12 +580,15 @@ name. Other folders are ignored. No recursion, no project file.
 6. The Codex usage tailer and the process-tree scanner are `tea.Tick`-driven
    commands, not free-running goroutines; each tick does one bounded read
    (≤ 256 KiB / one `ps`) and sends one message.
-7. No `time.Sleep` in the model; the spinner tick only while something
-   runs; the mascot tick (350 ms, sequence in DESIGN.md §5.7) only while
-   the output pane's empty state is actually visible (no session selected /
-   project has no sessions, not zoomed away, not `NO_COLOR`, `motion` not
-   `false`) — it is re-armed from `View()` state, so a hidden or static
-   mascot costs no wake-ups.
+7. No `time.Sleep` in the model. One **global animation clock** (a single
+   `tea.Tick` at 350 ms) drives the sidebar/card/header spinner and the
+   mascot (mood sequences in DESIGN.md §5.7); it is armed only while
+   something animated is visible and `motion` is on (a running session
+   anywhere, or a mascot on screen), and re-armed from `View()` state, so
+   a hidden or static UI costs no wake-ups. The corner mascot's
+   blank-cell check runs per frame on at most 16×7 cells of the visible
+   emulator screen; "busy" = PTY output in the last 1 s (a timestamp set
+   in the `ptyDataMsg` handler — typing echo counts).
 8. Shutdown (§3.2) runs as a `tea.Cmd` with a "stopping…" view; `tea.Quit`
    only after it completes.
 
@@ -567,7 +603,7 @@ cmd/
   update.go                    # copied from bungkus-cli (header: // copied from osbrjp/bungkus-cli@<sha> …)
 internal/
   theme/    theme.go           # Daun Pisang tokens (painted + terminal-fallback sets), Icon(), styles — reference copy for bungkus-cli
-            mascot.go          # 16×14 pixel map, frames idle/blink/hop/stepL/stepR/cross, fixed brand colours; half-block and ascii renderers
+            mascot.go          # 16×14 + 8×6 pixel maps, frames idle/blink/lookL/lookR/duck/hop/stepL/stepR/died, mood sequences, fixed brand colours + legs token; half-block and ascii renderers
   tui/      app.go keymap.go projects.go sessions.go output.go dialogs.go firstrun.go
             testdata/          # goldens (120×40, 80×24), hostile streams
   agent/    agent.go claude.go codex.go codexusage.go   testdata/{claude,codex}/
@@ -649,9 +685,10 @@ with `claude` and `codex` (permission prompt answered via passthrough),
 ## 13. Model routing with TypeSafe Jev (opt-in, off by default)
 
 Goal (owner): pick a cheaper model for easy tasks. Where mcc can do that:
-only where it sees prompt text — the optional start prompt at `n`, and `r`
-resume when a prompt is given. **Keystrokes typed in INTERACT go straight
-to the PTY and are never routed.** Honest ceiling: the routed model is the
+only where it sees prompt text — **the optional start prompt at `n`, and
+nothing else** (resume is not routed: the session already has a model).
+**Keystrokes typed in INTERACT go straight to the PTY and are never
+routed.** Honest ceiling: the routed model is the
 session's model for its whole life (unless the user changes it inside the
 agent, e.g. `/model`), so the saving is "sessions that start with a prompt
 run on the tier the first prompt suggests". Sessions started with no
@@ -672,7 +709,8 @@ zero-data-retention only for enterprise, standard retention per their DPA
 (UNCONFIRMED period). Direct API access is early-access (UNCONFIRMED
 whether a waitlist applies to new keys).
 
-Design — `internal/route` (~150 lines):
+Design — `internal/route` (~200 lines including the key runner and the
+secret-shape filter):
 
 ```go
 type Decision struct{ Tier string; Confidence float64; Source string } // Source: routed | fallback | chosen
@@ -687,24 +725,36 @@ func Route(ctx context.Context, c Config, prompt string) Decision       // never
   ambiguous). State = `{"prompt": <sanitised, truncated to 4 KiB>}` — only
   the prompt, never the project name, cwd, env or history.
 - Mapping `tiers[agent][tier]` → model id from config (Claude `--model`,
-  Codex `-m`). `unclear`, confidence < `minConfidence` (0.6; TypeSafe's own
-  guidance is "below 0.5 do not act"), any HTTP/JSON error, 429/529, or
-  the `timeoutMs` (1500) budget → `Source: fallback`, agent default model.
-  An empty tier map for an agent (Codex by default) → no request is made.
+  Codex `-m`). Constants: model `jev-latest`, budget 1.5 s, confidence
+  floor 0.6 (TypeSafe's own guidance is "below 0.5 do not act"). `unclear`,
+  confidence below the floor **or outside `[0, 1]`**, a `choice` that is
+  not a configured tier, any HTTP/JSON error, 429/529, a response body
+  over 64 KiB (`io.LimitReader`), or the budget → `Source: fallback`, agent
+  default model. An empty tier map for an agent (Codex by default) → no
+  request is made.
+- **Secret-shape guard.** If the prompt matches `sk-`, `ghp_`,
+  `github_pat_`, `AKIA`, `xox[bp]-` or `-----BEGIN`, no request is made
+  and the card shows `default · not routed`.
 - The user can override in the `n` picker (`Source: chosen`). The card
   shows `haiku · routed 0.82` / `opus · chosen` / `default · routing fell
   back` (DESIGN.md §10). `sessions.json` records model, source, confidence.
 - API key: `TYPESAFE_API_KEY` env var, else `routing.apiKeyCommand` (an
   argv array — no shell — whose stdout is the key: macOS `security`, Linux
-  `secret-tool`, `op read`, …). Never stored in `config.json`; never logged.
+  `secret-tool`, `op read`, …). The command runs **once per mcc process,
+  lazily on the first routed start**, with its own 10 s timeout, `Stdin`
+  nil, stderr discarded, `Setsid` (no controlling tty, so it cannot prompt
+  into our screen), stdout capped at 4 KiB and trimmed; the key is kept in
+  memory for the process lifetime, never on disk, never logged.
 - Consent: the first routed start shows the dialog (DESIGN.md §10); `y`
-  writes `routing.consented: true`; `n` leaves routing enabled in config
-  but every start falls back until consented (the picker shows `auto (not
-  consented)`).
+  writes `consent.json` in the state dir; `n` leaves routing enabled in
+  config but every start falls back until consented (the picker shows
+  `auto (not consented)`).
 - Tests: `httptest` fake server for the 200 path, 401/429/529, malformed
-  JSON, slow server (timeout), low confidence, empty tier map; the mapping
-  table; the prompt sanitiser/truncation; that no field other than
-  `prompt` appears in the request body (golden request).
+  JSON, oversized body, confidence out of range, unknown choice, slow
+  server (timeout), low confidence, empty tier map, secret-shaped prompt
+  (no request); the mapping table; the prompt sanitiser/truncation; the
+  key runner (timeout, cap, once-only); that no field other than `prompt`
+  appears in the request body (golden request); resume never routes.
 - Stage: **M9, the last stage-1 milestone, shipped as v0.2.0** — the code
   is small and isolated (one package + one picker row + one argv flag), so
   it is cheap to schedule right after v0.1.0; it does not hold v0.1.0.

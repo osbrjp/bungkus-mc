@@ -84,22 +84,35 @@ cosmetics have goldens; glue has none. Coverage is not a target.
   mode 2004 is on.
 - **Theme**: contrast ≥ 4.5 for `fg, fg-muted, accent, ok, warn, err, info`
   against the painted backgrounds (`#1c2a21`, `#f0f3d8`) and for the
-  fallback set against the reference backgrounds; `ok/warn/err/accent`
-  pairwise distinct at 256 and 16 in both themes; `fg-muted ≠ info` at 256
-  and 16; painting happens only when the profile is TrueColor and
-  `background` is `paint` (table over profile × config → paints? and which
-  token set); the emulator's default colours equal the painted `bg`/`fg`
-  when painting;
-- **Mascot**: the Go pixel table equals the base rows in DESIGN.md §5.7
-  (14 rows × 16); every rendered frame (idle, blink, hop, stepL, stepR,
-  cross) is exactly 7 rows × 16 cells; only the four brand colours plus
-  transparent appear; the ASCII form is 4 lines ≤ 16 cells; the sequence
-  is the documented 14-step loop; the tick command is returned only when
-  the empty state is visible and motion is allowed (table: session
-  selected / zoomed / `NO_COLOR` / `motion: false` / narrow stack on
-  another pane → no tick, static frame); the sprite is never emitted while
-  a session is selected; the cross frame is used only for the failed
-  empty state and the error dialog; every glyph in
+  fallback set against the reference backgrounds, with an explicit
+  exception list that matches DESIGN.md §2.1 (`info` on Nord 3.82,
+  `fg-muted` on Nord 4.28); `ok/warn/err/accent` pairwise distinct at 256
+  and 16 in both themes; `fg-muted ≠ info` at 256 and 16; painting happens
+  only when the profile is TrueColor and `background` is `paint` (table
+  over profile × config → paints? and which token set); the emulator's
+  default colours equal the painted `bg`/`fg` when painting; the legs
+  token is `#9aab9c` on dark and `#0b120d` on light.
+- **Mascot**: the Go pixel tables equal the base rows and row overrides
+  in DESIGN.md §5.7 (full 14×16, mini 6×8); every full frame (idle, blink,
+  lookL, lookR, duck, hop, stepL, stepR, died) is exactly 7 rows × 16
+  cells and every mini frame 3 × 8; the hop frame is the base shifted up
+  one pixel with legs one pixel longer and the `GG` tip intact; duck is
+  shifted down two; lookR's feet point right; only the brand colours plus
+  the legs token plus transparent appear; died renders each eye cell as a
+  bold `x`; the mood sequences (needs you / working / your turn / failed)
+  and the empty-state sequence equal the documented ones; the ASCII
+  form is 4 lines ≤ 16 cells; mood sequences equal the documented ones;
+  the corner overlay is drawn only when every target cell of the visible
+  emulator screen is blank (table: blank corner → sprite; one non-blank
+  cell → title-bar `/..\` or `/xx\` for failed); busy (PTY output within
+  1 s) selects the mini sprite; the tick command is returned only when an
+  animated element is visible and motion is allowed (`NO_COLOR`,
+  `motion: false`, hidden pane → static frame, no tick); the sprite is
+  never drawn over non-blank output.
+- **Sidebar spinner**: a project with any running session shows the
+  `| / - \` frame for the global clock in the column after the marker;
+  the badge shows only needs-you / failed / your-turn; static under
+  `motion: false`. every glyph in
   every icon set is exactly 1 cell (`lipgloss.Width`) and East Asian width
   Narrow for state/marker glyphs, checked against a hard-coded EAW table
   for our glyph set (no uniseg dependency in tests).
@@ -130,24 +143,40 @@ cosmetics have goldens; glue has none. Coverage is not a target.
   picker name → prompt → `untitled`); a later `session_name` overrides;
   names are sanitised and ≤ 80 chars; `--name` appears in the new argv and
   not in the resume argv.
-- **Descendant tracking** (`internal/proc`): fixtures of `ps -axo
-  pid=,ppid=,lstart=,comm=` output (macOS) and `/proc/<pid>/stat` +
-  `/proc/net/tcp` trees (Linux) → expected descendant sets across three
-  snapshots including a reparent-to-init case; identity check refuses a
-  pid whose start time changed; kill order (group first, then descendants;
-  SIGTERM, grace, SIGKILL) with a fake signaller; port annotation parser
-  for `lsof` output and the missing-`lsof` path; every name sanitised.
+- **Descendant tracking** (`internal/proc`): fixtures of
+  `ps -axo pid=,ppid=,uid=,lstart=,comm=` output (macOS, including a
+  ja_JP-locale capture that must fail without `LC_ALL=C` and a `comm` with
+  spaces) and `/proc/<pid>/stat` trees (Linux) → expected descendant sets
+  across three snapshots including a reparent-to-init case and a pruned
+  (vanished) entry; foreign-uid entries dropped; identity check refuses a
+  pid whose start time changed; default-keep rule (app bundles, the
+  basename list, `cleanup.keep`) and the `space` toggle; SIGHUP path
+  applies keep; kill order (group first, `-pgid` SIGKILL only before the
+  waiter reported; then `[stop]` descendants; SIGTERM, grace, SIGKILL) with
+  a fake signaller; EPERM → "could not stop"; the dialog lists sessions
+  then processes as `basename(comm) [:ports] pid n` with `… and N more`
+  after 8 rows; port annotation parser for `lsof` output and the
+  missing-`lsof` path; a user-initiated stop yields state `stopped` even
+  with exit code 1; every name sanitised.
 - **Codex usage reader** (`codexusage.go`): fixtures with `token_count`
-  records among decoy lines; path validation (outside `CODEX_HOME`, symlink
-  escape, non-`.jsonl`, directory); tail from `size − 256 KiB`; file
-  shrink; partial trailing line; `null` `info`/`rate_limits`; malformed
-  JSON lines skipped; a decoy line is never decoded beyond `type`.
+  records among decoy lines (incl. `token_usage_record`); path validation
+  (outside `CODEX_HOME`, `..` via `filepath.Rel`, `~/.codex-evil` prefix
+  trick, symlink escape, non-`.jsonl`, directory, FIFO via `fstat`); tail
+  from `size − 256 KiB` with the partial first line discarded; file shrink;
+  partial trailing line carried; carry buffer over 256 KiB dropped to the
+  next `\n`; `null` `info`/`rate_limits`; malformed JSON lines skipped; a
+  line without `"token_count"` is never unmarshalled (prefilter test with a
+  counting decoder).
 - **Routing** (`internal/route`, `httptest` server): 200 with each tier,
-  `unclear`, low confidence, unknown choice, 401/429/529, malformed JSON,
-  slow server past the budget, empty tier map (no request made), missing
-  key (no request made); golden request body containing only `prompt`,
-  `model` and the fixed question; prompt sanitiser and 4 KiB truncation;
-  `apiKeyCommand` argv runner with a fake command; consent gate.
+  `unclear`, low confidence, confidence outside `[0, 1]`, unknown choice,
+  401/429/529, malformed JSON, body over 64 KiB, slow server past the
+  budget, empty tier map (no request made), missing key (no request made),
+  secret-shaped prompts (no request made, `not routed`); resume never
+  routes; golden request body containing only `prompt`, `model` and the
+  fixed question; prompt sanitiser and 4 KiB truncation; `apiKeyCommand`
+  runner with a fake command (once per process, 10 s timeout, 4 KiB cap,
+  trimmed, `Setsid`); consent gate reads/writes `consent.json`; child env
+  has no `TYPESAFE_API_KEY`.
 - **CLI smoke** (CI; skipped if binaries absent): `claude --help` and
   `codex --help` contain the flags `Launch` uses (incl. `--name`,
   `--model`, `-m`). M3 manual check: the interactive entry points accept

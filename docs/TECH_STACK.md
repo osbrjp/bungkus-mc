@@ -1,7 +1,6 @@
 # bungkus-mcc — Tech Stack
 
-Status: proposal, revision 2. Rule: every dependency must earn its line
-here. Versions match bungkus-cli where the module is shared; others are the
+Status: proposal. Rule: every dependency must earn its line here. Versions match bungkus-cli where the module is shared; others are the
 latest release as of 2026-09-30 (re-check at `go mod init`).
 
 ## Language and toolchain
@@ -58,7 +57,7 @@ Transitive (already in bungkus-cli's go.sum): `charmbracelet/ultraviolet`,
 |-------|---------|
 | `fsnotify` | The Codex usage reader (the one approved transcript read) is a 1 s `os.Stat` + `ReadAt` tail in stdlib; fsnotify on macOS is kqueue and would still need the poll fallback |
 | TypeSafe SDK | None exists for Go (Python and JavaScript only, per docs.typesafe.ai); the API is one `POST` with a JSON body, so `net/http` + `encoding/json` in `internal/route` (~150 lines). Revisit only if TypeSafe ships a Go SDK with retries/streaming we actually need |
-| `gopsutil` / `go-ps` | Descendant tracking needs `pid, ppid, start time, comm` and listening ports: on Linux that is `/proc` text (stdlib), on macOS one `ps` and one `lsof` exec with fixed argv. gopsutil would add cgo-free but large platform code for two fields |
+| `gopsutil` / `go-ps` | Descendant tracking needs `pid, ppid, uid, start time, comm` and listening ports: on Linux that is `/proc` text (stdlib) plus pidfd via `os.FindProcess`, on macOS one `ps` exec with fixed argv; ports come from one `lsof` exec on both OSes. gopsutil would add large platform code for four fields |
 | OS keychain libs | The routing API key comes from `TYPESAFE_API_KEY` or `routing.apiKeyCommand` (an argv the user configures: `security`, `secret-tool`, `op read`, …) — no keychain bindings |
 | TOML/YAML libs | `encoding/json`; Claude Code and Codex users edit JSON already |
 | SQLite / bbolt | State is one small JSON array |
@@ -74,9 +73,9 @@ Transitive (already in bungkus-cli's go.sum): `charmbracelet/ultraviolet`,
 
 - `claude` and/or `codex` on PATH (detected at start; shown on the first-run screen).
 - `bash`, `curl` for `bungkus-mcc update` (same as bungkus-cli).
-- macOS: `ps` and `lsof` (both ship with the OS) for descendant tracking
-  and port annotation; Linux: `/proc` only. Missing `lsof` = no port
-  labels in the quit dialog, nothing else.
+- macOS: `ps` (ships with the OS) for descendant tracking; Linux: `/proc`.
+  `lsof` on either OS for port annotation; missing `lsof` = no port labels
+  in the quit dialog, nothing else.
 - A UTF-8 locale for box-drawing borders (ASCII borders otherwise); the
   default icon set is ASCII regardless.
 - Routing only: a TypeSafe API key in `TYPESAFE_API_KEY` or via

@@ -1,7 +1,7 @@
 # bungkus-mcc — Proposal
 
-Status: **proposal / pre-development**, revision 4 (product-owner
-decisions of 2026-09-30 applied). Companion documents: ARCHITECTURE.md
+Status: **proposal / pre-development** (product-owner decisions of
+2026-09-30 applied). Companion documents: ARCHITECTURE.md
 (how), DESIGN.md (look and keys), TECH_STACK.md (deps), CODING_RULES.md,
 SECURITY.md.
 
@@ -93,9 +93,9 @@ palette.
 | M4 Structure + notifications (Claude) | `bungkus-mcc hook` (silent, trimmed, quoted path), socket server, Claude adapter via `--settings` (new + resume argv, unit-tested), decided state machine with `background_tasks`, subagent list, sidebar precedence, `!` across projects, session names (`--name`, `session_title`, verify `/rename` → `session_name`), `notify` bell/desktop/off + OSC 2 title push/pop | cards and sidebar update live during a real session with parallel subagents; bell rings on needs-you; card titles follow renames |
 | M5 Usage (Claude) | `bungkus-mcc statusline` wrapper (200 ms concurrent forward, then the user's status line under `sh` with buffered stdin; resolver with `CLAUDE_CONFIG_DIR`, recursion guard), `Usage` messages, compact card line, expanded selected card (sessions pane focused), getah-bar limits with thresholds and stale dimming; record a multi-turn session to settle `total_input_tokens` semantics and check which shell Claude uses | tokens/cost/ctx on every Claude card; limits in the bar on a subscription account; `-` on API-key accounts; the user's own status line still renders |
 | M6 Codex | verify `/hooks` trust persistence for `-c` injected hooks (delete or build `setup codex`), record real Codex SubagentStart/PreToolUse payloads, Codex adapter, resume rules, "hooks off" hints; **Codex usage reader** (`codexusage.go`: validated path under `CODEX_HOME`, tail-only 256 KiB, `token_count` only, tolerant, fixtures) feeding cards and the `X` limits | Codex session with subagents shows structure and `312k tok · - · ctx 22%`; untrusted path degrades to output only; bad/missing rollout shows `-` |
-| M7 Descendant tracking + cleanup | `internal/proc`: 2 s process-tree scan (Linux `/proc`, macOS `ps`), pid + start-time identity, port annotation (Linux `/proc/net/tcp`, macOS `lsof`), quit/`x` dialog listing, SIGTERM → 3 s → SIGKILL; fixture tests per OS, identity-mismatch refusal, kill order, missing-`lsof` path | a session that started `vite` is quit; the dialog shows `vite :5173 pid …`; the port is free afterwards; a reused pid is never signalled (test) |
+| M7 Descendant tracking + cleanup | `internal/proc`: 2 s process-tree scan (Linux `/proc` + pidfd, macOS `ps` with `LC_ALL=C` and `uid=`), pruning, uid filter, pid + start-time identity, `lsof` port annotation on both OSes, default-keep rule + `cleanup.keep`, quit/`x` dialog (sessions then processes, `[stop]/[keep]` toggle, `… and N more`), fresh scan on open, SIGTERM → 3 s → SIGKILL, EPERM handling, forced `stopped` state; fixture tests per OS incl. ja_JP `ps` | a session that started `vite` is quit; the dialog shows `vite :5173 pid …`; the port is free afterwards; `ssh-agent` is kept; a reused pid is never signalled (test) |
 | M8 Resume + polish | `sessions.json`, `r`/`d` with confirms, light theme, `--icons unicode|nerd`, `NO_COLOR`, non-UTF-8 locale, mascot animation in the empty state (tick only while visible), full terminal/keyboard matrix pass, README (exit-chord alternates, manual hook removal) | release **v0.1.0** on the `release` branch, together with bungkus-cli's Daun Pisang release |
-| M9 Model routing (opt-in) | `internal/route` (net/http to TypeSafe, one Choice question, tier→model map from config, 1.5 s budget, fallback), API key from env/keychain command, consent dialog, picker `model` row, card `model` line, `--model`/`-m` in Launch; `httptest` fake-server tests | release **v0.2.0**; a routed session shows `haiku · routed 0.82`; the API down → default model, no error |
+| M9 Model routing (opt-in) | `internal/route` (net/http to TypeSafe, one Choice question on the `n` start prompt only, tier→model map from config, constants for model/budget/floor, 64 KiB body cap, confidence range check, secret-shape guard, fallback), API key from env or a once-per-process keychain command, `consent.json`, consent dialog, picker `model` row, card `model` line, `--model`/`-m` in Launch; `httptest` fake-server tests | release **v0.2.0**; a routed session shows `haiku · routed 0.82`; the API down → default model, no error; a prompt with `sk-…` is never sent |
 
 M9 is in stage 1 because it is ~200 isolated lines (one package, one
 picker row, one argv flag) and it is opt-in; it does not hold v0.1.0.
@@ -151,12 +151,28 @@ picker row, one argv flag) and it is opt-in; it does not hold v0.1.0.
     (possible follow-up).
 12. **Mascot:** the banana-leaf packet character (Figma
     `HwlCHEFqRm9hfOfUbtuL4h` node `17:3`; `docs/assets/mascot.svg`, `.gif`,
-    generator `mascot-gif.py`) replaces the logomark; a 16×14 half-block
-    sprite (idle/blink/hop/stepL/stepR, 350 ms sequence) animates only in
-    the output pane's empty state, static under `NO_COLOR` or
-    `motion: false`, ASCII triangle without half-blocks; cross-eyed variant
-    proposed for the failed empty state and error dialog; fixed brand
-    colours, never drawn over agent output.
+    generator `mascot-gif.py`; poses idle `18:59`, look-up-left `18:108`,
+    look-up-right `18:127`, duck `18:86`, died `18:60` in
+    `docs/assets/mascot/`) replaces the logomark. A 16×14 half-block sprite
+    (idle/blink/lookL/lookR/duck/hop/stepL/stepR/died) animates centred in
+    the output pane's empty state, and **while a
+    session runs it sits in the pane's top-right corner** — full size when
+    quiet, an 8×6 mini sprite when the PTY is busy — drawn only over blank
+    cells (otherwise a `/..\` / `/xx\` title-bar form), with a mood per
+    session state (needs you / working / your turn); **cross eyes for
+    anything that goes wrong** (failed session, error dialog, live tree
+    unavailable, failed-project empty state). Static under `NO_COLOR` or
+    `motion: false`; ASCII triangle without half-blocks; fixed brand
+    colours with a per-theme legs token.
+13. **Sidebar spinner:** a project with any running session shows an ASCII
+    `| / - \` spinner in a column after the selection marker; the badge
+    covers only needs-you / failed / your-turn.
+14. **Kill safety (critic round 3):** default-keep list (`*.app`, agents,
+    multiplexers, `docker`, `code`, …, plus `cleanup.keep`) with a
+    `[stop]/[keep]` toggle in the dialog; uid-filtered, `LC_ALL=C` `ps`
+    parsing; `lsof` for ports on both OSes; user-initiated stop = state
+    `stopped`. Routing: `n` start prompt only, secret-shape guard, consent
+    in the state dir, constants instead of config knobs.
 
 Closed earlier: `--settings` hooks merge with user hooks (verified); Codex
 hook injection per launch via `-c` (verified); the start prompt is optional
@@ -177,9 +193,9 @@ with the last agent preselected.
    or Claude-only for M9?
 7. **Jev cost vs tokens saved:** a Jev call is ~$0.00002 per routed start
    (≤ 4 KiB prompt at $0.042/Mtok), negligible; the real trade is
-   quality-on-misroute vs cheaper sessions. Which `minConfidence` (0.6
-   proposed) and should a fallback default to the *cheaper* or the
-   *default* model?
+   quality-on-misroute vs cheaper sessions. Is the 0.6 confidence floor
+   right, and should a fallback default to the *cheaper* or the *default*
+   model?
 8. **Codex thread names:** extend the approved rollout reader to the
    thread-name record once its type is confirmed, or leave Codex titles to
    mcc's own name/prompt?

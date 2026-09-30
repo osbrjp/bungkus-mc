@@ -3,7 +3,7 @@
 <p align="center"><img src="docs/assets/mascot.gif" width="160" alt="the bungkus mascot: a green banana-leaf packet with tan paper corners, hopping"></p>
 
 **Status: proposal / pre-development.** No application code yet; this repo
-holds the design documents for review (revision 2).
+holds the design documents for review.
 
 bungkus-mcc ("mission control") is a terminal panel for running AI coding
 agents — Claude Code and Codex CLI — across the projects in a workspace.
@@ -23,7 +23,7 @@ language.
 |-----|------|
 | [docs/PROPOSAL.md](docs/PROPOSAL.md) | Summary, goals, user stories, milestones, open questions, risks |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | PTY + VT emulator for output; agent hooks and status line over a unix socket for structure and usage |
-| [docs/DESIGN.md](docs/DESIGN.md) | Nasi-lemak palette with contrast ratios and 256/16 fallbacks, glyphs, generated mockups, keys, notifications |
+| [docs/DESIGN.md](docs/DESIGN.md) | Daun Pisang design language: palette, glyphs, mascot, generated mockups, keys, notifications |
 | [docs/TECH_STACK.md](docs/TECH_STACK.md) | Dependencies and rejected alternatives |
 | [docs/CODING_RULES.md](docs/CODING_RULES.md) | Conventions, tests, review checklist |
 | [docs/SECURITY.md](docs/SECURITY.md) | Threat model and rules |
@@ -45,7 +45,9 @@ Notes for later users (from the design):
 - Only sessions started from bungkus-mcc appear in it. A project is a
   folder in the workspace that contains `CLAUDE.md`, `AGENTS.md` or `.git`.
 - Quitting stops the agents and the processes they started (dev servers);
-  the quit dialog lists them first. Sessions can be resumed later.
+  the quit dialog lists them first and lets you keep any of them
+  (`space`); agents, multiplexers, Docker and app bundles are kept by
+  default (`cleanup.keep` adds more). Sessions can be resumed later.
 - Codex usage figures are read from Codex's own session log
   (`token_count` records only); Claude's come from its status line.
 - Model routing via TypeSafe Jev is off by default and sends only the

@@ -1,38 +1,66 @@
-# Animated bungkus mascot, geometry exported from Figma node 17:3 ("bungkys-mascott").
-# Render: python3 gen.py && for f in f*.svg; do resvg -w 360 "$f" "${f%.svg}.png"; done
-#         magick -delay 6 -loop 0 f*.png -layers Optimize raw.gif && gifsicle -O3 --colors 48 raw.gif -o mascot.gif
-import math
-N = 36                      # frames at 60 ms -> 2.16 s loop
-BACK = "M1008.21 485.487C1028.06 456.409 1070.94 456.409 1090.79 485.487L1282.34 766.058C1305 799.246 1281.23 844.25 1241.05 844.25H857.954C817.77 844.25 794.002 799.246 816.66 766.058L1008.21 485.487Z"
-FACE = "M995.202 493.509C1015.05 464.424 1057.95 464.424 1077.8 493.509L1275.42 783.064C1298.07 816.252 1274.3 861.25 1234.12 861.25H838.877C798.696 861.25 774.928 816.252 797.579 783.064L995.202 493.509Z"
-CX, BASE, GROUND = 1049.5, 844, 910
+# bungkus mascot: poses and animated GIF, built from the Figma parts in
+# file HwlCHEFqRm9hfOfUbtuL4h, frame 17:3 ("bungkys-mascott"):
+#   idle 18:59 · look-up-left 18:108 · look-up-right 18:127 · duck 18:86 · died 18:60
+# Usage: python3 gen.py  -> poses/*.svg + frames/f*.svg
+# Then:  for f in frames/*.svg; do resvg -w 360 "$f" "${f%.svg}.png"; done
+#        magick -delay 6 -loop 0 frames/*.png -layers Optimize raw.gif && gifsicle -O3 --colors 48 raw.gif -o mascot.gif
+import os
+BACK = "M289.206 60.4871C309.057 31.4093 351.943 31.4093 371.794 60.4871L563.34 341.058C585.998 374.246 562.23 419.25 522.046 419.25H138.954C98.7697 419.25 75.0025 374.246 97.6599 341.058L289.206 60.4871Z"
+FACE = "M276.202 68.5094C296.053 39.4244 338.947 39.4245 358.798 68.5095L556.421 358.064C579.072 391.252 555.305 436.25 515.123 436.25H119.877C79.6956 436.25 55.9276 391.252 78.5791 358.064L276.202 68.5094Z"
+WRAP_L = "M92.476 161.99L436.105 386.548L69.8177 571.86Z"     # #D9C574
+WRAP_R = "M525.3 178.145L660.95 594.041L160.019 418.853Z"    # #E7D075
+FEET = 485  # ground line in pose coordinates
 
-def leg(x, top, lift):
-    foot = GROUND - lift        # bottom of foot
-    return (f'<rect x="{x}" y="{top}" width="18" height="{foot-top}" fill="#000"/>'
-            f'<path d="M{x-8} {foot}c-2.76 0-5-2.24-5-5v-3c0-2.76 2.24-5 5-5h18v13z" fill="#000"/>')
+EYES = {
+    'open':  '<rect x="241.543" y="180" width="30" height="60" rx="5"/><rect x="335.457" y="180" width="30" height="60" rx="5"/>',
+    'blink': '<rect x="241.543" y="203" width="30" height="14" rx="5"/><rect x="335.457" y="203" width="30" height="14" rx="5"/>',
+    'left':  '<rect x="232" y="110" width="30" height="60" rx="5"/><rect x="325.913" y="110" width="30" height="60" rx="5"/>',
+    'right': '<rect x="301" y="110" width="30" height="60" rx="5"/><rect x="394.913" y="110" width="30" height="60" rx="5"/>',
+    'cross': ''.join(f'<rect x="{x+43.841}" y="162" width="16.4088" height="62" rx="5" transform="rotate(45 {x+43.841} 162)"/>'
+                     f'<rect x="{x}" y="173.603" width="16.4088" height="62" rx="5" transform="rotate(-45 {x} 173.603)"/>' for x in (241, 335)),
+}
 
-def frame(i):
-    t = i / N * 2 * math.pi
-    hop = max(0, math.sin(2 * t))
-    bob = -16 * hop
-    squash = 1 + 0.04 * math.cos(2 * t)
-    blink = i in (26, 27, 28)
-    ey, eh = (628, 14) if blink else (605, 60)
-    lL, lR = 12 * max(0, math.sin(t)), 12 * max(0, -math.sin(t))
-    body = f'translate({CX} {BASE+bob}) scale({squash} {1/squash}) translate({-CX} {-BASE})'
-    return f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="760 420 580 540">
-<rect x="760" y="420" width="580" height="540" fill="#F2F4D9"/>
-<ellipse cx="{CX}" cy="{GROUND+8}" rx="{190 - 40*hop}" ry="9" fill="#DCE0C0"/>
-{leg(984, BASE+bob, lL)}{leg(1109, BASE+bob, lR)}
-<g transform="{body}">
-<mask id="m" maskUnits="userSpaceOnUse" x="760" y="420" width="580" height="540"><path d="{BACK}" fill="#fff"/></mask>
-<g mask="url(#m)">
-<path d="{BACK}" fill="#2B9345"/><path d="{FACE}" fill="#34AB52"/>
-<rect x="960.543" y="{ey}" width="30" height="{eh}" rx="5" fill="#000"/><rect x="1054.46" y="{ey}" width="30" height="{eh}" rx="5" fill="#000"/>
-<path d="M811.476 586.99L1155.1 811.548L788.818 996.86Z" fill="#E7D075"/>
-<path d="M1244.3 603.145L1379.95 1019.04L879.019 843.853Z" fill="#D9C574"/>
-</g></g></svg>'''
+def leg(x, facing, lift=0):
+    b = FEET - lift
+    if facing == 'left':   # foot points left, leg's bottom-right corner rounded
+        return (f'<path d="M{x} 380H{x+18}V{b-5}c0 2.761-2.239 5-5 5H{x}Z"/>'
+                f'<path d="M{x-8} {b}c-2.761 0-5-2.239-5-5v-3c0-2.761 2.239-5 5-5h18v13z"/>')
+    return (f'<path d="M{x+18} 380H{x}V{b-5}c0 2.761 2.239 5 5 5H{x+18}Z"/>'
+            f'<path d="M{x+26} {b}c2.761 0 5-2.239 5-5v-3c0-2.761-2.239-5-5-5h-18v13z"/>')
 
-for i in range(N):
-    open(f'f{i:02d}.svg', 'w').write(frame(i))
+def pose(eyes='open', facing='left', crouch=0, squash=1.0, lift=(0, 0)):
+    """crouch: body lowered onto the legs (duck = 43). Legs are drawn first, so the body hides their tops."""
+    xs = (265, 390) if facing == 'left' else (252, 377)
+    legs = leg(xs[0], facing, lift[0]) + leg(xs[1], facing, lift[1])
+    body = (f'<g transform="translate(330.5 {419+crouch}) scale({squash} {1/squash}) translate(-330.5 -419)">'
+            f'<mask id="m" maskUnits="userSpaceOnUse" x="40" y="0" width="600" height="480"><path d="{BACK}" fill="#fff"/></mask>'
+            f'<g mask="url(#m)"><path d="{BACK}" fill="#2B9345"/><path d="{FACE}" fill="#34AB52"/>'
+            f'<path d="{WRAP_L}" fill="#D9C574"/><path d="{WRAP_R}" fill="#E7D075"/></g>'
+            f'<g fill="#000">{EYES[eyes]}</g></g>')
+    return f'<g fill="#000">{legs}</g>{body}'
+
+def svg(inner, air=0, bg=True, shadow=1.0):
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="40 -20 580 540">'
+            + ('<rect x="40" y="-20" width="580" height="540" fill="#F2F4D9"/>' if bg else '')
+            + f'<ellipse cx="330" cy="{FEET+6}" rx="{150*shadow}" ry="8" fill="#DCE0C0"/>'
+            + f'<g transform="translate(0 {air})">{inner}</g></svg>')
+
+POSES = {
+    'idle': dict(), 'blink': dict(eyes='blink'),
+    'look-up-left': dict(eyes='left'), 'look-up-right': dict(eyes='right', facing='right'),
+    'duck': dict(crouch=43, squash=1.03), 'died': dict(eyes='cross'),
+}
+os.makedirs('poses', exist_ok=True); os.makedirs('frames', exist_ok=True)
+for name, kw in POSES.items():
+    open(f'poses/{name}.svg', 'w').write(svg(pose(**kw)))
+
+# 60 ms per frame, ~3.2 s loop
+timeline = (['idle'] * 10 + ['look-up-left'] * 8 + ['idle'] * 3 + ['look-up-right'] * 8 + ['idle'] * 3
+            + ['blink'] * 2 + ['idle'] * 4 + ['duck'] * 3)
+frames = [(POSES[p], 0, 1.0) for p in timeline]
+for air in (-14, -30, -42, -46, -42, -30, -14):          # hop
+    frames.append((dict(squash=0.97), air, 1 + air / 120))
+frames += [(POSES['duck'], 0, 1.0)] * 2 + [(POSES['idle'], 0, 1.0)] * 4
+for i, (kw, air, sh) in enumerate(frames):
+    open(f'frames/f{i:03d}.svg', 'w').write(svg(pose(**kw), air, shadow=sh))
+print(len(frames), 'frames')
