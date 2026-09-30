@@ -1,0 +1,67 @@
+{
+ "name": "codex",
+ "cwd": "/Users/spencer-osbr/Documents/Works/OSBR/bungkus-mc",
+ "env": {
+  "TERM": "xterm-256color",
+  "COLORTERM": "truecolor"
+ },
+ "cmd": [
+  "codex"
+ ],
+ "steps": [
+  {
+   "wait": 7000
+  },
+  {
+   "dump": "start"
+  },
+  {
+   "bytes": "/"
+  },
+  {
+   "wait": 1500
+  },
+  {
+   "dump": "slash-menu"
+  },
+  {
+   "key": "esc"
+  },
+  {
+   "wait": 500
+  },
+  {
+   "bytes": "say ok"
+  },
+  {
+   "key": "shift+enter"
+  },
+  {
+   "bytes": "日本語の二行目"
+  },
+  {
+   "wait": 800
+  },
+  {
+   "dump": "multiline"
+  },
+  {
+   "key": "ctrl+c"
+  },
+  {
+   "wait": 400
+  },
+  {
+   "key": "ctrl+c"
+  },
+  {
+   "wait": 400
+  },
+  {
+   "key": "ctrl+c"
+  },
+  {
+   "waitexit": 8000
+  }
+ ]
+}

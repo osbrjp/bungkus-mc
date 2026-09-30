@@ -1,0 +1,24 @@
+{
+ "name": "queries",
+ "cwd": "/Users/spencer-osbr/Documents/Works/OSBR/bungkus-mc",
+ "env": {
+  "TERM": "xterm-256color",
+  "COLORTERM": "truecolor"
+ },
+ "cmd": [
+  "bash",
+  "-c",
+  "printf '\\e[6n'; IFS= read -rs -t 2 -d R a; printf '\\e[c'; IFS= read -rs -t 2 -d c b; printf '\\e]11;?\\a'; IFS= read -rs -t 2 -d '\\' c; echo \"dsr=${a#*[} da=${b#*[} bg=${c:4:30}\"; sleep 3"
+ ],
+ "steps": [
+  {
+   "wait": 3500
+  },
+  {
+   "dump": "screen"
+  },
+  {
+   "waitexit": 6000
+  }
+ ]
+}
