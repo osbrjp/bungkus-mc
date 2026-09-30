@@ -1,0 +1,34 @@
+[package]
+name = "bungkus-mc"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+description = "Mission control for AI coding agents in the terminal"
+license-file = "LICENSE"
+publish = false
+
+[dependencies]
+anyhow = "1.0.104"
+lexopt = "0.3.2"
+ratatui = "0.30.2"
+
+[lints.rust]
+missing_docs = "deny"
+unsafe_code = "deny"
+unused_must_use = "deny"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+dbg_macro = "deny"
+print_stdout = "deny"
+missing_errors_doc = "warn"
+missing_panics_doc = "warn"
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1

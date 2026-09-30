@@ -1,0 +1,32 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches:
+      - "main"
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v7
+      # rustup installs the toolchain pinned in rust-toolchain.toml on first use.
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+      - name: fmt
+        run: cargo fmt --all --check
+      - name: clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: test
+        run: cargo test --all-features
+      - name: doc
+        run: cargo doc --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
