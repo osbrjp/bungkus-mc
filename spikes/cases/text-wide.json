@@ -1,0 +1,24 @@
+{
+ "name": "text-wide",
+ "cwd": "/Users/spencer-osbr/Documents/Works/OSBR/bungkus-mcc",
+ "env": {
+  "TERM": "xterm-256color",
+  "COLORTERM": "truecolor"
+ },
+ "cmd": [
+  "bash",
+  "-c",
+  "printf '|plain ascii line|\n|日本語テキスト|\n|emoji 🍙 ok|\n|⏺ ⎿ ✻ symbols|\n|ｱｲｳ halfwidth|\n|é combining|\n'; sleep 0.5"
+ ],
+ "steps": [
+  {
+   "wait": 300
+  },
+  {
+   "dump": "screen"
+  },
+  {
+   "waitexit": 3000
+  }
+ ]
+}

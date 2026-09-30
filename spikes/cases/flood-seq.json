@@ -1,0 +1,21 @@
+{
+ "name": "flood-seq",
+ "cwd": "/Users/spencer-osbr/Documents/Works/OSBR/bungkus-mcc",
+ "env": {
+  "TERM": "xterm-256color",
+  "COLORTERM": "truecolor"
+ },
+ "cmd": [
+  "seq",
+  "1",
+  "500000"
+ ],
+ "steps": [
+  {
+   "waitexit": 60000
+  },
+  {
+   "dump": "screen"
+  }
+ ]
+}

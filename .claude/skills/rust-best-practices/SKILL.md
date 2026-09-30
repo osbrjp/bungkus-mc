@@ -41,8 +41,10 @@ missing_errors_doc = "warn"
 missing_panics_doc = "warn"
 ```
 
-- `rustfmt` defaults plus `rustfmt.toml`: `edition = "2024"`, `max_width = 100`,
-  `imports_granularity = "Crate"`, `group_imports = "StdExternalCrate"`.
+- `rustfmt` defaults plus `rustfmt.toml`: `edition = "2024"`, `max_width = 100`
+  (stable options only; import grouping is kept by hand: std, external, crate).
+- `clippy.toml`: `allow-unwrap-in-tests = true`, `allow-expect-in-tests = true`,
+  `allow-panic-in-tests = true`, so the `deny` lints above apply to shipped code only.
 - A targeted `#[allow(clippy::…)]` needs a `// reason:` comment on the line above it.
   Never put a blanket `allow` on a module.
 

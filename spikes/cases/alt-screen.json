@@ -1,0 +1,30 @@
+{
+ "name": "alt-screen",
+ "cwd": "/Users/spencer-osbr/Documents/Works/OSBR/bungkus-mcc",
+ "env": {
+  "TERM": "xterm-256color",
+  "COLORTERM": "truecolor"
+ },
+ "cmd": [
+  "bash",
+  "-c",
+  "printf '\\e[?1049h\\e[2J\\e[5;10HALT SCREEN\\e[10;1H\\e[7mreverse\\e[0m'; sleep 1; printf '\\e[?1049l'; echo back; sleep 2"
+ ],
+ "steps": [
+  {
+   "wait": 500
+  },
+  {
+   "dump": "alt"
+  },
+  {
+   "wait": 1500
+  },
+  {
+   "dump": "after"
+  },
+  {
+   "waitexit": 4000
+  }
+ ]
+}
