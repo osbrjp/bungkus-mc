@@ -1,199 +1,194 @@
 # bungkus-mcc — Coding Rules
 
-Aligned with bungkus-cli; differences are called out. The one-line rule:
-**the lazy solution that works and is tested is the right one.**
+bungkus-mcc is Rust (decided 2026-09-30). The one-line rule stays: **the
+lazy solution that works and is tested is the right one.** These rules
+cover behaviour, tests, process and simplicity; **Rust style is defined
+once, in `.claude/skills/rust-best-practices/SKILL.md`, which is
+mandatory for every `.rs` and `Cargo.toml` change** and is not repeated
+here. Where the two disagree, this file and SECURITY.md win for
+behaviour, the skill wins for style.
 
-## 1. Go conventions
+## 1. Conventions
 
-- Go 1.26, `gofmt`, `go vet` clean. No linters beyond that in stage 1.
-- Package layout as in ARCHITECTURE.md §9. `internal/` only; no `pkg/`.
-- One package = one concern; files ≤ ~400 lines, split by topic.
-- Exported identifiers only where another package uses them. `internal/theme`
-  is the exception: it is written to be copied into other bungkus products.
-- Errors: `fmt.Errorf("launch %s: %w", kind, err)` — lowercase, context
-  first, `%w`. No custom error types until two call sites branch on one.
-- No `panic` outside `main`/`init`. The TUI always restores the terminal
-  (`defer` in `cmd/root.go`; `recover` in `Update` only to log and quit).
-  The `hook`/`statusline` subcommands `recover()` and exit 0.
-- Context for subprocesses and the update check; nothing else needs one.
-- Concurrency: ARCHITECTURE.md §8 is law. Every `go func` ends in
-  `Program.Send` or is the per-session reply pump. No mutexes in
-  `internal/tui`. No `time.Sleep` in the model.
-- Config/state: `encoding/json`, explicit tags, `omitempty`, atomic write
-  helper. Unknown fields ignored on read.
-- Logging: `log/slog`, one logger from `main`, nil-safe wrapper; never to
-  stdout/stderr while the TUI runs; never payload bodies.
+- Toolchain and lint set: TECH_STACK.md. The four commands at the top of
+  the skill pass before any Rust change is "done".
+- Module layout as in ARCHITECTURE.md §9: one binary crate, one module per
+  concern (`app`, `ui`, `term`, `agent`, `ipc`, `proc`, `route`, `store`,
+  `update`). Files ≤ ~400 lines, split by topic. `pub(crate)` by default.
+- Errors: a `thiserror` enum per module boundary; `anyhow` only in
+  `main.rs` and the subcommand entry points. Parsing untrusted input (hook
+  payloads, `ps` output, Codex records, TypeSafe responses) never panics —
+  it returns an error or skips the record.
+- The TUI always restores the terminal: the raw-mode/alt-screen guard is a
+  struct whose `Drop` restores; `main` also installs a panic hook that
+  restores before printing. The `hook`/`statusline` subcommands catch
+  every error and exit 0.
+- Concurrency: ARCHITECTURE.md §8 is law. The UI thread owns all state;
+  every other thread sends `AppEvent`s over `std::sync::mpsc`. No
+  `Arc<Mutex<_>>` unless a channel is clearly worse (document the lock
+  order). No async runtime.
+- Processes: `std::process::Command` with an argv, never a shell. The two
+  documented exceptions (`update` running the installer, `statusline`
+  running the user's own command) each live in one function.
+- Config/state: `serde` structs with `#[serde(default)]`; agent-facing
+  payload structs never use `deny_unknown_fields`; atomic writes via a
+  temp file + `rename` in `store`.
+- Logging: `tracing`; the subscriber writes to a 0600 file only under
+  `--debug`; never to stdout/stderr while the TUI runs; never payload
+  bodies, prompts, env or keys.
 - Env vars: `BUNGKUS_MCC_*`; `BUNGKUS_NO_UPDATE_CHECK` shared with
-  bungkus-cli. Read in one place each (`store/paths.go`, `cmd/hook.go`,
-  `cmd/statusline.go`).
-- **Copied code** from bungkus-cli starts with
-  `// copied from osbrjp/bungkus-cli@<sha> <path>` and is changed as little
-  as possible so fixes can be mirrored.
-- Documentation lives in doc comments: every exported identifier and every
-  non-trivial function has one, stating what it does, its inputs, results,
-  errors and any known limit (e.g. "FIFO pairing of PreToolUse→SubagentStart;
-  corrected by background_tasks on the next Stop").
-- Inline comments are rare and explain *why*. No agent chatter: no comments
-  narrating edits ("added", "now uses", "fixed per review"), restating the
-  code, addressing the reviewer or crediting a tool. History belongs in
-  commit messages. Rust code also follows
-  `.claude/skills/rust-best-practices/SKILL.md`.
+  bungkus-cli. Read in one place each (`store::paths`, `ipc::hook`,
+  `ipc::statusline`).
+- Timeouts and caps are `const`s with a doc comment naming their source
+  (`/// 1 MiB, per SECURITY.md "Hook subcommands".`).
+- Comments: doc comments carry the documentation (skill §2). Inline `//`
+  comments are rare and explain *why*. **No agent chatter, no edit
+  narration.** A deliberate simplification with a known ceiling gets a
+  `// ponytail:` comment naming the ceiling and the upgrade path.
+- The **palette is a token spec** (DESIGN.md §2 tables). `ui/theme.rs`
+  implements it; a table test compares every token's painted hex, fallback
+  hex, 256 and 16 index with the spec, so the two implementations
+  (bungkus-cli's `styles.go`, mcc's `theme.rs`) cannot drift unnoticed.
 
 ## 2. Testing
 
-Tests live next to the code, table-driven, `t.Run` per case, as in
-bungkus-cli. Every branch that decides state or security has a test; view
-cosmetics have goldens; glue has none. Coverage is not a target.
+Unit tests live in `#[cfg(test)] mod tests` at the bottom of the file
+they test, table-driven, named as sentences (`rejects_path_outside_codex_home`).
+Fixtures live in `testdata/` next to the module. Goldens are plain text +
+cursor files, updated only with `UPDATE_GOLDEN=1`. Every branch that
+decides state or security has a test; view cosmetics have goldens; glue
+has none. Coverage is not a target.
 
-- **Adapters** (`internal/agent`): `testdata/<agent>/*.json` are real hook
-  payloads. The Claude set is the recorded sequence from the review round
-  (`sub/ev.log`: PreToolUse(Agent) ×2, SubagentStart ×2, PreToolUse/
-  PostToolUse with `agent_id`, SubagentStop ×2 with `background_tasks`,
-  Stop ×3), scrubbed by hand (grep for `sk-`, `key`, tokens, home paths)
-  before committing; the Codex set is recorded in M6. Tests: `Parse` of
-  every file; `Reduce` over the recorded sequence asserting the decided
-  states at each step (running → running with children → your turn),
-  plus synthetic sequences for needs-you (permission_prompt /
-  PermissionRequest), ignored `idle_prompt`, events with a foreign
-  `session_id` (ignored), unknown events (no-op). A test asserts every event
-  name in the hook config we generate has at least one recorded payload.
-- **Launch argv**: new (`--session-id` + `--settings` + `--` + prompt) and
-  resume (`--resume` + `--settings`, no `--session-id`) for Claude; new and
-  resume with `-c hooks.*` for Codex; a prompt starting with `-`; session
-  id validation rejects `..`, `/`, spaces.
+- **Adapters** (`agent`): `testdata/claude/*.json` are the real hook
+  payloads recorded in the review round (PreToolUse(Agent), SubagentStart,
+  Pre/PostToolUse with `agent_id`, SubagentStop with `background_tasks`,
+  Stop), scrubbed; `testdata/codex/` is recorded in M6. Tests: parse every
+  file; `reduce` over the recorded sequence asserting the decided states;
+  synthetic sequences for needs-you, ignored `idle_prompt`, foreign
+  `session_id` (ignored), unknown events (no-op); every event name in the
+  generated hook config has a fixture.
+- **Launch argv**: new (`--session-id` + `--settings` + `--name` + `--model`
+  + `--` + prompt) and resume (`--resume` + `--settings`, no `--session-id`,
+  no `--name`) for Claude; new/resume with `-c hooks.*` and `-m` for Codex;
+  a prompt starting with `-`; strict-UUID validation rejects names, `..`,
+  spaces.
 - **Hook command quoting**: executable paths with a space and a `'`; the
   generated settings JSON parses and contains exactly the expected events.
-- **Hook subcommand silence**: run `bungkus-mcc hook` with stdin from each
-  testdata file and no socket → stdout and stderr are empty, exit 0; with
-  a 9 MiB stdin → still exit 0 within the budget.
+- **Hook subcommand silence**: `hook` with stdin from each fixture and no
+  socket → empty stdout/stderr, exit 0; 9 MiB stdin → exit 0 within budget.
 - **Statusline wrapper**: resolver order and `CLAUDE_CONFIG_DIR`; malformed
-  settings JSON → no command; recursion guard drops our own command; the
-  user's command receives the exact stdin bytes and its stdout passes
-  through; stdin > 1 MiB → passed through, nothing forwarded; a socket that
-  never answers does not delay the user's line beyond 200 ms; forwarded
-  line contains no `model` field.
-- **Views**: (1) unit — `View()` substring asserts; (2) golden — `teatest/v2`
-  at 120×40 and 80×24 with `NO_COLOR=1` and the default (ascii) icon set,
-  scenarios: empty workspace, first run, three sessions in five states,
-  needs-you and failed gutters, expanded usage card, INTERACT banner, zoom,
-  help overlay, `n` picker with name/model rows, quit confirm with
-  descendants, routing consent, narrow stack. The generated mockups in
-  DESIGN.md are the first goldens. Goldens are updated only with
-  `-update` and reviewed line by line.
-- **Keymap**: walks every `key.Binding`: help text non-empty; no key bound
-  twice **within the same pane/mode**; the exit chord bound in INTERACT
-  only; every vim motion has an arrow twin; `!` has `ctrl-]`.
-- **Key translation table** (`internal/term/keys.go`): both directions —
-  each `tea.Key` produces the expected bytes in normal and DECCKM mode,
-  `shift-enter` → ESC CR, `ctrl-z` → nothing; bracketed paste only when
-  mode 2004 is on.
-- **Theme**: contrast ≥ 4.5 for `fg, fg-muted, accent, ok, warn, err, info`
-  against the painted backgrounds (`#1c2a21`, `#f0f3d8`) and for the
-  fallback set against the reference backgrounds, with an explicit
-  exception list that matches DESIGN.md §2.1 (`info` on Nord 3.82,
-  `fg-muted` on Nord 4.28); `ok/warn/err/accent` pairwise distinct at 256
-  and 16 in both themes; `fg-muted ≠ info` at 256 and 16; painting happens
-  only when the profile is TrueColor and `background` is `paint` (table
-  over profile × config → paints? and which token set); the emulator's
-  default colours equal the painted `bg`/`fg` when painting; the legs
-  token is `#9aab9c` on dark and `#0b120d` on light.
-- **Mascot**: the Go pixel tables equal the base rows and row overrides
-  in DESIGN.md §5.7 (full 14×16, mini 6×8); every full frame (idle, blink,
-  lookL, lookR, duck, hop, stepL, stepR, died) is exactly 7 rows × 16
-  cells and every mini frame 3 × 8; the hop frame is the base shifted up
-  one pixel with legs one pixel longer and the `GG` tip intact; duck is
-  shifted down two; lookR's feet point right; only the brand colours plus
-  the legs token plus transparent appear; died renders each eye cell as a
-  bold `x`; the mood sequences (needs you / working / your turn / failed)
-  and the empty-state sequence equal the documented ones; the ASCII
-  form is 4 lines ≤ 16 cells; mood sequences equal the documented ones;
-  the corner overlay is drawn only when every target cell of the visible
-  emulator screen is blank (table: blank corner → sprite; one non-blank
-  cell → title-bar `/..\` or `/xx\` for failed); busy (PTY output within
-  1 s) selects the mini sprite; the tick command is returned only when an
-  animated element is visible and motion is allowed (`NO_COLOR`,
-  `motion: false`, hidden pane → static frame, no tick); the sprite is
-  never drawn over non-blank output.
+  settings → none; recursion guard; the user's command gets the exact
+  stdin bytes and its stdout passes through; > 1 MiB passed through and
+  not forwarded; a socket that never answers costs ≤ 200 ms; forwarded
+  line has `session_name` and no `model`.
+- **Child environment**: `TERM`/`COLORTERM` set; host-terminal identity
+  vars, `TYPESAFE_API_KEY` and every Claude/Codex **session-marker**
+  variable (ARCHITECTURE.md §3.1 list) absent; `CLAUDE_CONFIG_DIR`,
+  `CLAUDE_CODE_PROJECT_DIR_NAME`, `CODEX_HOME` preserved.
+- **Views** (`ui`): (1) unit — render into a `ratatui::buffer::Buffer` and
+  assert cell text; (2) golden — drive `app` with synthetic `AppEvent`s at
+  120×40 and 80×24 with `NO_COLOR=1` and the ascii default; scenarios:
+  empty workspace, first run, three sessions in five states, needs-you and
+  failed gutters, expanded usage card, INTERACT banner, zoom, help overlay,
+  `n` picker with name/model rows, quit confirm with descendants, routing
+  consent, narrow stack, corner mascot (full/mini/title-bar fallback),
+  error pair. The generated mockups in DESIGN.md are the first goldens.
+- **Keymap**: walks every binding: help text non-empty; no key bound twice
+  within the same pane/mode; the exit chord bound in INTERACT only; every
+  vim motion has an arrow twin; `!` has `ctrl-]`.
+- **INTERACT passthrough**: with the output pane focused, every
+  `crossterm::event::KeyEvent` in a generated set (printable, esc, tab,
+  shift-tab, arrows, F-keys, every ctrl chord) reaches the PTY writer
+  except the configured exit chord and `ctrl-z`; each focus route (`l`,
+  `→`, `tab`, `enter`-on-session, click) flips the mode in the same
+  update; the exit chord lands on the sessions pane; a child-exit event in
+  INTERACT returns to NORMAL.
+- **Key encoder** (`term/keys.rs`, from the spike): both directions — each
+  key produces the expected bytes in normal and DECCKM mode with xterm
+  modifier params, `shift+enter` → ESC CR, `ctrl-z` → nothing; bracketed
+  paste only when mode 2004 is on; kitty CSI-u output when the child pushed
+  kitty flags (M3).
+- **Session names**: resolution order (`session_name` → `session_title` →
+  picker name → prompt → `untitled`); later `session_name` overrides;
+  sanitised, ≤ 80 chars.
+- **Theme**: contrast ≥ 4.5 for text tokens against the painted backgrounds
+  and for the fallback set against the reference backgrounds, with the
+  exception list of DESIGN.md §2.1 (`info` and `fg-muted` on Nord);
+  `ok/warn/err/accent` pairwise distinct at 256 and 16 in both themes;
+  `fg-muted ≠ info`; painting only at TrueColor with `background: paint`
+  (table over profile × config); emulator defaults equal the painted
+  `bg`/`fg`; legs token per theme; **token table equals the spec**.
+- **Mascot**: pixel tables equal DESIGN.md §5.7 (full 14×16, mini 6×8);
+  every full frame is 7×16 cells and every mini frame 3×8; hop shifts up
+  one pixel with longer legs and an intact tip; duck shifts down two;
+  lookR's feet point right; only brand colours + legs token + transparent;
+  died renders eye cells as bold `x`; mood and empty-state sequences equal
+  the documented ones; the corner overlay is drawn only over blank cells
+  (blank corner → sprite; one non-blank cell → `/..\` or `/xx\`); busy
+  (PTY output within 1 s) selects the mini sprite; ticks only while an
+  animated element is visible and motion is on.
 - **Sidebar spinner**: a project with any running session shows the
-  `| / - \` frame for the global clock in the column after the marker;
-  the badge shows only needs-you / failed / your-turn; static under
-  `motion: false`. every glyph in
-  every icon set is exactly 1 cell (`lipgloss.Width`) and East Asian width
-  Narrow for state/marker glyphs, checked against a hard-coded EAW table
-  for our glyph set (no uniseg dependency in tests).
-- **Sanitiser** (`internal/term/sanitise.go`): the hostile corpus from
+  global-clock frame; the badge shows only needs-you / failed / your-turn;
+  static under `motion: false`.
+- **Sanitiser** (`term/sanitise.rs`): the hostile corpus from
   ARCHITECTURE.md §4.2 through (a) the emulator + allowlist and (b) the
-  string sanitiser as used by cards, header and dialogs; the oracle is
-  "output contains only printable runes, `\n`, and `CSI…m`".
-- **Emulator** (M3): feeding `CSI 6n`, `CSI c`, `CSI > c`, `OSC 10/11 ?`
-  with the pump running → `Write` returns within 100 ms and the replies
-  arrive on the PTY side; a recorded stream with CJK, emoji, `⏺ ⎿` and
-  combining marks → cursor column after each line equals the wcwidth sum
-  (documents the ambiguous-width risk).
-- **PTY**: spawn `/bin/sh -c 'printf …; exit 3'` → exit code 3 reported
-  after the reader drained (skipped when no PTY is available).
+  string sanitiser as used by cards, header and dialogs; oracle: output
+  contains only printable chars, `\n`, and `CSI…m`.
+- **Emulator** (`term`): feeding `CSI 6n`, `CSI c`, `CSI > c`, `CSI 14 t`,
+  `CSI 18 t`, `OSC 10/11 ?` → replies arrive on the PTY side within
+  100 ms, OSC 10/11 carrying the painted theme colours; a recorded stream
+  with CJK, emoji, `⏺ ⎿` and combining marks → cursor column after each
+  line equals the width sum; writes after child exit do not error (EIO
+  ignored); the `spikes/cases/` corpus replays green.
+- **PTY**: spawn `sh -c 'printf …; exit 3'` → exit code 3 reported after
+  the reader drained (skipped when no PTY is available).
 - **ipc**: round-trip over a temp dir; oversize and malformed payloads;
   permission bits and the fail-to-no-socket path (bad dir mode, symlink,
-  >104-byte path).
-- **workspace**: dot-dirs skipped, symlinked dirs followed, names with
-  control characters sanitised for display.
-- **INTERACT passthrough** (`internal/tui`): with the output pane focused,
-  every `tea.KeyPressMsg` in a generated set (printable, `esc`, `tab`,
-  `shift-tab`, arrows, F-keys, every ctrl chord) reaches the PTY writer
-  except the configured exit chord and `ctrl-z`; focusing the output pane
-  by `l`, `→`, `tab`, `enter`-on-session and click each flips the mode in
-  the same `Update`; the exit chord lands on the sessions pane; a
-  `sessionExitedMsg` while in INTERACT returns to NORMAL.
-- **Session names**: resolution order (`session_name` → `session_title` →
-  picker name → prompt → `untitled`); a later `session_name` overrides;
-  names are sanitised and ≤ 80 chars; `--name` appears in the new argv and
-  not in the resume argv.
-- **Descendant tracking** (`internal/proc`): fixtures of
-  `ps -axo pid=,ppid=,uid=,lstart=,comm=` output (macOS, including a
-  ja_JP-locale capture that must fail without `LC_ALL=C` and a `comm` with
-  spaces) and `/proc/<pid>/stat` trees (Linux) → expected descendant sets
-  across three snapshots including a reparent-to-init case and a pruned
-  (vanished) entry; foreign-uid entries dropped; identity check refuses a
-  pid whose start time changed; default-keep rule (app bundles, the
-  basename list, `cleanup.keep`) and the `space` toggle; SIGHUP path
-  applies keep; kill order (group first, `-pgid` SIGKILL only before the
-  waiter reported; then `[stop]` descendants; SIGTERM, grace, SIGKILL) with
-  a fake signaller; EPERM → "could not stop"; the dialog lists sessions
-  then processes as `basename(comm) [:ports] pid n` with `… and N more`
-  after 8 rows; port annotation parser for `lsof` output and the
-  missing-`lsof` path; a user-initiated stop yields state `stopped` even
-  with exit code 1; every name sanitised.
-- **Codex usage reader** (`codexusage.go`): fixtures with `token_count`
-  records among decoy lines (incl. `token_usage_record`); path validation
-  (outside `CODEX_HOME`, `..` via `filepath.Rel`, `~/.codex-evil` prefix
-  trick, symlink escape, non-`.jsonl`, directory, FIFO via `fstat`); tail
-  from `size − 256 KiB` with the partial first line discarded; file shrink;
-  partial trailing line carried; carry buffer over 256 KiB dropped to the
-  next `\n`; `null` `info`/`rate_limits`; malformed JSON lines skipped; a
-  line without `"token_count"` is never unmarshalled (prefilter test with a
-  counting decoder).
-- **Routing** (`internal/route`, `httptest` server): 200 with each tier,
-  `unclear`, low confidence, confidence outside `[0, 1]`, unknown choice,
-  401/429/529, malformed JSON, body over 64 KiB, slow server past the
-  budget, empty tier map (no request made), missing key (no request made),
-  secret-shaped prompts (no request made, `not routed`); resume never
-  routes; golden request body containing only `prompt`, `model` and the
-  fixed question; prompt sanitiser and 4 KiB truncation; `apiKeyCommand`
-  runner with a fake command (once per process, 10 s timeout, 4 KiB cap,
-  trimmed, `Setsid`); consent gate reads/writes `consent.json`; child env
-  has no `TYPESAFE_API_KEY`.
+  > 104-byte path).
+- **workspace**: dot-dirs skipped, symlinked dirs followed, marker files via
+  `metadata()`, names with control characters sanitised.
+- **Descendant tracking** (`proc`): fixtures of `ps -axo
+  pid=,ppid=,uid=,lstart=,comm=` (macOS, including a ja_JP capture that
+  must fail without `LC_ALL=C` and a `comm` with spaces) and
+  `/proc/<pid>/stat` trees (Linux) → expected sets across three snapshots
+  incl. reparent-to-init and a pruned entry; foreign-uid entries dropped;
+  identity refuses a changed start time; default-keep rule and the `space`
+  toggle; SIGHUP path applies keep; kill order (group first, `-pgid`
+  SIGKILL only before the waiter reported; then `[stop]` descendants) with
+  a fake signaller; EPERM → "could not stop"; dialog lists sessions then
+  processes as `basename(comm) [:ports] pid n` with `… and N more` after
+  8 rows; `lsof` parser and missing-`lsof` path; user stop yields
+  `stopped` even with exit code 1; every name sanitised.
+- **Codex usage reader** (`agent/codex_usage.rs`): fixtures with
+  `token_count` records among decoys (incl. `token_usage_record`); path
+  validation (outside `CODEX_HOME`, `..`, `~/.codex-evil` prefix trick,
+  symlink escape, non-`.jsonl`, directory, FIFO via `fstat`); tail from
+  `len − 256 KiB` with the partial first line discarded; shrink; carried
+  partial line; carry over 256 KiB dropped to the next `\n`; `null`
+  `info`/`rate_limits`; malformed lines skipped; a line without
+  `"token_count"` is never deserialised (counting decoder).
+- **Routing** (`route`, a local `std::net::TcpListener` fake server): 200
+  with each tier, `unclear`, low confidence, confidence outside `[0, 1]`,
+  unknown choice, 401/429/529, malformed JSON, body over 64 KiB, slow
+  server past the budget, empty tier map / missing key / secret-shaped
+  prompt (no request made); resume never routes; golden request body with
+  only `prompt`, `model` and the fixed question; sanitiser + 4 KiB
+  truncation; key runner (once per process, 10 s, 4 KiB cap, trimmed,
+  `setsid`); consent gate reads/writes `consent.json`.
+- **Update**: semver compare table; cached tag validated; installer URL is
+  at the resolved tag.
 - **CLI smoke** (CI; skipped if binaries absent): `claude --help` and
-  `codex --help` contain the flags `Launch` uses (incl. `--name`,
-  `--model`, `-m`). M3 manual check: the interactive entry points accept
-  `--` before a prompt starting with `-`.
+  `codex --help` contain the flags `launch` uses. M3 manual check: the
+  interactive entry points accept `--` before a dash-leading prompt.
 
 ## 3. Error handling and UX of failure
 
 - User-facing errors are one line in the voice of DESIGN.md §5.6, shown in
-  the getah bar for 5 s or in a dialog when action is needed. Never a stack
-  trace.
-- Recoverable I/O errors (socket unavailable, bad payload, unwritable state)
-  degrade a feature and log; they never quit the app.
+  the getah bar for 5 s or in a dialog when action is needed (with the
+  died mascot). Never a backtrace on screen.
+- Recoverable I/O errors (socket unavailable, bad payload, unwritable
+  state, EIO on a PTY after exit) degrade a feature and log; they never
+  quit the app.
 - Fatal at start only: not a TTY. Too small → message screen. Bad config →
   defaults + banner.
 
@@ -207,34 +202,36 @@ cosmetics have goldens; glue has none. Coverage is not a target.
 - PR body: Target / Specification & Test Plan / Notes / Checklist /
   Evidence. TUI changes: screenshot or recording in at least one terminal,
   two if rendering changed (one of them tmux or Apple Terminal).
-- CI green: build, `go test ./...`, `govulncheck`, `gofmt -l`.
+- CI green: `fmt`, `clippy -D warnings`, `test`, `doc -D warnings`,
+  `deny`, `audit` (TECH_STACK.md).
 
 ## 5. Review checklist
 
 - [ ] Does this need to exist? Request or bug behind it?
-- [ ] Reuses an existing helper instead of a parallel one?
-- [ ] No new dependency; if one, TECH_STACK.md updated.
-- [ ] No interface with one implementation; no config for a constant.
-- [ ] Goroutines only `Program.Send` (or are the pump); no state outside the model.
-- [ ] Every new key in `keymap.go` with help text and an arrow/vim twin; uniqueness test still passes.
+- [ ] Reuses an existing function/type instead of a parallel one?
+- [ ] No new crate; if one, TECH_STACK.md updated and `cargo deny` clean.
+- [ ] The skill's checklist passes (lints, doc comments, no `unwrap`/`panic`/`todo` in shipped code, newtypes/enums, no chatter comments).
+- [ ] Threads only send `AppEvent`s; no state outside the `app` model.
+- [ ] Every new key in `ui/keymap.rs` with help text and an arrow/vim twin; per-pane uniqueness test passes.
 - [ ] Every new state/badge: glyph + word + colour, an ascii glyph, Narrow width.
 - [ ] Every new string from outside the PTY goes through `sanitise()`.
-- [ ] Tested with `NO_COLOR=1`, `--icons ascii`, inside tmux, at 80×24.
-- [ ] Security rules (SECURITY.md): argv not shell; paths under mcc dirs or workspace; no transcript reads outside `codexusage.go`; no signal outside the observed-descendant set; no secrets persisted; socket limits; no `--dangerously-*`; no new egress without consent.
-- [ ] Hook/statusline fields read optionally; recorded payload added to testdata.
-- [ ] Golden diffs reviewed, not rubber-stamped.
-- [ ] Docs touched if behaviour, keys, files or deps changed.
+- [ ] Tested with `NO_COLOR=1`, the ascii default, inside tmux, at 80×24.
+- [ ] Security rules (SECURITY.md): argv not shell; paths under mcc dirs or workspace; no transcript reads outside `codex_usage.rs`; no signal outside the observed-descendant set; no secrets persisted; socket limits; no `--dangerously-*`; no new egress without consent; no `unsafe`.
+- [ ] Hook/statusline fields read optionally; recorded payload added to `testdata/`.
+- [ ] Golden diffs reviewed line by line.
+- [ ] Docs touched if behaviour, keys, files or crates changed.
 
 ## 6. Simplicity rules (YAGNI)
 
-1. Build for Claude Code and Codex. A third agent gets a file when requested.
-2. No daemon until detach is a confirmed requirement.
+1. Build for Claude Code and Codex. A third agent gets a module when requested.
+2. No daemon until detach is a confirmed requirement. No async runtime
+   until a milestone needs one.
 3. No transcript parsing, **except the one documented reader**
-   (`codexusage.go`, Codex `token_count` records only, approved by the
-   owner). Widening it, or adding another, is a SECURITY.md review.
+   (`agent/codex_usage.rs`, Codex `token_count` records only). Widening
+   it, or adding another, is a SECURITY.md review.
 4. One workspace, one socket, one process, one config file, one state file.
-5. Stdlib first: `encoding/json`, `net` (unix), `os/exec`, `log/slog`,
-   `time.Ticker`.
+5. `std` first: `std::process`, `std::net::UnixListener`, `std::sync::mpsc`,
+   `std::fs`, `std::time`; then an existing crate; a new crate last.
 6. Delete before adding. Removing code needs less justification than adding it.
 7. Ship the lazy version and ask: implement the smallest reading, note the
    larger one in the PR.

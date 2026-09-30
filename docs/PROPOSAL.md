@@ -17,18 +17,19 @@ needs you, jump in with `!` and answer without hunting through tabs. When
 you quit, mcc stops the agents *and* the dev servers they left behind, and
 remembers every session so you can resume it.
 
-Technical core (ARCHITECTURE.md): mcc runs each agent in a PTY it owns and
-renders it with an embedded terminal emulator — focusing that pane is
-talking to the agent. It learns session state and the subagent list from
+Technical core (ARCHITECTURE.md): **written in Rust** (owner decision on
+the M0 spike, §6 item 15), mcc runs each agent in a PTY it owns and
+renders it with an embedded terminal emulator (`alacritty_terminal`) —
+focusing that pane is talking to the agent. It learns session state and the subagent list from
 the agents' own **hook** systems (verified live on both), and usage
 figures from Claude Code's **status line** and, for Codex, from the
 `token_count` records of Codex's own session log — the one documented
 exception to "never parse transcripts". Optionally, off by default, it asks
 TypeSafe's Jev which model tier a start prompt needs and launches the
-agent with a cheaper model. One Go binary, no daemon, eight direct
-dependencies, the same build/release/install pipeline as bungkus-cli,
-released together with bungkus-cli's adoption of the shared Daun Pisang
-palette.
+agent with a cheaper model. One Rust binary (~1.2 MB), no daemon, no
+async runtime, 15 pinned crates, the same release/install pipeline as
+bungkus-cli (which stays Go), released together with bungkus-cli's
+adoption of the shared Daun Pisang palette.
 
 ## 2. Goals
 
@@ -87,18 +88,24 @@ palette.
 
 | Milestone | Scope | Done when |
 |-----------|-------|-----------|
-| M1 Skeleton | repo, CI (`gofmt`, test, govulncheck), release pipeline, `update`, theme package (painted + fallback sets, TrueColor gate, `background` config) with colour/width tests, mascot pixel map + static half-block/ASCII renderers, three empty panes with layout/breakpoints/modes/keymap + generated help, goldens at 120×40 and 80×24 | `bungkus-mcc` installs via install.sh, renders green at TrueColor and plain at 256, `?` shows generated help, `q` quits |
+| **M0 Foundation spike — done** | Two prototypes of the embedded terminal pane built to `spikes/SPEC.md` (Go: Bubble Tea v2 + x/vt + creack/pty; Rust: ratatui + crossterm + portable-pty + alacritty_terminal 0.26), a headless case harness and `spikes/compare.py` scoring both against a tmux reference | Both matched tmux on every case; the numbers below decided the language (§6 item 15) |
+| M1 Skeleton | crate, `rust-toolchain.toml`, lint set from the skill, CI (`fmt`, `clippy -D warnings`, `test`, `doc -D warnings`, `deny`, `audit`), release pipeline (native runners or `cargo-zigbuild`, `checksums.txt`, reused `install.sh`), `update` ported from bungkus-cli, `ui/theme.rs` implementing the token spec (painted + fallback sets, TrueColor gate, `background` config) with the token-table and contrast tests, mascot pixel maps + static half-block/ASCII renderers, three empty panes with layout/breakpoints/modes/keymap + generated help, goldens at 120×40 and 80×24 | `bungkus-mcc` installs via install.sh, renders green at TrueColor and plain at 256, `?` shows generated help, `q` quits |
 | M2 Workspace + projects | config/state files, first-run screen, workspace by CLI arg/config/text input, project list = child folders with `CLAUDE.md`/`AGENTS.md`/`.git`, sanitised names | pick a folder, see projects |
-| M3 Live pane | PTY + x/vt session with reply pump, key translation table (incl. `shift-enter`; full passthrough incl. `esc`/`tab`/arrows/ctrl), sanitiser allowlist + hostile corpus, wheel scrollback, resize-all, INTERACT-on-focus with configurable exit chord, `n` launches `claude`/`codex` with `--` and `--name`, `x` stops, quit confirm; tests: DSR/DA feed returns, hostile streams, CJK/emoji width; decide Codex `--no-alt-screen`; JIS/German chord check; confirm interactive `claude`/`codex` accept `--` before a dash-leading prompt | a full Claude Code session runs inside mcc on kitty, Ghostty, tmux (+navigator), VS Code, including answering a permission prompt via passthrough |
+| M3 Live pane | `term/session.rs` from the spike: PTY + `alacritty_terminal` advanced on the UI thread, reader/waiter threads, key encoder (`keys.rs` from the spike + **kitty CSI-u output toward the agent, ~80 lines**), full passthrough incl. `esc`/`tab`/arrows/ctrl, **spike findings**: OSC 10/11 replies from the painted theme colours, mouse forwarding when the agent enabled it, EIO on PTY writes after child exit ignored, CSI 14/18 t window-size replies, render on dirty flag/tick instead of a 16 ms timer; session-marker env scrub with test; cell allowlist + hostile corpus; wheel scrollback; resize-all; INTERACT-on-focus with configurable exit chord; `n` launches `claude`/`codex` with `--` and `--name`; `x` stops; quit confirm; tests: query replies, hostile streams, CJK/emoji width, `spikes/cases/` replayed green; decide Codex `--no-alt-screen`; JIS/German chord check; confirm interactive `claude`/`codex` accept `--` | a full Claude Code session runs inside mcc on kitty, Ghostty, tmux (+navigator), VS Code, including answering a permission prompt via passthrough; `compare.py` matches tmux on every case |
 | M4 Structure + notifications (Claude) | `bungkus-mcc hook` (silent, trimmed, quoted path), socket server, Claude adapter via `--settings` (new + resume argv, unit-tested), decided state machine with `background_tasks`, subagent list, sidebar precedence, `!` across projects, session names (`--name`, `session_title`, verify `/rename` → `session_name`), `notify` bell/desktop/off + OSC 2 title push/pop | cards and sidebar update live during a real session with parallel subagents; bell rings on needs-you; card titles follow renames |
 | M5 Usage (Claude) | `bungkus-mcc statusline` wrapper (200 ms concurrent forward, then the user's status line under `sh` with buffered stdin; resolver with `CLAUDE_CONFIG_DIR`, recursion guard), `Usage` messages, compact card line, expanded selected card (sessions pane focused), getah-bar limits with thresholds and stale dimming; record a multi-turn session to settle `total_input_tokens` semantics and check which shell Claude uses | tokens/cost/ctx on every Claude card; limits in the bar on a subscription account; `-` on API-key accounts; the user's own status line still renders |
-| M6 Codex | verify `/hooks` trust persistence for `-c` injected hooks (delete or build `setup codex`), record real Codex SubagentStart/PreToolUse payloads, Codex adapter, resume rules, "hooks off" hints; **Codex usage reader** (`codexusage.go`: validated path under `CODEX_HOME`, tail-only 256 KiB, `token_count` only, tolerant, fixtures) feeding cards and the `X` limits | Codex session with subagents shows structure and `312k tok · - · ctx 22%`; untrusted path degrades to output only; bad/missing rollout shows `-` |
-| M7 Descendant tracking + cleanup | `internal/proc`: 2 s process-tree scan (Linux `/proc` + pidfd, macOS `ps` with `LC_ALL=C` and `uid=`), pruning, uid filter, pid + start-time identity, `lsof` port annotation on both OSes, default-keep rule + `cleanup.keep`, quit/`x` dialog (sessions then processes, `[stop]/[keep]` toggle, `… and N more`), fresh scan on open, SIGTERM → 3 s → SIGKILL, EPERM handling, forced `stopped` state; fixture tests per OS incl. ja_JP `ps` | a session that started `vite` is quit; the dialog shows `vite :5173 pid …`; the port is free afterwards; `ssh-agent` is kept; a reused pid is never signalled (test) |
+| M6 Codex | verify `/hooks` trust persistence for `-c` injected hooks (delete or build `setup codex`), record real Codex SubagentStart/PreToolUse payloads, Codex adapter, resume rules, "hooks off" hints; **Codex usage reader** (`agent/codex_usage.rs`: canonicalised path under `CODEX_HOME`, `fstat` regular file, tail-only 256 KiB, `token_count` only, tolerant serde structs, fixtures) feeding cards and the `X` limits | Codex session with subagents shows structure and `312k tok · - · ctx 22%`; untrusted path degrades to output only; bad/missing rollout shows `-` |
+| M7 Descendant tracking + cleanup | `src/proc/`: 2 s process-tree scan (Linux `/proc` + `rustix` pidfd, macOS `ps` with `LC_ALL=C` and `uid=`), pruning, uid filter, pid + start-time identity, `lsof` port annotation on both OSes, default-keep rule + `cleanup.keep`, quit/`x` dialog (sessions then processes, `[stop]/[keep]` toggle, `… and N more`), fresh scan on open, SIGTERM → 3 s → SIGKILL, EPERM handling, forced `stopped` state; fixture tests per OS incl. ja_JP `ps` | a session that started `vite` is quit; the dialog shows `vite :5173 pid …`; the port is free afterwards; `ssh-agent` is kept; a reused pid is never signalled (test) |
 | M8 Resume + polish | `sessions.json`, `r`/`d` with confirms, light theme, `--icons unicode|nerd`, `NO_COLOR`, non-UTF-8 locale, mascot animation in the empty state (tick only while visible), full terminal/keyboard matrix pass, README (exit-chord alternates, manual hook removal) | release **v0.1.0** on the `release` branch, together with bungkus-cli's Daun Pisang release |
-| M9 Model routing (opt-in) | `internal/route` (net/http to TypeSafe, one Choice question on the `n` start prompt only, tier→model map from config, constants for model/budget/floor, 64 KiB body cap, confidence range check, secret-shape guard, fallback), API key from env or a once-per-process keychain command, `consent.json`, consent dialog, picker `model` row, card `model` line, `--model`/`-m` in Launch; `httptest` fake-server tests | release **v0.2.0**; a routed session shows `haiku · routed 0.82`; the API down → default model, no error; a prompt with `sk-…` is never sent |
+| M9 Model routing (opt-in) | `src/route/` (`ureq` to TypeSafe, one Choice question on the `n` start prompt only, tier→model map from config, `const`s for model/budget/floor, 64 KiB body cap, confidence range check, secret-shape guard, fallback), API key from env or a once-per-process keychain command, `consent.json`, consent dialog, picker `model` row, card `model` line, `--model`/`-m` in `launch`; fake-server tests | release **v0.2.0**; a routed session shows `haiku · routed 0.82`; the API down → default model, no error; a prompt with `sk-…` is never sent |
 
-M9 is in stage 1 because it is ~200 isolated lines (one package, one
+M9 is in stage 1 because it is ~200 isolated lines (one module, one
 picker row, one argv flag) and it is opt-in; it does not hold v0.1.0.
+
+Other milestones (M2, M4–M8) are unchanged in scope by the language
+decision; their Go-specific wording (packages, `teatest`, `os.FindProcess`)
+is replaced by the Rust equivalents in ARCHITECTURE.md and CODING_RULES.md
+(modules, `#[cfg(test)]` goldens, `rustix` pidfd).
 
 ### Stage 2 — candidates, each gated on a request
 
@@ -173,6 +180,29 @@ picker row, one argv flag) and it is opt-in; it does not hold v0.1.0.
     parsing; `lsof` for ports on both OSes; user-initiated stop = state
     `stopped`. Routing: `n` start prompt only, secret-shape guard, consent
     in the state dir, constants instead of config knobs.
+15. **bungkus-mcc is written in Rust; bungkus-cli stays Go.** Evidence, the
+    M0 spike (`spikes/`, both prototypes matched the tmux reference on
+    every case — Claude Code slash menu, shift+enter, paste and resize;
+    Codex; CJK/emoji; alt screen; terminal queries):
+
+    | | Go (Bubble Tea v2 + x/vt + creack/pty) | Rust (ratatui + crossterm + portable-pty + alacritty_terminal 0.26) | tmux (reference) |
+    |---|---|---|---|
+    | `seq 500000` flood | 5.9 s | **0.48 s** (≈12×) | 0.6 s |
+    | colour flood | 236 ms | **92 ms** | — |
+    | release binary | 4.3 MB | **1.2 MB** | — |
+    | idle CPU | ≈0 % | ≈0 % | — |
+    | emulator | `x/vt`, pseudo-version only (no tags), needed a reply-pump goroutine because `Write` blocks on query replies | `alacritty_terminal`, tagged on crates.io, Apache-2.0, answers queries as events | — |
+    | key encoder | legacy only, drops shifted keys; kitty ≈150 lines | none in the crate; ours ≈100 lines, kitty ≈80 more | — |
+    | code | 405 LOC | 727 LOC | — |
+    | clean release build | 2.2 s | 7.3 s | — |
+    | dependency graph | 25 modules | 118 crates | — |
+
+    Rust costs more lines, build time and crates; it buys an order of
+    magnitude on the one path that matters (an agent flooding the pane), a
+    quarter of the binary, and an emulator with real releases. Spike
+    findings carried into M3: OSC 10/11 replies from the theme, mouse
+    forwarding, ignore EIO after child exit, CSI 14/18 t replies, render
+    on dirty/tick, and the session-marker env leak (ARCHITECTURE.md §3.1).
 
 Closed earlier: `--settings` hooks merge with user hooks (verified); Codex
 hook injection per launch via `-c` (verified); the start prompt is optional
@@ -204,7 +234,8 @@ with the last agent preselected.
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| x/vt renders an agent's TUI wrongly | medium | high | M3 first; wrapper isolates the emulator; midterm as fallback; `ctrl-l`/`R` |
+| `alacritty_terminal` renders an agent's TUI wrongly in a case the spike did not cover | low (spike matched tmux on all cases) | high | `spikes/cases/` corpus in CI; `term` is one module; `ctrl-l`/`R`; the agent runs fine outside mcc |
+| Rust build time / crate count slows the team | medium | low | 7.3 s clean, incremental seconds; `cargo deny` bans duplicate heavy crates; no async runtime |
 | Accidental keystrokes to the agent (INTERACT on focus) | medium | medium | four instant signals; `(ctrl-\ back)` in the sessions-pane hint; INTERACT ends when the process exits |
 | Key translation misses a key the agent needs | medium | medium | table + both-direction tests; `shift-enter` verified in M3 |
 | Cleanup kills the wrong process | low | high | descendants observed by scan only; pid + start-time identity re-checked before every signal; never by port; dialog lists everything first; fixture tests per OS |
@@ -216,4 +247,4 @@ with the last agent preselected.
 | CJK ambiguous-width terminals shift columns | medium (JP team) | medium | ascii default glyphs; narrow unicode set; recorded stream test |
 | `ctrl-\` clashes (navigator, VS Code, JIS/German) | medium | low | configurable `interactExit`; documented alternates; tested keyboards |
 | Two mcc instances on one workspace | low | low | per-pid socket; `sessions.json` last-writer-wins; README note |
-| Team bandwidth: TUI + PTY + IPC + proc | — | — | eight deps, no daemon, one contained transcript reader, YAGNI rules |
+| Team bandwidth: TUI + PTY + IPC + proc, in a second language | — | — | 15 crates, no daemon, no async, one contained transcript reader, the Rust skill + YAGNI rules; the spike's `session.rs`/`keys.rs`/`ui.rs` are the starting point |

@@ -1,89 +1,93 @@
 # bungkus-mcc — Tech Stack
 
-Status: proposal. Rule: every dependency must earn its line here. Versions match bungkus-cli where the module is shared; others are the
-latest release as of 2026-09-30 (re-check at `go mod init`).
+Status: proposal. **bungkus-mcc is written in Rust** (product-owner
+decision, 2026-09-30, on the evidence of the M0 spike — PROPOSAL.md §6 and
+`spikes/`). bungkus-cli stays Go. Rule: every crate must earn its line
+here, with the alternatives rejected. Versions are the crates.io releases
+checked on 2026-09-30 (`cargo search`); they are pinned to the exact minor
+in `Cargo.toml` and `Cargo.lock` is committed.
 
 ## Language and toolchain
 
 | Item | Choice | Why |
 |------|--------|-----|
-| Go | 1.26 (`go 1.26.0` in go.mod; CI `1.26.x` + `check-latest`) | Same as bungkus-cli; single static binary; stdlib covers JSON, unix sockets, signals, atomic writes |
-| Targets | darwin/linux × arm64/amd64 | Same release matrix as bungkus-cli; Windows out of scope (no ConPTY) |
-| Build flags | `-s -w -X main.Version=<tag>` | Same as bungkus-cli |
+| Rust | stable **1.97**, pinned in `rust-toolchain.toml`; edition 2024 | Same toolchain on every machine and in CI; the spike built and passed its lint gate on 1.97 |
+| Crate shape | one binary crate, modules (ARCHITECTURE.md §9); no workspace until a second crate exists | YAGNI |
+| Lints | the set in `.claude/skills/rust-best-practices/SKILL.md` (`unsafe_code = "deny"`, `unwrap_used = "deny"`, pedantic, `missing_docs`), `rustfmt.toml` `edition = "2024"`, `max_width = 100`, `clippy.toml` test allowances | proven on the spike |
+| Targets | darwin/linux × arm64/amd64 | Same release matrix as bungkus-cli |
+| Release profile | `strip = true`, `lto = "thin"`, `codegen-units = 1` | 1.2 MB binary in the spike with `strip` alone |
 
-## Direct dependencies (8)
+## Direct dependencies (15)
 
-| Module | Version | Purpose | Alternatives rejected |
-|--------|---------|---------|-----------------------|
-| `charm.land/bubbletea/v2` | v2.0.9 (match bungkus-cli; bump both together) | TUI runtime: raw mode, alt screen, kitty keyboard negotiation for *our* input, mouse, synchronized output, colour-profile detection, `BackgroundColorMsg` | tview/tcell (second style system next to Lip Gloss); own renderer (no) |
-| `charm.land/lipgloss/v2` | v2.0.6 (match) | Styles, borders, joins, light/dark helpers, OSC 8 in the header | — |
-| `charm.land/bubbles/v2` | v2.2.1 (match) | `key` (keymap + generated help), `help`, `spinner`, `textinput` (prompt, filter, workspace path) | hand-rolled widgets. The `filepicker` widget was considered and cut (a text input is enough) |
-| `github.com/spf13/cobra` | v1.10.2 (match) | Subcommands `hook`, `statusline`, `setup`, `update`; `SilenceUsage/SilenceErrors` for the silent ones | stdlib `flag` would do, but the copied `update.go` is cobra and the team knows it |
-| `github.com/creack/pty` | v1.1.24 | Open PTY, start child with size, `Setsize` on resize | raw `x/sys/unix` ioctls (~80 platform lines we'd own) |
-| `github.com/charmbracelet/x/vt` | pseudo-version, pin the newest at implementation (built and tested with `v0.0.0-20260927004216-…` against bubbletea v2.0.9) | VT emulator: feeds PTY bytes, screen + scrollback, `Render()`; terminal-side replies via its `Read` side | `vito/midterm` v0.2.5 (maintained; own cell type; no reply pipe design) — the fallback if x/vt fails M3; `hinshun/vt10x` (dead since 2022) |
-| `golang.org/x/mod` | v0.41.0 (match) | `semver` for the update check (copied code; also validates the cached tag) | hand-written compare |
-| `github.com/charmbracelet/x/ansi` | v0.11.8 (match, already transitive via lipgloss) | `ansi.Strip` in `sanitise()`; `Convert256/Convert16` in the theme tests | own escape parser — no |
+| Crate | Version | Purpose | Alternatives rejected |
+|-------|---------|---------|-----------------------|
+| `ratatui` | 0.30 | Immediate-mode TUI: layout, `Buffer`/`Cell`, borders, `Color::Rgb`/`Color::Indexed`, our own widgets for panes and cards | cursive (retained-mode, heavier); raw crossterm drawing (we'd rewrite ratatui's buffer diff) |
+| `crossterm` | 0.29 | Raw mode, alternate screen, key/mouse/paste/resize events, **kitty keyboard enhancement flags on the host side** (`PushKeyboardEnhancementFlags`), bracketed paste, OSC 22/23 title push/pop via raw writes | termion (no Windows is fine, but no kitty flags, unmaintained); termwiz (large, pulls half of wezterm) |
+| `alacritty_terminal` | 0.26 | The embedded VT emulator for the output pane: grid, scrollback (`scrolling_history`, `scroll_display`), wide-char flags, mode tracking (DECCKM, 2004, mouse, kitty stack), and **terminal query replies** (DSR, DA, OSC 10/11/12, XTWINOPS) delivered as `Event`s | `wezterm-term` (+`termwiz`): has a key encoder, but **not on crates.io** — git-only dependency on a monorepo, no `cargo deny`/`cargo audit` story; `vt100`: on crates.io but **drops terminal queries**, which agents send at startup (DSR/DA/OSC 11), so every reply would be hand-written; spike verdict in `spikes/rust/README.md` |
+| `portable-pty` | 0.9 | Open a PTY, spawn the child with a size, resize (`TIOCSWINSZ`), master reader/writer | `pty-process` (smaller, but tokio-flavoured API and less used); raw `rustix::pty` (we'd own openpty/login_tty/fork details) |
+| `thiserror` | 2.0 | One error enum per module boundary (`term::SpawnError`, `ipc::Error`, …) | hand-written `Display`/`Error` impls (boilerplate) |
+| `anyhow` | 1.0 | `main.rs` and top-level command handlers only, with `.context()` | — |
+| `serde` (+ `derive`) | 1.0 | Config, state, hook payloads, status-line payload, Codex `token_count` records, TypeSafe request/response — **tolerant structs, never `deny_unknown_fields` for agent payloads** | hand-rolled JSON (no) |
+| `serde_json` | 1.0 | The JSON codec for all of the above; `from_slice` on capped buffers | `simd-json` (unneeded speed, unsafe inside) |
+| `uuid` (+ `v4`) | 1.26 | Session ids we choose for Claude (`--session-id`) and strict UUID validation of ids from hooks | a regex (we need generation too) |
+| `lexopt` | 0.3 | CLI parsing for `bungkus-mcc [workspace]`, `hook`, `statusline`, `setup codex`, `update`, and ~6 flags | `clap` (derive): the obvious choice, but it adds ~15 crates and ~600 KB for four subcommands; `lexopt` has zero dependencies and the help text is 30 hand-written lines. Revisit if the CLI grows past two levels |
+| `ureq` (rustls) | 3.4 | **Synchronous** HTTPS for the daily release check and the opt-in TypeSafe routing request: timeouts, no redirects, `LimitReader`-style body caps — no async runtime anywhere in mcc | `reqwest` (pulls tokio/hyper for two requests); `curl` bindings (C dependency); native-tls (platform TLS quirks; rustls is pure Rust and deterministic) |
+| `semver` | 1.0 | Compare the running version with the release tag; validate the cached tag before display | hand-written compare |
+| `rustix` (+ `process`, `fs`) | 1.1 | **Safe wrappers** for what the port needs: `kill`/`killpg`, `pidfd_open`/`pidfd_send_signal` (Linux), `setsid`, `getuid`, `fstat`, `O_NONBLOCK` opens — so `unsafe_code` stays denied crate-wide | `nix` (fine, but rustix is the modern, `unsafe`-free-at-the-API choice); `libc` directly (would require our own `unsafe`) |
+| `tracing` | 0.1 | Structured debug events (`--debug`); the TUI owns stdout, so `print_stdout` is denied and every diagnostic goes through `tracing` | `log` + `env_logger` (env_logger writes to stderr, which the TUI owns; and `tracing` spans make the socket/PTY/threads readable) |
+| `tracing-subscriber` (`fmt`) | 0.3 | The file writer behind `tracing`, enabled only under `--debug` | `tracing-appender` (rolling files; one 0600 file is enough) |
 
-Verified behaviours of `x/vt` that shape the design (scratchpad `vt/`):
-`Write` **blocks** until its reply pipe is drained (→ pump goroutine);
-`Render()` re-emits OSC 8 (→ stripped by the allowlist); it has **no
-kitty-keyboard client encoder** (→ our key table); it builds against the
-`ultraviolet` version Bubble Tea pins. Contained in one package
-(`internal/term`) behind a 6-method wrapper.
-
-The mascot is data, not a dependency: a 16×14 pixel map in
-`internal/theme/mascot.go` rendered with `▀`/`▄`/`█` and four fixed colours;
-`docs/assets/mascot.svg|gif` and `mascot-gif.py` are documentation assets
-(the Python generator is not part of the build).
-
-East Asian Width for the glyph-width test: a **hard-coded table** for our
-~40 glyphs (generated once from `unicodedata`, checked into the test),
-not `rivo/uniseg` — the set is tiny and the table doubles as documentation.
-
-Transitive (already in bungkus-cli's go.sum): `charmbracelet/ultraviolet`,
-`colorprofile`, `x/ansi`, `x/term`, `x/termios`, `lucasb-eyer/go-colorful`,
-`rivo/uniseg`, `clipperhouse/displaywidth`, `muesli/cancelreader`,
-`spf13/pflag`, `golang.org/x/sys`, `golang.org/x/sync`.
-
-## Test-only dependencies (1)
-
-| Module | Version | Purpose | Alternatives rejected |
-|--------|---------|---------|-----------------------|
-| `github.com/charmbracelet/x/exp/teatest/v2` | pseudo-version (Sep 2026) | Drive the model with `Send`/`Type`, golden-file compare (`RequireEqualOutput`, `-update`) | `View()` string asserts only (kept for unit views) |
+Transitive crate count in the spike: 118 (7 direct). The stack above adds
+`thiserror`, `uuid`, `lexopt`, `ureq`+`rustls`, `semver`, `rustix`,
+`tracing` — expect ~170 crates in `Cargo.lock`; `cargo deny` bans
+duplicates of the heavy ones (`syn`, `windows-sys` families) from creeping
+in twice. Every crate here is on crates.io with a permissive licence
+(MIT/Apache-2.0/ISC; `cargo deny` enforces the allowlist).
 
 ## Deliberately not used
 
 | Thing | Why not |
 |-------|---------|
-| `fsnotify` | The Codex usage reader (the one approved transcript read) is a 1 s `os.Stat` + `ReadAt` tail in stdlib; fsnotify on macOS is kqueue and would still need the poll fallback |
-| TypeSafe SDK | None exists for Go (Python and JavaScript only, per docs.typesafe.ai); the API is one `POST` with a JSON body, so `net/http` + `encoding/json` in `internal/route` (~150 lines). Revisit only if TypeSafe ships a Go SDK with retries/streaming we actually need |
-| `gopsutil` / `go-ps` | Descendant tracking needs `pid, ppid, uid, start time, comm` and listening ports: on Linux that is `/proc` text (stdlib) plus pidfd via `os.FindProcess`, on macOS one `ps` exec with fixed argv; ports come from one `lsof` exec on both OSes. gopsutil would add large platform code for four fields |
-| OS keychain libs | The routing API key comes from `TYPESAFE_API_KEY` or `routing.apiKeyCommand` (an argv the user configures: `security`, `secret-tool`, `op read`, …) — no keychain bindings |
-| TOML/YAML libs | `encoding/json`; Claude Code and Codex users edit JSON already |
-| SQLite / bbolt | State is one small JSON array |
-| HTTP framework, gRPC | IPC is one JSON line per unix-socket connection (`net.Listen("unix")`) |
-| `charmbracelet/log`, zap | `log/slog` to a file, only under `--debug` |
-| Clipboard libs | OSC 52 via Bubble Tea; no `pbcopy`/`xclip` |
-| tmux control mode / zellij plugin | ARCHITECTURE.md §2 option 5 |
-| Claude Agent SDK / Codex app-server client | Stage 1 renders the agents' own UIs |
-| `curl` in hooks | `bungkus-mcc hook` is our own binary: no PATH dependency, controlled silence, timeouts |
-| Nerd-font detection libs | Impossible to do reliably; `icons` setting instead |
+| Any async runtime (`tokio`, `smol`) | Every blocking I/O source is a thread sending `AppEvent` over `std::sync::mpsc`; there are at most a dozen threads. An executor would add crates and a second concurrency model for no throughput we need |
+| `crossbeam-channel` | `std::sync::mpsc` covers one consumer with `recv_timeout`; revisit only if a `select!` over several receivers becomes necessary |
+| A colour-profile crate (`supports-color`, `termcolor`, `anstyle-query`) | Detection is a few lines on `COLORTERM`, `TERM`, `NO_COLOR`, `CLICOLOR_FORCE`, `TERM_PROGRAM` (DESIGN.md §2.3); we output `Color::Rgb` at TrueColor and our **declared** `Color::Indexed` values otherwise — no automatic downsampling, so no crate |
+| A snapshot crate (`insta`) | Goldens are plain text + cursor files under `testdata/`, compared with `assert_eq!` and updated with `UPDATE_GOLDEN=1` (skill §7); no macro layer between the test and the file |
+| `notify` (fs events) | The Codex usage reader is a 1 s `metadata()` + `read_at` tail; macOS `notify` is kqueue/FSEvents and would still need the poll fallback |
+| TOML/YAML config crates | `serde_json` for config; Claude Code and Codex users edit JSON already |
+| SQLite (`rusqlite`) | State is one small JSON array |
+| `sysinfo` / `procfs` crates | Descendant tracking needs `pid, ppid, uid, start time, comm`: Linux `/proc` text is a 40-line parser, macOS is one `ps` exec; ports are one `lsof` exec on both OSes |
+| OS keychain crates (`keyring`) | The routing key comes from `TYPESAFE_API_KEY` or `routing.apiKeyCommand` (an argv the user configures) |
+| A TypeSafe SDK | None exists for Rust (Python and JavaScript only); one `POST` with `ureq` + `serde_json` |
+| `regex` | The few patterns (UUID, secret shapes, ps line layout) are hand-parsed or `uuid::Uuid::parse_str`; a regex engine is a large crate for six literals |
 
 ## Runtime prerequisites (not dependencies)
 
 - `claude` and/or `codex` on PATH (detected at start; shown on the first-run screen).
-- `bash`, `curl` for `bungkus-mcc update` (same as bungkus-cli).
-- macOS: `ps` (ships with the OS) for descendant tracking; Linux: `/proc`.
-  `lsof` on either OS for port annotation; missing `lsof` = no port labels
-  in the quit dialog, nothing else.
-- A UTF-8 locale for box-drawing borders (ASCII borders otherwise); the
-  default icon set is ASCII regardless.
-- Routing only: a TypeSafe API key in `TYPESAFE_API_KEY` or via
-  `routing.apiKeyCommand`.
+- `bash`, `curl` for `bungkus-mcc update` (the installer script is reused from bungkus-cli).
+- macOS: `ps` (ships with the OS); Linux: `/proc`. `lsof` on either OS for
+  port annotation; missing `lsof` = no port labels in the quit dialog.
+- A UTF-8 locale for box-drawing borders and the half-block mascot (ASCII
+  forms otherwise); the default icon set is ASCII regardless.
+- Routing only: a TypeSafe API key in `TYPESAFE_API_KEY` or via `routing.apiKeyCommand`.
 
-## Tooling
+## Tooling and CI
 
-Same as bungkus-cli: `go test ./...`, `go vet`, `govulncheck` in CI,
-semantic-release with conventional commits, GitHub Actions matrix build,
-checksums.txt, `install.sh`. Added: `gofmt -l` check in CI. No
-golangci-lint in stage 1.
+Every push and PR runs, in this order, all with no warnings:
+
+```sh
+cargo fmt --all --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-features
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
+cargo deny check          # advisories, licences, bans, sources (deny.toml)
+cargo audit               # RustSec advisories against Cargo.lock
+```
+
+Release: semantic-release with conventional commits (`main` = canary,
+`release` = stable), the same four-workflow shape as bungkus-cli; the build
+job compiles `--release` for darwin/linux × arm64/amd64 on native runners
+(`macos-latest` for both macOS targets, `ubuntu-latest` + `ubuntu-24.04-arm`
+for Linux), or `cargo-zigbuild` from one runner if the ARM Linux runner is
+unavailable; uploads `bungkus-mcc-<os>-<arch>` + `checksums.txt`.
+`install.sh` is bungkus-cli's script with `REPO`/`BIN_NAME` changed and is
+fetched at the resolved release tag.
