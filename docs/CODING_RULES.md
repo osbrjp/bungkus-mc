@@ -75,7 +75,8 @@ has none. Coverage is not a target.
   spaces.
 - **Hook command quoting**: executable paths with a space and a `'`; the
   generated settings JSON parses and contains exactly the expected events.
-- **Hook subcommand silence**: `hook` with stdin from each fixture and no
+- **Hook subcommand silence** (`tests/hook.rs`, an integration test because
+  it runs the built binary): `hook` with stdin from each fixture and no
   socket → empty stdout/stderr, exit 0; 9 MiB stdin → exit 0 within budget.
 - **Statusline wrapper**: resolver order and `CLAUDE_CONFIG_DIR`; malformed
   settings → none; recursion guard; the user's command gets the exact
@@ -121,7 +122,7 @@ has none. Coverage is not a target.
   `bg`/`fg`; legs token per theme; **token table equals the spec**.
 - **Mascot**: pixel tables equal DESIGN.md §5.7 (full 14×16, mini 6×8);
   every full frame is 7×16 cells and every mini frame 3×8; hop shifts up
-  one pixel with longer legs and an intact tip; duck shifts down two;
+  one pixel with longer legs and an intact tip; duck shifts down one;
   lookR's feet point right; only brand colours + legs token + transparent;
   died renders eye cells as bold `x`; mood and empty-state sequences equal
   the documented ones; the corner overlay is drawn only over blank cells

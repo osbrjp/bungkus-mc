@@ -24,6 +24,7 @@ use ratatui::widgets::{Block, BorderType, Paragraph};
 
 use crate::app::form::FormKind;
 use crate::app::model::{Focus, Model, Overlay};
+use crate::app::sessions::{self, State};
 use crate::store::config::tilde;
 use crate::term::session::Size;
 use crate::ui::sanitise::truncate;
@@ -39,6 +40,44 @@ const THREE_PANE_WIDTH: u16 = 100;
 const PROJECTS_WIDTH: u16 = 22;
 /// See [`PROJECTS_WIDTH`].
 const SESSIONS_WIDTH: u16 = 38;
+
+/// The ascii spinner (DESIGN §3); one frame per animation tick.
+const SPINNER: [char; 4] = ['|', '/', '-', '\\'];
+
+/// Session counts across every project, for the header and the title.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct Tally {
+    needs_you: usize,
+    failed: usize,
+    working: usize,
+}
+
+/// Counts needs-you, failed and working sessions in every project.
+fn tally(model: &Model) -> Tally {
+    model.cards.iter().fold(Tally::default(), |mut t, card| {
+        match card.state {
+            State::NeedsYou => t.needs_you += 1,
+            State::Failed(_) => t.failed += 1,
+            State::Working => t.working += 1,
+            State::YourTurn | State::Stopped | State::Wrapped => {}
+        }
+        t
+    })
+}
+
+/// Returns the terminal title (DESIGN §9): `bungkus-mc · 1 needs you`,
+/// else `bungkus-mc · 2 working`, else `bungkus-mc`.
+#[must_use]
+pub(crate) fn title(model: &Model) -> String {
+    let t = tally(model);
+    if t.needs_you > 0 {
+        format!("bungkus-mc · {} needs you", t.needs_you)
+    } else if t.working > 0 {
+        format!("bungkus-mc · {} working", t.working)
+    } else {
+        "bungkus-mc".to_owned()
+    }
+}
 
 /// Where each pane is on screen; `None` when it is not shown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -192,8 +231,20 @@ fn draw_header(frame: &mut Frame, area: Rect, model: &Model, theme: Theme, wide:
             None => pane.to_owned(),
         }
     };
-    let version = format!("v{} ", env!("CARGO_PKG_VERSION"));
-    let room = usize::from(area.width).saturating_sub(" bungkus-mc  ".len() + version.len() + 1);
+    let t = tally(model);
+    let spin = cards::spinner(model.frame, theme);
+    let counts: Vec<String> = [
+        (t.needs_you, format!("! {} needs you", t.needs_you)),
+        (t.failed, format!("x {} failed", t.failed)),
+        (t.working, format!("{spin} {} working", t.working)),
+    ]
+    .into_iter()
+    .filter(|(n, _)| *n > 0)
+    .map(|(_, text)| format!("{text} · "))
+    .collect();
+    let version = format!("{}v{} ", counts.concat(), env!("CARGO_PKG_VERSION"));
+    let room =
+        usize::from(area.width).saturating_sub(" bungkus-mc  ".len() + version.chars().count() + 1);
     let line = Line::from(vec![
         Span::styled(
             " bungkus-mc",
@@ -219,10 +270,13 @@ fn workspace_label(model: &Model) -> String {
         .map_or_else(String::new, |s| tilde(&s.workspace, model.home.as_deref()))
 }
 
-/// Draws the projects pane: `<marker><spinner> <name>` per row.
+/// Draws the projects pane: `<marker><spinner> <name>` … `<badge>` per
+/// row (DESIGN §5.3).
 ///
 /// The marker is `>` on the selected row while the pane is focused and
-/// `:` (the ascii form of `▌`) while it is not (DESIGN §5.3).
+/// `:` (the ascii form of `▌`) while it is not. The spinner column turns
+/// while any session of the project works; the badge is the worst other
+/// state, failed > needs you > your turn, with its count.
 fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
     let focused = model.focus == Focus::Projects;
     let title = if model.filtering || !model.filter.is_empty() {
@@ -236,6 +290,7 @@ fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
     let rows = usize::from(inner.height);
     let width = usize::from(inner.width).saturating_sub(3);
     let offset = (model.selected + 1).saturating_sub(rows);
+    let spin = cards::spinner(model.frame, theme);
     let lines: Vec<Line> = model
         .visible()
         .iter()
@@ -254,9 +309,34 @@ fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
             } else {
                 theme.fg(Token::Fg)
             };
+            let states: Vec<&State> = sessions::order(&model.cards, &project.path)
+                .into_iter()
+                .map(|i| &model.cards[i].state)
+                .collect();
+            let working = states.iter().any(|s| matches!(s, State::Working));
+            let badge = [
+                State::Failed(String::new()),
+                State::NeedsYou,
+                State::YourTurn,
+            ]
+            .iter()
+            .find_map(|want| {
+                let n = states.iter().filter(|s| s.rank() == want.rank()).count();
+                (n > 0).then(|| (cards::glyph(want, spin), n))
+            });
+            let badge_text = badge.map_or_else(String::new, |((g, _, _), n)| format!("{g} {n} "));
+            let badge_token = badge.map_or(Token::Fg, |((_, t, _), _)| t);
+            let room = width.saturating_sub(badge_text.len());
+            let text = truncate(&project.name, room);
+            let pad = room.saturating_sub(text.chars().count());
+            let spinner = if working { spin } else { ' ' };
             Line::from(vec![
-                Span::styled(format!("{marker}  "), theme.fg(Token::Ok)),
-                Span::styled(truncate(&project.name, width), name),
+                Span::styled(marker, theme.fg(Token::Ok)),
+                Span::styled(spinner.to_string(), theme.fg(Token::Ok)),
+                Span::raw(" "),
+                Span::styled(text, name),
+                Span::raw(" ".repeat(pad)),
+                Span::styled(badge_text, theme.fg(badge_token)),
             ])
         })
         .collect();
@@ -460,6 +540,31 @@ pub(crate) mod tests {
         model.focus = Focus::Sessions;
         key(&mut model, KeyCode::Char('q'));
         assert_golden("quit-confirm-80x24.txt", &render(&mut model, 80, 24));
+    }
+
+    #[test]
+    fn hooked_cards_match_golden() {
+        use crate::app::model::tests::{hook_line, with_session};
+
+        let mut model = sample(PROJECTS);
+        let (a, _w1) = with_session(&mut model, "checkout redesign");
+        let (b, _w2) = with_session(&mut model, "seo audit");
+        for card in &mut model.cards {
+            card.expect_hooks();
+        }
+        let recorded = include_str!("agent/testdata/claude/session.jsonl");
+        for line in recorded.lines().take(6) {
+            model.update(hook_line(a, line));
+        }
+        model.update(hook_line(
+            a,
+            r#"{"hook_event_name":"Notification","notification_type":"permission_prompt"}"#,
+        ));
+        model.update(hook_line(b, r#"{"hook_event_name":"UserPromptSubmit"}"#));
+        model.update(hook_line(b, r#"{"hook_event_name":"Stop","last_assistant_message":"Three fixes, see above","background_tasks":[]}"#));
+        model.focus = Focus::Sessions;
+        model.card = 0;
+        assert_golden("hooks-120x40.txt", &render(&mut model, 120, 40));
     }
 
     #[test]

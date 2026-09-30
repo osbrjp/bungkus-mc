@@ -19,10 +19,10 @@
 ┃                    ┃│   ║  j ↓             down            k ↑             up              ║█▄                       │
 ┃                    ┃│   ║  gg home         first           G end           last            ║███▄                     │
 ┃                    ┃│   ║  ctrl-d pgdn     half page down  ctrl-u pgup     half page up    ║                         │
-┃                    ┃│   ║  z               zoom output     /               filter          ║                         │
-┃                    ┃│   ║  w               workspace       ,               settings        ║                         │
-┃                    ┃│   ║  ctrl-l R        redraw          ?               this help       ║d yet.                   │
-┃                    ┃│   ║  q ctrl-c        quit                                            ║ession                   │
+┃                    ┃│   ║  ! ctrl-]        next needs you  z               zoom output     ║                         │
+┃                    ┃│   ║  /               filter          w               workspace       ║                         │
+┃                    ┃│   ║  ,               settings        ctrl-l R        redraw          ║d yet.                   │
+┃                    ┃│   ║  ?               this help       q ctrl-c        quit            ║ession                   │
 ┃                    ┃│   ║                                                                  ║                         │
 ┃                    ┃│   ║                                                       esc close  ║                         │
 ┃                    ┃│   ╚══════════════════════════════════════════════════════════════════╝                         │
@@ -37,5 +37,5 @@
 ┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │
 ┗━━━━━━━━━━━━━━━━━━━━┛└────────────────────────────────────┘└──────────────────────────────────────────────────────────┘
- NORMAL  enter → sessions · n new · j/k · / filter · , settings · ? help
+ NORMAL  enter → sessions · n new · j/k · ! next · / filter · , settings · ? help
 cursor: hidden

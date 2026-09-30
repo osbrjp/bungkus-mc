@@ -28,12 +28,14 @@ use ratatui::crossterm::execute;
 use ratatui::crossterm::terminal::supports_keyboard_enhancement;
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
 
-use crate::agent::{self, find_on_path};
-use crate::app::model::{Cmd, LaunchRequest, Model};
+use crate::agent::{self, Kind, find_on_path};
+use crate::app::model::{Alert, Cmd, LaunchRequest, Model};
 use crate::app::sessions::{Card, State};
-use crate::store::config::{self, Config};
+use crate::ipc::server;
+use crate::store::config::{self, Config, Notify};
 use crate::term::PtyEvent;
 use crate::term::session::{Colors, Session, child_env};
+use crate::ui::sanitise::sanitise;
 use crate::ui::{self, theme};
 use crate::workspace;
 
@@ -53,6 +55,8 @@ pub(crate) enum AppEvent {
     Input(Event),
     /// Output or exit from a session.
     Pty(PtyEvent),
+    /// One line from the hook socket, parsed on the UI thread.
+    Hook(Vec<u8>),
     /// A deadline passed: animation frame, sync flush or stop grace.
     Tick,
 }
@@ -72,7 +76,17 @@ impl Drop for TerminalGuard {
     fn drop(&mut self) {
         release_host_modes();
         ratatui::restore();
+        // XTWINOPS: restore the title saved at start (DESIGN §9).
+        write_host(b"\x1b[23;0t");
     }
+}
+
+/// Writes mc's own control bytes (bell, title, notifications) to the host
+/// terminal; never agent bytes.
+fn write_host(bytes: &[u8]) {
+    let mut out = io::stdout();
+    // reason: a terminal that is gone cannot be told anything.
+    let _ = out.write_all(bytes).and_then(|()| out.flush());
 }
 
 /// Undoes the host-terminal modes mc turned on besides raw mode and the
@@ -96,8 +110,16 @@ pub(crate) struct Env {
     pub cwd: PathBuf,
     /// Workspace field prefill for the wizard, when it runs.
     pub wizard_prefill: Option<String>,
-    /// The config as loaded (agent commands, mouse).
+    /// The config as loaded (agent commands, mouse, notify).
     pub config: Config,
+}
+
+/// What launches need besides the model: the socket for hooks and mc's
+/// own path for the hook command.
+#[derive(Debug)]
+struct Hooks {
+    socket: PathBuf,
+    exe: PathBuf,
 }
 
 /// Runs the TUI until the user quits.
@@ -140,6 +162,23 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<()> {
     model.screen = ratatui::layout::Rect::new(0, 0, size.width, size.height);
 
     let (tx, rx) = mpsc::sync_channel::<AppEvent>(CHANNEL_CAPACITY);
+    let uid = rustix::process::getuid().as_raw();
+    let dir = server::socket_dir(|n| std::env::var(n).ok(), uid);
+    let listener = server::start(&dir, uid, tx.clone(), AppEvent::Hook);
+    let exe = std::env::current_exe().and_then(|p| p.canonicalize());
+    let hooks = match (&listener, exe) {
+        (Ok(server), Ok(exe)) => Some(Hooks {
+            socket: server.path.clone(),
+            exe,
+        }),
+        (Err(e), _) => {
+            model.message = Some(format!("No live tree this run ({e}); output still works."));
+            None
+        }
+        (_, Err(_)) => None,
+    };
+    write_host(b"\x1b[22;0t");
+    let mut title = String::new();
     let input = tx.clone();
     thread::spawn(move || {
         while let Ok(event) = event::read() {
@@ -154,6 +193,7 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<()> {
         model.now = Instant::now();
         resize_sessions(&mut model);
         terminal.draw(|frame| ui::draw(frame, &mut model))?;
+        announce(&mut model, env.config.notify, &mut title);
         let first = match model.deadline(next_tick) {
             Some(at) => match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
                 Ok(event) => event,
@@ -181,7 +221,7 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<()> {
                 Cmd::Quit => return Ok(()),
                 Cmd::Redraw => terminal.clear()?,
                 Cmd::Apply(settings) => apply(&mut model, env, settings),
-                Cmd::Launch(request) => launch(&mut model, env, request, &tx),
+                Cmd::Launch(request) => launch(&mut model, env, hooks.as_ref(), request, &tx),
             }
         }
     }
@@ -204,12 +244,21 @@ fn apply(model: &mut Model, env: &Env, settings: config::Settings) {
 
 /// Starts a session for `request` and adds its card; a failure to start
 /// becomes a failed card with the reason.
-fn launch(model: &mut Model, env: &Env, request: LaunchRequest, tx: &SyncSender<AppEvent>) {
+fn launch(
+    model: &mut Model,
+    env: &Env,
+    hooks: Option<&Hooks>,
+    request: LaunchRequest,
+    tx: &SyncSender<AppEvent>,
+) {
     let LaunchRequest {
         project,
         kind,
-        launch,
+        mut launch,
     } = request;
+    if let (Some(hooks), Kind::Claude) = (hooks, kind) {
+        launch.settings = Some(agent::claude::settings(&hooks.exe));
+    }
     let mut card = Card::new(
         launch.id,
         kind,
@@ -238,10 +287,14 @@ fn launch(model: &mut Model, env: &Env, request: LaunchRequest, tx: &SyncSender<
     };
     let argv = agent::argv(kind, &program, &agent.args, &launch);
     let id = launch.id.0.hyphenated().to_string();
-    let child = child_env(
-        std::env::vars_os(),
-        &[("BUNGKUS_MC_SESSION", OsStr::new(&id))],
-    );
+    let mut extra = vec![("BUNGKUS_MC_SESSION", OsStr::new(&id))];
+    if let Some(hooks) = hooks {
+        extra.push(("BUNGKUS_MC_SOCK", hooks.socket.as_os_str()));
+    }
+    let child = child_env(std::env::vars_os(), &extra);
+    if launch.settings.is_some() {
+        card.expect_hooks();
+    }
     let size = ui::output_size(model.screen, model.zoom);
     match Session::spawn(
         launch.id,
@@ -259,6 +312,47 @@ fn launch(model: &mut Model, env: &Env, request: LaunchRequest, tx: &SyncSender<
         }
     }
     model.add_card(card);
+}
+
+/// Sends pending alerts and keeps the terminal title on the tally
+/// (DESIGN §9): BEL for `bell`, plus OSC 9 / 99 / 777 for `desktop`
+/// depending on the terminal; inside a multiplexer only the bell.
+fn announce(model: &mut Model, notify: Notify, title: &mut String) {
+    let tally = ui::title(model);
+    if *title != tally {
+        write_host(format!("\x1b]2;{tally}\x07").as_bytes());
+        *title = tally;
+    }
+    for alert in model.alerts.drain(..) {
+        let text = match &alert {
+            Alert::NeedsYou(t) | Alert::Failed(t) => sanitise(t, 120),
+        };
+        match notify {
+            Notify::Off => {}
+            Notify::Bell => write_host(b"\x07"),
+            Notify::Desktop => {
+                write_host(b"\x07");
+                write_host(desktop_notification(&text, |n| std::env::var(n).ok()).as_bytes());
+            }
+        }
+    }
+}
+
+/// Returns the desktop-notification escape for this terminal, or nothing
+/// inside a multiplexer (DESIGN §9).
+fn desktop_notification(text: &str, var: impl Fn(&str) -> Option<String>) -> String {
+    if var("TMUX").is_some() || var("ZELLIJ").is_some() {
+        return String::new();
+    }
+    let program = var("TERM_PROGRAM").unwrap_or_default();
+    let term = var("TERM").unwrap_or_default();
+    if term.contains("kitty") {
+        format!("\x1b]99;;{text}\x1b\\")
+    } else if ["iTerm.app", "WezTerm", "ghostty", "vscode"].contains(&program.as_str()) {
+        format!("\x1b]9;{text}\x07")
+    } else {
+        format!("\x1b]777;notify;bungkus-mc;{text}\x07")
+    }
 }
 
 /// Keeps every session's emulator and PTY at the output pane's size.
@@ -325,4 +419,30 @@ fn query_host_background() -> Option<bool> {
 #[must_use]
 pub(crate) fn absolute(path: &str, cwd: &Path, home: Option<&Path>) -> PathBuf {
     config::expand(path, home).unwrap_or_else(|| cwd.join(path))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn picks_the_desktop_notification_per_terminal() {
+        let env = |pairs: &'static [(&str, &str)]| {
+            move |n: &str| {
+                pairs
+                    .iter()
+                    .find(|(k, _)| *k == n)
+                    .map(|(_, v)| (*v).to_owned())
+            }
+        };
+        let cases: [(&'static [(&str, &str)], &str); 4] = [
+            (&[("TERM", "xterm-kitty")], "\x1b]99;;hi\x1b\\"),
+            (&[("TERM_PROGRAM", "ghostty")], "\x1b]9;hi\x07"),
+            (&[("TERM", "foot")], "\x1b]777;notify;bungkus-mc;hi\x07"),
+            (&[("TMUX", "/tmp/x"), ("TERM_PROGRAM", "iTerm.app")], ""),
+        ];
+        for (vars, want) in cases {
+            assert_eq!(desktop_notification("hi", env(vars)), want, "{vars:?}");
+        }
+    }
 }

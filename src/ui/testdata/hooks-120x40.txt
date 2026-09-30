@@ -1,15 +1,12 @@
- bungkus-mc  ~/Works/OSBR › kedai-web                                                 x 1 failed · | 1 working · v0.1.0
-┌ projects ──────────┐┏ sessions · kedai-web ━━━━━━━━━━━━━━┓┌ output · C #a3f2 · flaky payment test ───────────────────┐
-│:| kedai-web    x 1 │┃ ┃x C #a3f1 checkout redesign failed┃│> fix the flaky date test                          ▄██▄   │
-│   pasar-mobile     │┃ ┃  exit 1 · boom                   ┃│  run it twice                                   ▄██████▄ │
-│   roti-docs        │┃ ┃  - tok · - · ctx -               ┃│                                                   ▀  ▀   │
-│   teh-cli          │┃                                    ┃│                                                          │
-│   warung-api       │┃> | C #a3f2 flaky payment test    0m┃│                                                          │
-│                    │┃    output only · live tree unavail…┃│                                                          │
-│                    │┃    - tok · - · ctx -               ┃│                                                          │
-│                    │┃                                    ┃│                                                          │
-│                    │┃  + C #a3f3 bump deps        wrapped┃│                                                          │
-│                    │┃    0m · 0 tools · 0 subagents      ┃│                                                          │
+ bungkus-mc  ~/Works/OSBR › kedai-web                                                            ! 1 needs you · v0.1.0
+┌ projects ──────────┐┏ sessions · kedai-web ━━━━━━━━━━━━━━┓┌ output · C #a3f1 · rec-test ─────────────────────────────┐
+│:  kedai-web    ! 1 │┃>┃! C #a3f1 rec-test              0m┃│                                                          │
+│   pasar-mobile     │┃ ┃  needs you · permission: Agent   ┃│                                                          │
+│   roti-docs        │┃ ┃  - tok · - · ctx -               ┃│                                                          │
+│   teh-cli          │┃ ┃  * say hi                    | 0m┃│                                                          │
+│   warung-api       │┃                                    ┃│                                                          │
+│                    │┃  ~ C #a3f2 seo audit      your turn┃│                                                          │
+│                    │┃    done: "Three fixes, see above"  ┃│                                                          │
 │                    │┃    - tok · - · ctx -               ┃│                                                          │
 │                    │┃                                    ┃│                                                          │
 │                    │┃                                    ┃│                                                          │
@@ -19,6 +16,9 @@
 │                    │┃                                    ┃│                                                          │
 │                    │┃                                    ┃│                                                          │
 │                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                   Warming up the wok…                    │
 │                    │┃                                    ┃│                                                          │
 │                    │┃                                    ┃│                                                          │
 │                    │┃                                    ┃│                                                          │

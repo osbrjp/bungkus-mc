@@ -351,6 +351,18 @@ Subagents (flat list, no nesting in stage 1):
   marks the child wrapped.
 - `PreToolUse`/`PostToolUse` carrying `agent_id` update that child's tool.
 
+Recorded in M4 (Claude Code 2.1.285, `src/agent/testdata/claude/session.jsonl`,
+scrubbed): **hooks run concurrently** (two events of one tool call can
+arrive in either order, so each connection is independent); Claude runs
+internal helper agents whose `SubagentStop` has an empty `agent_type` and
+an unknown `agent_id` — they are ignored, since only agents seen through
+`SubagentStart` or a running `background_tasks` entry are listed; a
+`Notification` for a permission prompt carries `notification_type:
+"permission_prompt"` and the message "Claude needs your permission";
+`SessionStart` and `UserPromptSubmit` carry `session_title` (the `--name`).
+On macOS the listener must not drop a connection whose peer already
+closed: setting its read timeout then fails with `EINVAL`.
+
 Session-id binding: Claude sessions get `--session-id <uuid>` (generated
 with `uuid::Uuid::new_v4`). Codex sessions bind on the first event carrying
 their `BUNGKUS_MC_SESSION`; after that the reducer **ignores any event

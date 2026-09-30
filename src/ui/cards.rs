@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::Modifier;
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Wrap};
 
@@ -13,13 +13,10 @@ use crate::app::model::{Focus, Model};
 use crate::app::sessions::{Card, State};
 use crate::ui::sanitise::truncate;
 use crate::ui::theme::{Theme, Token};
-use crate::ui::{pane, workspace_label};
+use crate::ui::{SPINNER, pane, workspace_label};
 
-/// Rows one card takes, including the blank line after it.
-const CARD_ROWS: usize = 4;
-
-/// The ascii spinner (DESIGN §3); one frame per animation tick.
-const SPINNER: [char; 4] = ['|', '/', '-', '\\'];
+/// Most subagent rows shown per card; the newest are kept.
+const SUBAGENT_ROWS: usize = 5;
 
 /// Draws the sessions pane.
 pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
@@ -37,32 +34,41 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
         draw_empty(frame, inner, model, theme);
         return;
     }
-    let per_page = (usize::from(inner.height) / CARD_ROWS).max(1);
-    let offset = (model.card + 1).saturating_sub(per_page);
     let width = usize::from(inner.width);
-    let spin = if theme.no_color() {
+    let spin = spinner(model.frame, theme);
+    let cards: Vec<Vec<Line>> = indices
+        .iter()
+        .enumerate()
+        .map(|(pos, &i)| {
+            let marker = if pos == model.card && focused {
+                ">"
+            } else {
+                " "
+            };
+            let mut lines = card_lines(&model.cards[i], marker, width, spin, model.now, theme);
+            lines.push(Line::from(""));
+            lines
+        })
+        .collect();
+    let rows = usize::from(inner.height);
+    let mut start = model.card.min(cards.len() - 1);
+    let mut used = cards[start].len();
+    while start > 0 && used + cards[start - 1].len() <= rows {
+        start -= 1;
+        used += cards[start].len();
+    }
+    let lines: Vec<Line> = cards.into_iter().skip(start).flatten().collect();
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// Returns the spinner frame for `frame`, or its first frame without
+/// colour (motion off, DESIGN §7).
+pub(super) fn spinner(frame: usize, theme: Theme) -> char {
+    if theme.no_color() {
         SPINNER[0]
     } else {
-        SPINNER[model.frame % SPINNER.len()]
-    };
-    let mut lines = Vec::new();
-    for (pos, &i) in indices.iter().enumerate().skip(offset).take(per_page) {
-        let marker = if pos == model.card && focused {
-            ">"
-        } else {
-            " "
-        };
-        lines.extend(card_lines(
-            &model.cards[i],
-            marker,
-            width,
-            spin,
-            model.now,
-            theme,
-        ));
-        lines.push(Line::from(""));
+        SPINNER[frame % SPINNER.len()]
     }
-    frame.render_widget(Paragraph::new(lines), inner);
 }
 
 /// Draws the no-sessions / no-projects copy.
@@ -95,9 +101,25 @@ fn draw_empty(frame: &mut Frame, inner: Rect, model: &Model, theme: Theme) {
     );
 }
 
-/// Returns a card's three lines (DESIGN §5.2):
-/// `<marker><gutter><glyph> <badge> #id <name> … <right>`, the state line,
-/// and the compact usage line (`-` until usage arrives in M5).
+/// Returns the glyph, its colour and the state word (DESIGN §5.3).
+pub(super) fn glyph(state: &State, spin: char) -> (char, Token, &'static str) {
+    match state {
+        State::Working => (spin, Token::Ok, "working"),
+        State::YourTurn => ('~', Token::Info, "your turn"),
+        State::NeedsYou => ('!', Token::Warn, "needs you"),
+        State::Failed(_) => ('x', Token::Err, "failed"),
+        State::Stopped => ('#', Token::FgMuted, "stopped"),
+        State::Wrapped => ('+', Token::Ok, "wrapped"),
+    }
+}
+
+/// Returns whole minutes between `from` and `to`.
+fn minutes(from: Instant, to: Instant) -> u64 {
+    to.saturating_duration_since(from).as_secs() / 60
+}
+
+/// Returns a card's lines (DESIGN §5.2): the title line, the state line,
+/// the compact usage line (`-` until M5), then one line per subagent.
 fn card_lines(
     card: &Card,
     marker: &str,
@@ -106,16 +128,11 @@ fn card_lines(
     now: Instant,
     theme: Theme,
 ) -> Vec<Line<'static>> {
-    let (glyph, glyph_token, word) = match &card.state {
-        State::Running => (spin, Token::Ok, "working"),
-        State::Failed(_) => ('x', Token::Err, "failed"),
-        State::Stopped => ('#', Token::FgMuted, "stopped"),
-        State::Wrapped => ('+', Token::Ok, "wrapped"),
-    };
-    let gutter = if matches!(card.state, State::Failed(_)) {
-        "┃"
-    } else {
-        " "
+    let (glyph, glyph_token, word) = glyph(&card.state, spin);
+    let (gutter, gutter_token) = match card.state {
+        State::NeedsYou => ("┃", Token::Warn),
+        State::Failed(_) => ("┃", Token::Err),
+        _ => (" ", Token::Fg),
     };
     let muted = matches!(card.state, State::Wrapped | State::Stopped);
     let text = if muted {
@@ -123,50 +140,94 @@ fn card_lines(
     } else {
         theme.fg(Token::Fg)
     };
-    let minutes = card
-        .ended
-        .unwrap_or(now)
-        .saturating_duration_since(card.started)
-        .as_secs()
-        / 60;
-    let right = if card.running() {
-        format!("{minutes}m")
-    } else {
-        word.to_owned()
+    let elapsed = minutes(card.started, card.ended.unwrap_or(now));
+    let right = match card.state {
+        State::Working | State::NeedsYou => format!("{elapsed}m"),
+        _ => word.to_owned(),
     };
     let id = card.id.short();
     let fixed = 2 + 2 + 2 + id.len() + 1;
-    let room = width.saturating_sub(fixed + right.len() + 1);
-    let name = truncate(&card.name, room);
+    let name = truncate(&card.name, width.saturating_sub(fixed + right.len() + 1));
     let pad = width.saturating_sub(fixed + name.chars().count() + right.len());
+    let title_style = if muted {
+        text
+    } else {
+        text.add_modifier(Modifier::BOLD)
+    };
     let title = Line::from(vec![
         Span::styled(marker.to_owned(), theme.fg(Token::Ok)),
-        Span::styled(gutter, theme.fg(Token::Err)),
+        Span::styled(gutter, theme.fg(gutter_token)),
         Span::styled(glyph.to_string(), theme.fg(glyph_token)),
         Span::raw(" "),
         Span::styled(card.kind.badge().to_string(), theme.fg(Token::Accent)),
         Span::raw(" "),
         Span::styled(id, theme.fg(Token::Info)),
         Span::raw(" "),
-        Span::styled(name, text.add_modifier(Modifier::BOLD)),
+        Span::styled(name, title_style),
         Span::raw(" ".repeat(pad)),
         Span::styled(right, theme.fg(Token::FgMuted)),
     ]);
-    let detail = match &card.state {
-        State::Running if card.pty.as_ref().and_then(|p| p.last_output).is_none() => {
-            "working · warming up".to_owned()
-        }
-        State::Running => format!("working · {}", card.kind.command()),
-        State::Failed(reason) => reason.clone(),
-        State::Stopped => "stopped".to_owned(),
-        State::Wrapped => format!("wrapped in {minutes}m"),
-    };
-    let body = |s: String| {
+    let body_width = width.saturating_sub(4);
+    let body = |s: &str, style: Style| {
         Line::from(vec![
             Span::raw(" "),
-            Span::styled(gutter, theme.fg(Token::Err)),
-            Span::styled(format!("  {}", truncate(&s, width.saturating_sub(4))), text),
+            Span::styled(gutter, theme.fg(gutter_token)),
+            Span::styled(format!("  {}", truncate(s, body_width)), style),
         ])
     };
-    vec![title, body(detail), body("- tok · - · ctx -".to_owned())]
+    let mut lines = vec![
+        title,
+        body(&detail(card, now), text),
+        body("- tok · - · ctx -", text),
+    ];
+    let skip = card.subagents.len().saturating_sub(SUBAGENT_ROWS);
+    for sub in card.subagents.iter().skip(skip) {
+        let mark = if sub.ended.is_some() { '+' } else { spin };
+        let time = format!("{}m", minutes(sub.started, sub.ended.unwrap_or(now)));
+        let right_len = time.len() + 2;
+        let desc = truncate(&sub.description, body_width.saturating_sub(right_len + 2));
+        let pad = body_width.saturating_sub(desc.chars().count() + 2 + right_len);
+        lines.push(Line::from(vec![
+            Span::raw(" "),
+            Span::styled(gutter, theme.fg(gutter_token)),
+            Span::styled("  * ", theme.fg(Token::FgMuted)),
+            Span::styled(desc, text),
+            Span::raw(" ".repeat(pad)),
+            Span::styled(format!("{mark} "), theme.fg(Token::Ok)),
+            Span::styled(time, theme.fg(Token::FgMuted)),
+        ]));
+    }
+    lines
+}
+
+/// Returns the state line: state word and detail (DESIGN §5.2).
+fn detail(card: &Card, now: Instant) -> String {
+    if card.output_only(now) {
+        return "output only · live tree unavailable".to_owned();
+    }
+    match &card.state {
+        State::Working if card.pty.as_ref().and_then(|p| p.last_output).is_none() => {
+            "working · warming up".to_owned()
+        }
+        State::Working => match &card.tool {
+            Some(tool) => format!("working · {tool}"),
+            None => "working".to_owned(),
+        },
+        State::NeedsYou => match &card.tool {
+            Some(tool) => format!("needs you · permission: {tool}"),
+            None => "needs you".to_owned(),
+        },
+        State::YourTurn => match card.last_message.as_deref().and_then(|m| m.lines().next()) {
+            Some(first) => format!("done: \"{first}\""),
+            None => "your turn".to_owned(),
+        },
+        State::Failed(reason) => reason.clone(),
+        State::Stopped => "stopped".to_owned(),
+        State::Wrapped => {
+            let m = minutes(card.started, card.ended.unwrap_or(now));
+            let subs = card.subagents.len();
+            let plural = if subs == 1 { "" } else { "s" };
+            format!("{m}m · {} tools · {subs} subagent{plural}", card.tool_calls)
+        }
+    }
 }

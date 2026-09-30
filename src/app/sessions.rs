@@ -1,14 +1,18 @@
-//! Session cards: what mc knows about each session it started.
+//! Session cards: what mc knows about each session it started, and the
+//! hook-event state machine (ARCHITECTURE §4.3, DESIGN §5.3).
 //!
 //! A card outlives its process: a wrapped, failed or stopped session stays
-//! listed with its last screen. The state here comes from the process in
-//! M3; hook events refine it from M4 on.
+//! listed with its last screen. While the process runs, hook events move
+//! it between working, your turn and needs you; the process exit decides
+//! wrapped, failed or stopped.
 
 use std::cmp::Reverse;
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use crate::agent::Kind;
+use crate::ipc::HookEvent;
 use crate::term::SessionId;
 use crate::term::session::Session;
 use crate::ui::sanitise::sanitise;
@@ -19,11 +23,31 @@ const NAME_MAX: usize = 80;
 /// Grace between SIGTERM and SIGKILL when stopping (ARCHITECTURE §3.2).
 pub(crate) const STOP_GRACE: Duration = Duration::from_secs(3);
 
+/// How long a hooked session may stay silent before its card says
+/// "output only" (ARCHITECTURE §4.3).
+pub(crate) const HOOK_GRACE: Duration = Duration::from_secs(10);
+
+/// Notification types that mean the agent waits for the user
+/// (ARCHITECTURE §4.3); `idle_prompt` is deliberately not one.
+const NEEDS_YOU: [&str; 4] = [
+    "permission_prompt",
+    "agent_needs_input",
+    "elicitation_dialog",
+    "permission_request",
+];
+
+/// Tool names that start a subagent (Claude, Codex).
+const SPAWN_TOOLS: [&str; 2] = ["Agent", "spawn_agent"];
+
 /// A session's state (DESIGN §5.3).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum State {
-    /// The agent process is running.
-    Running,
+    /// The agent is working (a turn or a subagent is active).
+    Working,
+    /// The agent finished its turn and waits for the next prompt.
+    YourTurn,
+    /// The agent is blocked on the user (permission, question).
+    NeedsYou,
     /// The process exited non-zero, or could not start; the reason line.
     Failed(String),
     /// The user stopped it (`x` or quit), whatever its exit code.
@@ -33,16 +57,31 @@ pub(crate) enum State {
 }
 
 impl State {
-    /// Returns the card order rank: failed, working, stopped, wrapped
-    /// (DESIGN §5.2).
-    const fn rank(&self) -> u8 {
+    /// Returns the card order rank (DESIGN §5.2): needs you, failed,
+    /// working, your turn, stopped, wrapped.
+    pub(crate) const fn rank(&self) -> u8 {
         match self {
+            Self::NeedsYou => 0,
             Self::Failed(_) => 1,
-            Self::Running => 2,
+            Self::Working => 2,
+            Self::YourTurn => 3,
             Self::Stopped => 4,
             Self::Wrapped => 5,
         }
     }
+}
+
+/// One subagent of a session (a flat list, DESIGN §5.2).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Subagent {
+    /// The agent's id.
+    pub id: String,
+    /// What it was asked to do (the spawning tool's description).
+    pub description: String,
+    /// When it started.
+    pub started: Instant,
+    /// When it finished; `None` while running.
+    pub ended: Option<Instant>,
 }
 
 /// One session mc started.
@@ -68,13 +107,32 @@ pub(crate) struct Card {
     pub killed: bool,
     /// The PTY and emulator; `None` when the process could not start.
     pub pty: Option<Session>,
+    /// Whether this session was started with mc's hooks.
+    pub hooked: bool,
+    /// How many hook events arrived.
+    pub events: u32,
+    /// The agent's own session id, once bound.
+    pub agent_session: Option<String>,
+    /// The main agent's current tool.
+    pub tool: Option<String>,
+    /// The main agent's last reply, cut short.
+    pub last_message: Option<String>,
+    /// Subagents, oldest first.
+    pub subagents: Vec<Subagent>,
+    /// Descriptions of spawn calls waiting for their `SubagentStart`.
+    pending: VecDeque<String>,
+    /// Whether the main agent's turn ended (`Stop` seen since the last prompt).
+    main_done: bool,
+    /// Tool calls seen, for the wrapped line.
+    pub tool_calls: u32,
 }
 
 impl Card {
     /// Creates a card for a new session.
     ///
     /// The name falls back to the prompt's first line, then `untitled`
-    /// (ARCHITECTURE §5.3).
+    /// (ARCHITECTURE §5.3). A hooked Claude session starts as "your turn";
+    /// one without hooks as "working", since nothing will say otherwise.
     #[must_use]
     pub(crate) fn new(
         id: SessionId,
@@ -97,19 +155,61 @@ impl Card {
             kind,
             project,
             name,
-            state: State::Running,
+            state: State::Working,
             started,
             ended: None,
             stop_requested: None,
             killed: false,
             pty: None,
+            hooked: false,
+            events: 0,
+            agent_session: None,
+            tool: None,
+            last_message: None,
+            subagents: Vec::new(),
+            pending: VecDeque::new(),
+            main_done: false,
+            tool_calls: 0,
         }
+    }
+
+    /// Marks the session as started with hooks: it now waits for them.
+    pub(crate) fn expect_hooks(&mut self) {
+        self.hooked = true;
+        self.state = State::YourTurn;
+    }
+
+    /// Returns whether the process is still running.
+    #[must_use]
+    pub(crate) fn running(&self) -> bool {
+        matches!(
+            self.state,
+            State::Working | State::YourTurn | State::NeedsYou
+        )
+    }
+
+    /// Returns whether the card should say "output only": no hooks, or a
+    /// hooked session that stayed silent past [`HOOK_GRACE`].
+    #[must_use]
+    pub(crate) fn output_only(&self, now: Instant) -> bool {
+        self.running()
+            && self.events == 0
+            && (!self.hooked || now.saturating_duration_since(self.started) >= HOOK_GRACE)
+    }
+
+    /// Returns the number of running subagents.
+    #[must_use]
+    pub(crate) fn running_subagents(&self) -> usize {
+        self.subagents.iter().filter(|s| s.ended.is_none()).count()
     }
 
     /// Records the process exit: stopped when the user asked, else wrapped
     /// on 0 and failed otherwise, with the screen's last line as reason.
     pub(crate) fn exited(&mut self, code: Option<u32>, now: Instant) {
         self.ended = Some(now);
+        for sub in self.subagents.iter_mut().filter(|s| s.ended.is_none()) {
+            sub.ended = Some(now);
+        }
         self.state = if self.stop_requested.is_some() {
             State::Stopped
         } else if code == Some(0) {
@@ -130,10 +230,139 @@ impl Card {
         };
     }
 
-    /// Returns whether the process is still running.
-    #[must_use]
-    pub(crate) fn running(&self) -> bool {
-        self.state == State::Running
+    /// Applies one hook event (ARCHITECTURE §4.3).
+    ///
+    /// Events for another agent session (a nested `claude` inheriting the
+    /// environment) are ignored once this card is bound to its session id;
+    /// events after the process ended change nothing.
+    pub(crate) fn reduce(&mut self, event: &HookEvent, now: Instant) {
+        if !self.running() {
+            return;
+        }
+        if let Some(sid) = &event.session_id {
+            match &self.agent_session {
+                Some(bound) if bound != sid => return,
+                Some(_) => {}
+                None => self.agent_session = Some(sid.clone()),
+            }
+        }
+        self.events = self.events.saturating_add(1);
+        if let Some(title) = event
+            .session_title
+            .as_deref()
+            .filter(|t| !t.trim().is_empty())
+        {
+            self.name = sanitise(title.trim(), NAME_MAX);
+        }
+        let main = event.agent_id.is_none();
+        match event.name.as_str() {
+            "SessionStart" => self.state = State::YourTurn,
+            "UserPromptSubmit" => {
+                self.main_done = false;
+                self.tool = None;
+                self.state = State::Working;
+            }
+            "PreToolUse" | "PostToolUse" => {
+                if main {
+                    self.main_done = false;
+                    self.tool.clone_from(&event.tool_name);
+                }
+                if event.name == "PreToolUse" {
+                    self.tool_calls = self.tool_calls.saturating_add(1);
+                    let spawn = event
+                        .tool_name
+                        .as_deref()
+                        .is_some_and(|t| SPAWN_TOOLS.contains(&t));
+                    if spawn {
+                        self.pending
+                            .push_back(event.tool_desc.clone().unwrap_or_default());
+                    }
+                }
+                self.state = State::Working;
+            }
+            "SubagentStart" => {
+                if let Some(id) = &event.agent_id {
+                    let description = self
+                        .pending
+                        .pop_front()
+                        .filter(|d| !d.is_empty())
+                        .or_else(|| event.agent_type.clone())
+                        .unwrap_or_default();
+                    self.subagents.push(Subagent {
+                        id: id.clone(),
+                        description: sanitise(&description, NAME_MAX),
+                        started: now,
+                        ended: None,
+                    });
+                }
+                self.state = State::Working;
+            }
+            "SubagentStop" => {
+                self.reconcile(event, now);
+                if let Some(sub) = self
+                    .subagents
+                    .iter_mut()
+                    .find(|s| Some(&s.id) == event.agent_id.as_ref())
+                {
+                    sub.ended.get_or_insert(now);
+                }
+                if self.main_done && self.running_subagents() == 0 {
+                    self.state = State::YourTurn;
+                }
+            }
+            "Notification" | "PermissionRequest" => {
+                if event
+                    .notify
+                    .as_deref()
+                    .is_some_and(|n| NEEDS_YOU.contains(&n))
+                {
+                    self.state = State::NeedsYou;
+                }
+            }
+            "Stop" => {
+                self.main_done = true;
+                self.tool = None;
+                self.last_message.clone_from(&event.last_message);
+                self.reconcile(event, now);
+                self.state = if self.running_subagents() > 0 {
+                    State::Working
+                } else {
+                    State::YourTurn
+                };
+            }
+            _ => {}
+        }
+    }
+
+    /// Reconciles the subagent list with `background_tasks`, which is
+    /// authoritative when present: listed running tasks are running (and
+    /// added when unknown), every other known subagent has finished.
+    fn reconcile(&mut self, event: &HookEvent, now: Instant) {
+        let Some(tasks) = &event.background_tasks else {
+            return;
+        };
+        let running: Vec<_> = tasks
+            .iter()
+            .filter(|t| t.kind == "subagent" && t.status == "running")
+            .collect();
+        for sub in &mut self.subagents {
+            let listed = running.iter().any(|t| t.id == sub.id);
+            if listed {
+                sub.ended = None;
+            } else {
+                sub.ended.get_or_insert(now);
+            }
+        }
+        for task in running {
+            if !self.subagents.iter().any(|s| s.id == task.id) {
+                self.subagents.push(Subagent {
+                    id: task.id.clone(),
+                    description: sanitise(&task.description, NAME_MAX),
+                    started: now,
+                    ended: None,
+                });
+            }
+        }
     }
 }
 
@@ -161,6 +390,10 @@ mod tests {
             prompt,
             Instant::now(),
         )
+    }
+
+    fn event(line: &str) -> HookEvent {
+        crate::ipc::trim(&serde_json::from_str(line).unwrap())
     }
 
     #[test]
@@ -192,6 +425,90 @@ mod tests {
     }
 
     #[test]
+    fn the_recorded_claude_session_walks_the_decided_states() {
+        use State::{NeedsYou, Working, YourTurn};
+        let lines: Vec<&str> = include_str!("../agent/testdata/claude/session.jsonl")
+            .lines()
+            .collect();
+        let want = [
+            YourTurn, Working, Working, Working, Working, Working, Working, Working, YourTurn,
+            Working, YourTurn, YourTurn, YourTurn, Working, Working, NeedsYou, Working, YourTurn,
+            YourTurn, YourTurn,
+        ];
+        assert_eq!(lines.len(), want.len());
+        let mut c = card(Some("picker name"), None);
+        c.expect_hooks();
+        let now = Instant::now();
+        for (i, (line, want)) in lines.iter().zip(want).enumerate() {
+            c.reduce(&event(line), now);
+            assert_eq!(c.state, want, "after line {i}: {line:.80}");
+            if i == 5 {
+                assert_eq!(c.running_subagents(), 1);
+                assert_eq!(c.subagents[0].description, "say hi");
+            }
+        }
+        assert_eq!(
+            c.name, "rec-test",
+            "session_title wins over the picker name"
+        );
+        assert_eq!(
+            c.subagents.len(),
+            1,
+            "internal helpers with no type are not listed"
+        );
+        assert_eq!(c.running_subagents(), 0);
+        assert_eq!(c.tool_calls, 3);
+    }
+
+    #[test]
+    fn idle_prompts_foreign_sessions_and_unknown_events_change_nothing() {
+        let mut c = card(None, None);
+        c.expect_hooks();
+        let now = Instant::now();
+        c.reduce(
+            &event(r#"{"hook_event_name":"UserPromptSubmit","session_id":"a"}"#),
+            now,
+        );
+        c.reduce(
+            &event(r#"{"hook_event_name":"Stop","session_id":"a","background_tasks":[]}"#),
+            now,
+        );
+        assert_eq!(c.state, State::YourTurn);
+        let ignored = [
+            r#"{"hook_event_name":"Notification","session_id":"a","notification_type":"idle_prompt"}"#,
+            r#"{"hook_event_name":"UserPromptSubmit","session_id":"b"}"#,
+            r#"{"hook_event_name":"SomethingNew","session_id":"a"}"#,
+        ];
+        for line in ignored {
+            c.reduce(&event(line), now);
+            assert_eq!(c.state, State::YourTurn, "{line}");
+        }
+    }
+
+    #[test]
+    fn stop_with_running_background_tasks_keeps_working() {
+        let mut c = card(None, None);
+        c.expect_hooks();
+        let now = Instant::now();
+        let stop = r#"{"hook_event_name":"Stop","background_tasks":[
+            {"id":"x1","type":"subagent","status":"running","description":"audit"}]}"#;
+        c.reduce(&event(stop), now);
+        assert_eq!(
+            (c.state.clone(), c.running_subagents()),
+            (State::Working, 1)
+        );
+        c.reduce(
+            &event(r#"{"hook_event_name":"SubagentStop","agent_id":"x1"}"#),
+            now,
+        );
+        assert_eq!(
+            c.state,
+            State::YourTurn,
+            "last child done after main stopped"
+        );
+    }
+
+    #[test]
     fn orders_by_state_then_newest_first() {
         let t0 = Instant::now();
         let mut cards: Vec<Card> = (0..4)
@@ -203,6 +520,7 @@ mod tests {
             .collect();
         cards[0].exited(Some(0), t0);
         cards[1].exited(Some(2), t0);
+        cards[3].state = State::NeedsYou;
         cards.push(Card::new(
             SessionId::new(),
             Kind::Codex,
@@ -215,6 +533,6 @@ mod tests {
             .iter()
             .map(|&i| cards[i].name.as_str())
             .collect();
-        assert_eq!(names, ["1", "3", "2", "0"]);
+        assert_eq!(names, ["3", "1", "2", "0"]);
     }
 }
