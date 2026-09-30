@@ -1221,7 +1221,7 @@ launches the agent with the mapped model. What the user sees:
 |--------------------------------|----------------------------------------------------------------------------|
 | first run / no workspace       | setup wizard (§5.8)                                                        |
 | workspace has no projects      | `No projects in ~/Works/OSBR. A project is a folder with CLAUDE.md, AGENTS.md or .git in it — w to pick another folder.` |
-| project has no sessions        | `No sessions in kedai-web. n to start one. Only sessions started here show up.` |
+| project has no sessions        | `No sessions in kedai-web. n to start one.` |
 | session running, no output yet | `Warming up the wok…`                                                      |
 | output pane, nothing selected / project has no sessions | mascot (§5.7) + `Nothing wrapped yet.` / `n to start a session`; with a failed last session: cross-eyed mascot + `#e019 failed. r to resume · n to start fresh` |
 | agent not installed            | `claude not found on PATH. Install Claude Code, then n again.`             |

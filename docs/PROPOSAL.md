@@ -53,7 +53,6 @@ adoption of the shared Daun Pisang palette.
 - Being an agent client (own chat UI, own permission UI). We render the
   vendor's UI.
 - Persisting sessions across mc restarts (stop + resume instead).
-- Showing sessions that were not started from mc (accepted for v0.1).
 - Windows. Remote/SSH-hosted agents. Multiple workspaces at once.
 - Parsing transcripts, except the approved Codex `token_count` reader.
 - Per-subagent token counts. Nested subagent trees (flat list).
@@ -132,7 +131,7 @@ is replaced by the Rust equivalents in ARCHITECTURE.md and CODING_RULES.md
    (ARCHITECTURE.md §3.2–3.3, SECURITY.md, M7).
 2. **Workspace:** direct child folders are projects only if they contain
    `CLAUDE.md`, `AGENTS.md` or `.git`; dot-dirs skipped, symlinks followed.
-3. **Sessions started outside mc are invisible** in v0.1 — accepted.
+3. ~~Sessions started outside mc are invisible~~ — reversed by 23.
 4. **Codex usage:** approved to read Codex's own session log, limited to
    the rollout `token_count` records at the path Codex's hook reports —
    the one contained transcript exception (ARCHITECTURE.md §6.3, M6).
@@ -254,6 +253,12 @@ with the last agent preselected.
     writes those three keys into `config.json`, keeping every other key
     and their order. The `n` picker preselects the default agent (no
     "last used"). Built in M2 (DESIGN.md §5.8).
+23. **Sessions started outside mc are shown, read-only** (owner request,
+    2026-10-01). Claude sessions come from `claude agents --json`, Codex
+    sessions from running `codex` processes and their working folder.
+    They are listed under the project they run in, below mc's own cards,
+    with state and pid only: no output, no INTERACT, no stop, no usage,
+    never persisted (ARCHITECTURE §3.4).
 
 ## 7. Open questions for the product owner
 

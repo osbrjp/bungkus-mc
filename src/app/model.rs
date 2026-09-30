@@ -5,7 +5,7 @@
 //! thread and signalling its process group are non-blocking and happen
 //! here; spawning, saving and scanning are returned as a [`Cmd`].
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -19,6 +19,7 @@ use crate::app::form::{Field, Form, FormKind, Outcome};
 use crate::app::picker::{self, Picker};
 use crate::app::sessions::{self, Card, HOOK_GRACE, STOP_GRACE, State};
 use crate::app::stop::{StopDialog, StopKind};
+use crate::external::External;
 use crate::ipc::Wire;
 use crate::proc::Proc;
 use crate::store::config::Settings;
@@ -176,6 +177,8 @@ pub(crate) struct Model {
     pub next_scan: Option<Instant>,
     /// Whether `sessions.json` must be written.
     pub state_dirty: bool,
+    /// Agent sessions running outside mc, read-only (ARCHITECTURE §3.4).
+    pub external: Vec<External>,
 }
 
 impl Model {
@@ -225,6 +228,7 @@ impl Model {
             keep: Vec::new(),
             next_scan: None,
             state_dirty: false,
+            external: Vec::new(),
         }
     }
 
@@ -260,6 +264,26 @@ impl Model {
     pub(crate) fn project_cards(&self) -> Vec<usize> {
         self.selected_project()
             .map_or_else(Vec::new, |p| sessions::order(&self.cards, &p.path))
+    }
+
+    /// Returns the sessions outside mc running in `project` (or below it),
+    /// leaving out every session mc started: by pid, by a tracked
+    /// descendant's pid, or by the agent's session id.
+    #[must_use]
+    pub(crate) fn external_in(&self, project: &Path) -> Vec<&External> {
+        self.external
+            .iter()
+            .filter(|e| e.cwd.starts_with(project))
+            .filter(|e| {
+                !self.cards.iter().any(|c| {
+                    c.pid == Some(e.pid)
+                        || c.descendants.procs.iter().any(|p| p.pid == e.pid)
+                        || e.session_id.as_ref().is_some_and(|id| {
+                            c.agent_session.as_ref() == Some(id) || c.id.0.to_string() == *id
+                        })
+                })
+            })
+            .collect()
     }
 
     /// Returns the index of the selected card, if the project has any.
@@ -376,6 +400,7 @@ impl Model {
                 }
             }
             AppEvent::Procs(snapshot) => self.track(&snapshot),
+            AppEvent::External(list) => self.external = list,
             AppEvent::HostGone => return self.host_gone(),
             AppEvent::UpdateAvailable(tag) => {
                 self.message = Some(format!("bungkus-mc {tag} is out — bungkus-mc update"));

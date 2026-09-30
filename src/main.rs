@@ -6,6 +6,7 @@
 
 mod agent;
 mod app;
+mod external;
 mod ipc;
 mod proc;
 mod store;

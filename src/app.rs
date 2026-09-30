@@ -50,6 +50,9 @@ const TICK: Duration = Duration::from_millis(350);
 /// Capacity of the event channel: 64 PTY reads of 32 KiB (ARCHITECTURE §3).
 const CHANNEL_CAPACITY: usize = 64;
 
+/// How often sessions outside mc are listed (ARCHITECTURE §3.4).
+const EXTERNAL_EVERY: Duration = Duration::from_secs(5);
+
 /// Everything the loop wakes up for.
 #[derive(Debug)]
 pub(crate) enum AppEvent {
@@ -63,6 +66,8 @@ pub(crate) enum AppEvent {
     Usage(crate::term::SessionId, crate::agent::usage::Usage),
     /// A background process snapshot.
     Procs(Vec<crate::proc::Proc>),
+    /// Agent sessions running outside mc (every [`EXTERNAL_EVERY`]).
+    External(Vec<crate::external::External>),
     /// The host terminal went away (input closed).
     HostGone,
     /// A newer release exists (the daily check).
@@ -266,6 +271,22 @@ fn start_background(
             }
         });
     }
+    let claude = find_on_path(
+        Kind::Claude.command(),
+        &std::env::var_os("PATH").unwrap_or_default(),
+    );
+    let tx = tx.clone();
+    thread::spawn(move || {
+        while tx
+            .send(AppEvent::External(crate::external::scan(
+                claude.as_deref(),
+                uid,
+            )))
+            .is_ok()
+        {
+            thread::sleep(EXTERNAL_EVERY);
+        }
+    });
     (hooks, listener.ok())
 }
 

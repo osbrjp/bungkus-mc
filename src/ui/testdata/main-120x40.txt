@@ -1,8 +1,8 @@
  bungkus-mc  ~/Works/OSBR › pasar-mobile                                                                         v0.1.0
 ┏ projects ━━━━━━━━━━┓┌ sessions · pasar-mobile ───────────┐┌ output ──────────────────────────────────────────────────┐
 ┃   kedai-web        ┃│ No sessions in pasar-mobile. n to  ││                                                          │
-┃>  pasar-mobile     ┃│ start one. Only sessions started   ││                                                          │
-┃   roti-docs        ┃│ here show up.                      ││                                                          │
+┃>  pasar-mobile     ┃│ start one.                         ││                                                          │
+┃   roti-docs        ┃│                                    ││                                                          │
 ┃   teh-cli          ┃│                                    ││                                                          │
 ┃   warung-api       ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │
