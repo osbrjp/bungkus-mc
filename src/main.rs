@@ -170,6 +170,7 @@ fn main() -> Result<()> {
     let mut model = Model::new(theme, home.clone(), found, fallback);
     model.message = message;
     model.keep.clone_from(&config.cleanup.keep);
+    model.widths = config.panes;
     if let Some(text) = &config.interact_exit {
         match term::keys::Chord::parse(text) {
             Some(chord) => model.exit_chord = chord,

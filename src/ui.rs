@@ -37,10 +37,53 @@ const MIN_SIZE: (u16, u16) = (80, 24);
 /// Width from which the three panes sit side by side (DESIGN §4).
 const THREE_PANE_WIDTH: u16 = 100;
 
-/// Outer widths of the projects and sessions panes; output takes the rest.
-const PROJECTS_WIDTH: u16 = 22;
-/// See [`PROJECTS_WIDTH`].
-const SESSIONS_WIDTH: u16 = 38;
+/// Smallest and largest outer width of the projects pane (DESIGN §4).
+pub(crate) const PROJECTS_RANGE: (u16, u16) = (16, 40);
+/// Smallest and largest outer width of the sessions pane (DESIGN §4).
+pub(crate) const SESSIONS_RANGE: (u16, u16) = (28, 72);
+/// Columns the output pane always keeps in the three-pane layout.
+const OUTPUT_MIN: u16 = 40;
+
+/// Outer widths of the projects and sessions panes, dragged by their
+/// right borders and saved as `panes` in `config.json`; the output pane
+/// takes the rest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(default)]
+pub(crate) struct Widths {
+    /// The projects pane.
+    pub projects: u16,
+    /// The sessions pane.
+    pub sessions: u16,
+}
+
+impl Default for Widths {
+    fn default() -> Self {
+        Self {
+            projects: 22,
+            sessions: 38,
+        }
+    }
+}
+
+impl Widths {
+    /// Returns the widths clamped to [`PROJECTS_RANGE`] and
+    /// [`SESSIONS_RANGE`], then narrowed (sessions first) so the output
+    /// pane keeps [`OUTPUT_MIN`] of a body `width` columns wide.
+    #[must_use]
+    pub(crate) fn fit(self, width: u16) -> Self {
+        let room = width.saturating_sub(OUTPUT_MIN);
+        let projects = self.projects.clamp(PROJECTS_RANGE.0, PROJECTS_RANGE.1);
+        let sessions = self
+            .sessions
+            .clamp(SESSIONS_RANGE.0, SESSIONS_RANGE.1)
+            .min(room.saturating_sub(projects))
+            .max(SESSIONS_RANGE.0);
+        let projects = projects
+            .min(room.saturating_sub(sessions))
+            .max(PROJECTS_RANGE.0);
+        Self { projects, sessions }
+    }
+}
 
 /// Session counts across every project, for the header and the title.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -94,7 +137,7 @@ pub(crate) struct Panes {
 /// the focused pane (the single-pane stack); `zoom` gives the body to the
 /// output pane. The header and getah bar take one line each.
 #[must_use]
-pub(crate) fn panes(area: Rect, focus: Focus, zoom: bool) -> Panes {
+pub(crate) fn panes(area: Rect, focus: Focus, zoom: bool, widths: Widths) -> Panes {
     let [_, body, _] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Fill(1),
@@ -112,9 +155,10 @@ pub(crate) fn panes(area: Rect, focus: Focus, zoom: bool) -> Panes {
     if area.width < THREE_PANE_WIDTH {
         return only(focus);
     }
+    let widths = widths.fit(body.width);
     let [projects, sessions, output] = Layout::horizontal([
-        Constraint::Length(PROJECTS_WIDTH),
-        Constraint::Length(SESSIONS_WIDTH),
+        Constraint::Length(widths.projects),
+        Constraint::Length(widths.sessions),
         Constraint::Fill(1),
     ])
     .areas(body);
@@ -128,8 +172,10 @@ pub(crate) fn panes(area: Rect, focus: Focus, zoom: bool) -> Panes {
 /// Returns the output pane's inner size, which every session's PTY has
 /// (the size the pane has whenever it is shown).
 #[must_use]
-pub(crate) fn output_size(area: Rect, zoom: bool) -> Size {
-    let pane = panes(area, Focus::Output, zoom).output.unwrap_or(area);
+pub(crate) fn output_size(area: Rect, zoom: bool, widths: Widths) -> Size {
+    let pane = panes(area, Focus::Output, zoom, widths)
+        .output
+        .unwrap_or(area);
     Size {
         cols: pane.width.saturating_sub(2).max(1),
         rows: pane.height.saturating_sub(2).max(1),
@@ -167,7 +213,7 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
     ])
     .areas(area);
     model.list_rows = usize::from(area.height.saturating_sub(5));
-    let layout = panes(area, model.focus, model.zoom);
+    let layout = panes(area, model.focus, model.zoom, model.widths);
     draw_header(
         frame,
         header,
@@ -847,5 +893,69 @@ pub(crate) mod tests {
             "mc's own session is not listed twice"
         );
         assert!(!screen.contains("other project"), "{screen}");
+    }
+
+    #[test]
+    fn pane_widths_stay_in_range_and_leave_the_output_room() {
+        let w = |projects, sessions| Widths { projects, sessions };
+        let cases = [
+            (w(22, 38), 120, w(22, 38), "defaults fit"),
+            (w(5, 5), 200, w(16, 28), "minimums"),
+            (w(90, 90), 300, w(40, 72), "caps"),
+            (w(40, 72), 120, w(40, 40), "sessions give way to output"),
+            (w(40, 72), 100, w(32, 28), "then projects"),
+        ];
+        for (asked, width, want, why) in cases {
+            assert_eq!(asked.fit(width), want, "{why}");
+        }
+    }
+
+    #[test]
+    fn dragging_a_border_resizes_the_pane_and_saves_on_release() {
+        use ratatui::crossterm::event::{
+            Event, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+        };
+
+        use crate::app::AppEvent;
+        use crate::app::model::Cmd;
+
+        let mut model = sample(PROJECTS);
+        let mouse = |kind, column| {
+            AppEvent::Input(Event::Mouse(MouseEvent {
+                kind,
+                column,
+                row: 10,
+                modifiers: KeyModifiers::NONE,
+            }))
+        };
+        assert!(
+            model
+                .update(mouse(MouseEventKind::Down(MouseButton::Left), 21))
+                .is_none()
+        );
+        model.update(mouse(MouseEventKind::Drag(MouseButton::Left), 29));
+        model.update(mouse(MouseEventKind::Drag(MouseButton::Left), 1));
+        assert_eq!(model.widths.projects, 16, "held at the minimum");
+        model.update(mouse(MouseEventKind::Drag(MouseButton::Left), 29));
+        let saved = model.update(mouse(MouseEventKind::Up(MouseButton::Left), 29));
+        let want = Widths {
+            projects: 30,
+            sessions: 38,
+        };
+        assert!(
+            matches!(saved, Some(Cmd::SaveWidths(w)) if w == want),
+            "{saved:?}"
+        );
+        let screen = render(&mut model, 120, 40);
+        assert!(
+            screen
+                .lines()
+                .nth(1)
+                .unwrap()
+                .starts_with("┏ projects ━━━━━━━━━━━━━━━━━━┓"),
+            "{screen}"
+        );
+        model.update(mouse(MouseEventKind::Drag(MouseButton::Left), 60));
+        assert_eq!(model.widths, want, "no drag without a press on a border");
     }
 }

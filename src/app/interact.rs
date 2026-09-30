@@ -5,17 +5,30 @@
 //! exit chord and `ctrl-z`. The mouse focuses panes, scrolls mc's
 //! scrollback, and is forwarded when the agent turned mouse reporting on.
 
+use std::ops::ControlFlow;
+
 use alacritty_terminal::grid::Scroll;
 use alacritty_terminal::term::TermMode;
-use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
+use ratatui::crossterm::event::{
+    KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::layout::{Position, Rect};
 
-use crate::app::model::{Focus, Model};
+use crate::app::model::{Cmd, Focus, Model};
 use crate::term::keys;
 use crate::ui;
 
 /// Lines scrolled per mouse wheel notch (ARCHITECTURE §4.1).
 const WHEEL_LINES: i32 = 3;
+
+/// A pane border the mouse can drag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Divider {
+    /// Between projects and sessions (the projects width).
+    Projects,
+    /// Between sessions and output (the sessions width).
+    Sessions,
+}
 
 impl Model {
     /// Handles a key in INTERACT: the exit chord returns to the sessions
@@ -54,17 +67,21 @@ impl Model {
         }
     }
 
-    /// Handles a mouse event: clicks focus panes, the wheel scrolls, and
+    /// Handles a mouse event: a pane's right border drags to resize it
+    /// (saved on release), clicks focus panes, the wheel scrolls, and
     /// events inside the output pane go to an agent that asked for them.
-    pub(super) fn mouse(&mut self, event: MouseEvent) {
+    pub(super) fn mouse(&mut self, event: MouseEvent) -> Option<Cmd> {
         if self.overlay.is_some() {
-            return;
+            return None;
         }
         let at = Position::new(event.column, event.row);
-        let panes = ui::panes(self.screen, self.focus, self.zoom);
+        let panes = ui::panes(self.screen, self.focus, self.zoom, self.widths);
+        if let ControlFlow::Break(cmd) = self.drag_border(event, &panes) {
+            return cmd;
+        }
         let inside = |r: Option<Rect>| r.is_some_and(|r| r.contains(at));
         if inside(panes.output) && self.forward_mouse(event, panes.output) {
-            return;
+            return None;
         }
         match event.kind {
             MouseEventKind::Down(_) if inside(panes.projects) => self.focus = Focus::Projects,
@@ -76,6 +93,58 @@ impl Model {
             MouseEventKind::ScrollUp if inside(panes.output) => self.scroll(WHEEL_LINES),
             MouseEventKind::ScrollDown if inside(panes.output) => self.scroll(-WHEEL_LINES),
             _ => {}
+        }
+        None
+    }
+
+    /// Starts, follows or ends a border drag; breaks with the command to
+    /// run when the event was part of one.
+    ///
+    /// A press on the right border of the projects or sessions pane (the
+    /// column where two panes meet) starts it; the pane's width follows the
+    /// pointer within [`ui::Widths::fit`]; the release saves the widths.
+    fn drag_border(&mut self, event: MouseEvent, panes: &ui::Panes) -> ControlFlow<Option<Cmd>> {
+        let (Some(projects), Some(sessions)) = (panes.projects, panes.sessions) else {
+            return ControlFlow::Continue(());
+        };
+        let body = projects.y..projects.bottom();
+        let on = |pane: Rect| {
+            body.contains(&event.row)
+                && (event.column + 1 == pane.right() || event.column == pane.right())
+        };
+        match (event.kind, self.drag) {
+            (MouseEventKind::Down(MouseButton::Left), _) => {
+                self.drag = if on(projects) {
+                    Some(Divider::Projects)
+                } else if on(sessions) {
+                    Some(Divider::Sessions)
+                } else {
+                    None
+                };
+                match self.drag {
+                    Some(_) => ControlFlow::Break(None),
+                    None => ControlFlow::Continue(()),
+                }
+            }
+            (MouseEventKind::Drag(MouseButton::Left), Some(divider)) => {
+                let width = self.screen.width;
+                let mut widths = self.widths.fit(width);
+                match divider {
+                    Divider::Projects => {
+                        widths.projects = (event.column + 1).saturating_sub(projects.x);
+                    }
+                    Divider::Sessions => {
+                        widths.sessions = (event.column + 1).saturating_sub(sessions.x);
+                    }
+                }
+                self.widths = widths.fit(width);
+                ControlFlow::Break(None)
+            }
+            (MouseEventKind::Up(_), Some(_)) => {
+                self.drag = None;
+                ControlFlow::Break(Some(Cmd::SaveWidths(self.widths)))
+            }
+            _ => ControlFlow::Continue(()),
         }
     }
 

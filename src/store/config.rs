@@ -1,9 +1,9 @@
 //! `config.json`: reading the user's settings and writing back the three
-//! the settings screen changes.
+//! the settings screen changes and the dragged pane widths.
 //!
-//! mc writes only the keys the settings screen owns (`workspace`, `theme`,
-//! `defaultAgent`) and keeps every other key, and the key order, exactly
-//! as the user wrote it (ARCHITECTURE §7).
+//! mc writes only the keys it owns (`workspace`, `theme`, `defaultAgent`,
+//! `panes`) and keeps every other key, and the key order, exactly as the
+//! user wrote it (ARCHITECTURE §7).
 
 use std::path::{Path, PathBuf};
 
@@ -39,6 +39,8 @@ pub(crate) struct Config {
     pub icons: crate::ui::icons::IconSet,
     /// Whether spinners and the mascot move.
     pub motion: bool,
+    /// Outer widths of the projects and sessions panes.
+    pub panes: crate::ui::Widths,
 }
 
 /// The `cleanup` config block.
@@ -76,6 +78,7 @@ impl Default for Config {
             cleanup: Cleanup::default(),
             icons: crate::ui::icons::IconSet::default(),
             motion: true,
+            panes: crate::ui::Widths::default(),
         }
     }
 }
@@ -160,6 +163,43 @@ pub(crate) fn load(path: &Path) -> Result<Config, ConfigError> {
 ///   file is not a JSON object; it is left untouched rather than replaced.
 /// * [`ConfigError::Io`] - reading or the atomic write failed.
 pub(crate) fn save(path: &Path, settings: &Settings) -> Result<(), ConfigError> {
+    edit(path, |root| {
+        root.insert(
+            "workspace".into(),
+            settings.workspace.to_string_lossy().into(),
+        );
+        root.insert("theme".into(), serde_json::to_value(settings.theme)?);
+        root.insert(
+            "defaultAgent".into(),
+            serde_json::to_value(settings.default_agent)?,
+        );
+        Ok(())
+    })
+}
+
+/// Writes the dragged pane widths into `config.json` as `panes`, keeping
+/// every other key and the key order.
+///
+/// # Errors
+///
+/// As [`save`].
+pub(crate) fn save_widths(path: &Path, widths: crate::ui::Widths) -> Result<(), ConfigError> {
+    edit(path, |root| {
+        root.insert("panes".into(), serde_json::to_value(widths)?);
+        Ok(())
+    })
+}
+
+/// Reads `config.json` as an object (a missing file is empty), lets `f`
+/// change it, and writes it back atomically.
+///
+/// # Errors
+///
+/// As [`save`], plus whatever `f` returns.
+fn edit(
+    path: &Path,
+    f: impl FnOnce(&mut Map<String, Value>) -> Result<(), ConfigError>,
+) -> Result<(), ConfigError> {
     let mut root = match std::fs::read(path) {
         Ok(bytes) => match serde_json::from_slice(&bytes)? {
             Value::Object(map) => map,
@@ -168,15 +208,7 @@ pub(crate) fn save(path: &Path, settings: &Settings) -> Result<(), ConfigError> 
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Map::new(),
         Err(e) => return Err(e.into()),
     };
-    root.insert(
-        "workspace".into(),
-        settings.workspace.to_string_lossy().into(),
-    );
-    root.insert("theme".into(), serde_json::to_value(settings.theme)?);
-    root.insert(
-        "defaultAgent".into(),
-        serde_json::to_value(settings.default_agent)?,
-    );
+    f(&mut root)?;
     let mut bytes = serde_json::to_vec_pretty(&Value::Object(root))?;
     bytes.push(b'\n');
     crate::store::write_atomic(path, &bytes)?;
@@ -276,6 +308,30 @@ mod tests {
         assert!(
             text.contains(r#""command": "codex""#),
             "nested unknown keys survive"
+        );
+    }
+
+    #[test]
+    fn saves_pane_widths_next_to_the_other_keys() {
+        let path = temp("panes");
+        std::fs::write(&path, r#"{"zeta":1,"panes":{"projects":20}}"#).unwrap();
+        let widths = crate::ui::Widths {
+            projects: 30,
+            sessions: 50,
+        };
+        save_widths(&path, widths).unwrap();
+        let config = load(&path).unwrap();
+        assert_eq!(config.panes, widths);
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.find("zeta") < text.find("panes"), "{text}");
+        std::fs::write(&path, r#"{"panes":{"sessions":60}}"#).unwrap();
+        assert_eq!(
+            load(&path).unwrap().panes,
+            crate::ui::Widths {
+                projects: 22,
+                sessions: 60
+            },
+            "a missing width is the default"
         );
     }
 
