@@ -7,6 +7,7 @@
 //! deadline (a synchronized update, a stop grace, the 350 ms animation
 //! tick); it never renders on a fixed timer.
 
+pub(crate) mod browser;
 pub(crate) mod form;
 mod interact;
 pub(crate) mod model;

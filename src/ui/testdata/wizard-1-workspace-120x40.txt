@@ -7,8 +7,6 @@
 
 
 
-
-
                                 ▄▄
                               ▄████▄         bungkus-mc  v0.1.0
                              ████████        mission control for AI agents
@@ -18,15 +16,11 @@
                               ▀▀ ▀▀
 
                          workspace   ┃/tmp                                                    ┃
-
-                                     projects = folders with CLAUDE.md, AGENTS.md or .git
-                                     only sessions started here show up in bungkus-mc
-
-
-
-
-
-                                                            enter next · esc skip · ctrl-c quit
+                                     1 project in this folder
+                                       kedai-web/  project
+                                     > notes/
+                                       roti-docs/
+                                       Works/
 
 
 
@@ -34,8 +28,14 @@
 
 
 
+                                            ↑↓ pick · → open · ← up · enter use this · esc skip
 
 
 
 
-cursor: 42,19
+
+
+
+
+
+cursor: 42,17

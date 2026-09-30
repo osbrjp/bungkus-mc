@@ -15,7 +15,7 @@ use crate::ui::{bold_if, centred, dialog};
 /// Width of the wizard's content column.
 const WIZARD_WIDTH: u16 = 70;
 /// Height of the wizard's content column.
-const WIZARD_HEIGHT: u16 = 18;
+const WIZARD_HEIGHT: u16 = 22;
 /// Column where field values start, after the label.
 const LABEL_WIDTH: u16 = 12;
 
@@ -36,12 +36,11 @@ pub(super) fn draw_wizard(
     host_light: Option<bool>,
 ) {
     let box_area = centred(area, WIZARD_WIDTH.min(area.width), WIZARD_HEIGHT);
-    let [top, _, body, error, _, hint] = Layout::vertical([
+    let [top, _, body, error, hint] = Layout::vertical([
         Constraint::Length(mascot::HEIGHT),
         Constraint::Length(1),
-        Constraint::Length(5),
-        Constraint::Length(1),
         Constraint::Fill(1),
+        Constraint::Length(1),
         Constraint::Length(1),
     ])
     .areas(box_area);
@@ -54,34 +53,20 @@ pub(super) fn draw_wizard(
     frame.render_widget(Mascot::idle(theme), sprite);
     frame.render_widget(Paragraph::new(title_lines(form.field, theme)), title);
 
-    let rows = if form.field == Field::Workspace {
+    if form.field == Field::Workspace {
         text_row(frame, body, form, theme, true);
-        vec![
-            Line::from(""),
-            indent(
-                "projects = folders with CLAUDE.md, AGENTS.md or .git",
-                theme.fg(Token::FgMuted),
-            ),
-            indent(
-                "only sessions started here show up in bungkus-mc",
-                theme.fg(Token::FgMuted),
-            ),
-        ]
-    } else {
-        step_rows(form, theme, host_light)
-    };
-    let rows_area = if form.field == Field::Workspace {
-        Rect {
+        let list = Rect {
             y: body.y + 1,
+            height: body.height.saturating_sub(1),
             ..body
-        }
+        };
+        draw_browser(frame, list, form, theme);
     } else {
-        body
-    };
-    frame.render_widget(Paragraph::new(rows), rows_area);
+        frame.render_widget(Paragraph::new(step_rows(form, theme, host_light)), body);
+    }
     draw_error(frame, error, form, theme);
     let hints = match form.field {
-        Field::Workspace => "enter next · esc skip · ctrl-c quit",
+        Field::Workspace => "↑↓ pick · → open · ← up · enter use this · esc skip",
         Field::Agent | Field::Theme => "← → choose · enter next · esc back",
         Field::Done => "enter start · esc back",
     };
@@ -158,14 +143,17 @@ pub(super) fn draw_settings(
     theme: Theme,
     host_light: Option<bool>,
 ) {
-    let rect = centred(area, 66, 12);
+    let browsing = form.field == Field::Workspace;
+    let list_rows = if browsing { 9 } else { 0 };
+    let rect = centred(area, 66, 12 + list_rows);
     frame.render_widget(Clear, rect);
     let block = dialog("settings", theme);
     let inner = block.inner(rect);
     frame.render_widget(block, rect);
-    let [_, workspace, agent, theme_row, note, error, _, hint] = Layout::vertical([
+    let [_, workspace, list, agent, theme_row, note, error, _, hint] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),
+        Constraint::Length(list_rows),
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Length(1),
@@ -184,6 +172,9 @@ pub(super) fn draw_settings(
         theme,
         form.field == Field::Workspace,
     );
+    if browsing {
+        draw_browser(frame, shift(list), form, theme);
+    }
     frame.render_widget(focused_row(agent, Field::Agent), agent);
     frame.render_widget(
         label_line(
@@ -211,12 +202,65 @@ pub(super) fn draw_settings(
     draw_error(frame, shift(error), form, theme);
     frame.render_widget(
         Line::styled(
-            "↑ ↓ field · ← → change · enter save · esc cancel ",
+            if browsing {
+                "tab field · ↑↓ pick · → open · ← up · enter save · esc cancel "
+            } else {
+                "tab ↑↓ field · ← → change · enter save · esc cancel "
+            },
             theme.fg(Token::FgMuted),
         )
         .alignment(Alignment::Right),
         hint,
     );
+}
+
+/// Draws the folder browser under the workspace field: a line saying how
+/// many projects the folder holds, then its subfolders with the highlight
+/// marked and projects labelled, scrolled to keep the highlight in view.
+fn draw_browser(frame: &mut Frame, area: Rect, form: &Form, theme: Theme) {
+    let b = &form.browser;
+    let here = match b.projects() {
+        0 => "no projects directly in this folder".to_owned(),
+        1 => "1 project in this folder".to_owned(),
+        n => format!("{n} projects in this folder"),
+    };
+    let token = if b.projects() > 0 {
+        Token::Ok
+    } else {
+        Token::FgMuted
+    };
+    let mut lines = vec![indent(&here, theme.fg(token))];
+    let rows = usize::from(area.height.saturating_sub(1));
+    let start = (b.selected + 1).saturating_sub(rows);
+    let width = usize::from(area.width).saturating_sub(usize::from(LABEL_WIDTH) + 12);
+    for (i, entry) in b.entries.iter().enumerate().skip(start).take(rows) {
+        let chosen = i == b.selected;
+        let marker = if chosen { "> " } else { "  " };
+        let style = if chosen {
+            bold_if(theme.fg(Token::Accent), true)
+        } else {
+            theme.fg(Token::Fg)
+        };
+        let mut spans = vec![
+            Span::raw(" ".repeat(usize::from(LABEL_WIDTH))),
+            Span::styled(marker, theme.fg(Token::Ok)),
+            Span::styled(
+                format!("{}/", crate::ui::sanitise::truncate(&entry.name, width)),
+                style,
+            ),
+        ];
+        if entry.project {
+            spans.push(Span::styled("  project", theme.fg(Token::FgMuted)));
+        }
+        lines.push(Line::from(spans));
+    }
+    if b.entries.is_empty() {
+        lines.push(indent(
+            "(no folders here — ← to go up)",
+            theme.fg(Token::FgMuted),
+        ));
+    }
+    frame.render_widget(Paragraph::new(lines), area);
 }
 
 /// Returns the one-cell focus marker line for a settings row.
@@ -387,8 +431,14 @@ mod tests {
         let mut model = sample(&["kedai-web"]);
         model.settings = None;
         model.start_wizard("~/Works/OSBR");
+        let fixture = std::env::temp_dir().join(format!("mc-wizard-{}", std::process::id()));
+        for dir in ["Works/OSBR", "kedai-web/.git", "notes", "roti-docs"] {
+            std::fs::create_dir_all(fixture.join(dir)).unwrap();
+        }
         if let Some(crate::app::model::Overlay::Form(form)) = &mut model.overlay {
             "/tmp".clone_into(&mut form.workspace);
+            form.browser = crate::app::browser::Browser::open(&fixture);
+            form.browser.step(1);
         }
         for (step, name) in ["workspace", "agent", "theme", "done"].iter().enumerate() {
             assert_golden(
@@ -404,6 +454,30 @@ mod tests {
             key(&mut model, KeyCode::Enter);
         }
         assert!(model.overlay.is_none(), "enter on the summary submits");
+        std::fs::remove_dir_all(&fixture).unwrap();
+    }
+
+    #[test]
+    fn the_browser_walks_folders_and_fills_the_field() {
+        let root = std::env::temp_dir().join(format!("mc-walk-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("Works/OSBR/kedai-web/.git")).unwrap();
+        let mut model = sample(&[]);
+        model.settings = None;
+        model.start_wizard(&root.to_string_lossy());
+        let form = |m: &crate::app::model::Model| match &m.overlay {
+            Some(crate::app::model::Overlay::Form(f)) => f.clone(),
+            _ => panic!("wizard"),
+        };
+        assert_eq!(form(&model).browser.dir, root);
+        key(&mut model, KeyCode::Right);
+        assert_eq!(form(&model).browser.dir, root.join("Works"));
+        key(&mut model, KeyCode::Right);
+        let f = form(&model);
+        assert_eq!(f.workspace, root.join("Works/OSBR").to_string_lossy());
+        assert_eq!(f.browser.projects(), 1, "kedai-web is a project");
+        key(&mut model, KeyCode::Left);
+        assert_eq!(form(&model).browser.dir, root.join("Works"));
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]

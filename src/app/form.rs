@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::agent::Kind;
+use crate::app::browser::Browser;
 use crate::store::config::{Settings, expand, tilde};
 use crate::ui::theme::ThemeChoice;
 
@@ -69,6 +70,8 @@ pub(crate) struct Form {
     fallback: PathBuf,
     /// For `~` expansion.
     home: Option<PathBuf>,
+    /// The folder list under the workspace field.
+    pub browser: Browser,
 }
 
 impl Form {
@@ -104,7 +107,9 @@ impl Form {
             error: None,
             fallback,
             home,
+            browser: Browser::open(Path::new("/")),
         };
+        form.sync_browser();
         if !form.selectable(form.agent) {
             form.agent = form.cycle_agent();
         }
@@ -114,17 +119,23 @@ impl Form {
     /// Handles one key press.
     ///
     /// `ctrl-c` quits from anywhere. The workspace field takes typing,
-    /// `backspace` and `ctrl-u`; the choices move with `←`/`→` (and `h`/`l`).
-    /// In the wizard `enter` goes to the next step and `esc` back, and
-    /// `esc` on the first step skips the wizard with defaults; on the
-    /// settings screen `↑`/`↓`/`tab` move between fields, `enter` saves
-    /// and `esc` cancels.
+    /// `backspace` and `ctrl-u`, and drives the folder browser with the
+    /// arrows; the choices move with `←`/`→` (and `h`/`l`). In the wizard
+    /// `enter` goes to the next step and `esc` back, and `esc` on the first
+    /// step skips the wizard with defaults; on the settings screen
+    /// `tab`/`shift-tab` (and `↑`/`↓` off the workspace field) move between
+    /// fields, `enter` saves and `esc` cancels.
     pub(crate) fn key(&mut self, key: KeyEvent) -> Outcome {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         if ctrl && key.code == KeyCode::Char('c') {
             return Outcome::Quit;
         }
         if self.field == Field::Workspace && self.edit_text(key) {
+            self.error = None;
+            self.sync_browser();
+            return Outcome::Continue;
+        }
+        if self.field == Field::Workspace && self.browse_key(key) {
             self.error = None;
             return Outcome::Continue;
         }
@@ -140,6 +151,58 @@ impl Form {
             _ => {}
         }
         Outcome::Continue
+    }
+
+    /// Returns the folder the field points at: the typed folder when it
+    /// exists, else the nearest existing parent, else the home folder.
+    fn browsed_dir(&self) -> PathBuf {
+        let typed = expand(self.workspace.trim(), self.home.as_deref());
+        let home = self.home.clone().unwrap_or_else(|| PathBuf::from("/"));
+        typed
+            .as_deref()
+            .and_then(|p| {
+                p.ancestors()
+                    .find(|a| std::fs::metadata(a).is_ok_and(|m| m.is_dir()))
+            })
+            .map_or(home, Path::to_path_buf)
+    }
+
+    /// Sets the workspace text and lists the folder it points at.
+    pub(crate) fn set_workspace(&mut self, text: &str) {
+        text.clone_into(&mut self.workspace);
+        self.sync_browser();
+    }
+
+    /// Re-lists the browser when the field points at another folder.
+    fn sync_browser(&mut self) {
+        let dir = self.browsed_dir();
+        if self.browser.dir != dir {
+            self.browser = Browser::open(&dir);
+        }
+    }
+
+    /// Applies a browser key: `↑`/`↓` move the highlight, `→` opens the
+    /// highlighted folder, `←` goes to the parent (the field follows).
+    /// Returns whether the key was one.
+    fn browse_key(&mut self, key: KeyEvent) -> bool {
+        let target = match key.code {
+            KeyCode::Up => {
+                self.browser.step(-1);
+                return true;
+            }
+            KeyCode::Down => {
+                self.browser.step(1);
+                return true;
+            }
+            KeyCode::Right => self.browser.highlighted().map(Path::to_path_buf),
+            KeyCode::Left => self.browser.dir.parent().map(Path::to_path_buf),
+            _ => return false,
+        };
+        if let Some(dir) = target {
+            self.workspace = tilde(&dir, self.home.as_deref());
+            self.sync_browser();
+        }
+        true
     }
 
     /// Applies a text-editing key to the workspace field; returns whether
@@ -387,8 +450,8 @@ mod tests {
             PathBuf::new(),
             None,
         );
-        form.key(press(KeyCode::Down));
-        form.key(press(KeyCode::Down));
+        form.key(press(KeyCode::Tab));
+        form.key(press(KeyCode::Tab));
         assert_eq!(form.field, Field::Theme);
         form.key(press(KeyCode::Right));
         assert_eq!(form.theme, ThemeChoice::Auto);

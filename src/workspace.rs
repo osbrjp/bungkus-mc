@@ -37,11 +37,7 @@ pub(crate) fn scan(workspace: &Path) -> std::io::Result<Vec<Project>> {
             let raw = entry.file_name();
             let path = workspace.join(&raw);
             let visible = !raw.to_string_lossy().starts_with('.');
-            let is_project = visible
-                && std::fs::metadata(&path).is_ok_and(|m| m.is_dir())
-                && MARKERS
-                    .iter()
-                    .any(|m| std::fs::metadata(path.join(m)).is_ok());
+            let is_project = visible && is_project(&path);
             is_project.then(|| Project {
                 name: sanitise(&raw.to_string_lossy(), NAME_MAX),
                 path,
@@ -50,6 +46,16 @@ pub(crate) fn scan(workspace: &Path) -> std::io::Result<Vec<Project>> {
         .collect();
     projects.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(projects)
+}
+
+/// Returns whether `path` is a project folder: a directory holding
+/// `CLAUDE.md`, `AGENTS.md` or `.git` (symlinks followed).
+#[must_use]
+pub(crate) fn is_project(path: &Path) -> bool {
+    std::fs::metadata(path).is_ok_and(|m| m.is_dir())
+        && MARKERS
+            .iter()
+            .any(|m| std::fs::metadata(path.join(m)).is_ok())
 }
 
 #[cfg(test)]

@@ -348,7 +348,7 @@ impl Model {
     pub(crate) fn start_wizard(&mut self, prefill: &str) {
         self.open_form(FormKind::Wizard, Field::Workspace);
         if let Some(Overlay::Form(form)) = &mut self.overlay {
-            prefill.clone_into(&mut form.workspace);
+            form.set_workspace(prefill);
         }
     }
 

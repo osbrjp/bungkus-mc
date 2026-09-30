@@ -840,10 +840,13 @@ itself: the **workspace**, the **default agent** and the **theme**.
 **First run** (no workspace on the command line or in `config.json`): a
 four-step wizard, full screen, the static mascot beside the product name on
 every step. `enter` goes on, `esc` goes back, and `esc` on the first step
-**skips the wizard with defaults** (the prefilled folder, else the current
-directory; the installed agent; `auto` theme). The workspace field is
-prefilled with the parent of the git repository mc was started in, if any,
-and that project is then preselected. The agent step lists both agents
+**skips the wizard with defaults**. The workspace field is prefilled with
+**`~/Documents`** (else the parent of the git repository mc was started in,
+else the current folder). Under the field a **folder browser** lists the
+folder's subfolders like a file picker (dot-folders hidden): `↑`/`↓` move
+the highlight, `→` opens the highlighted folder and `←` goes up (the field
+follows), typing a path re-lists it, and a line says how many projects the
+folder holds, with each project marked. The agent step lists both agents
 with where they were found; only installed agents can be chosen (both, if
 neither is installed). The theme step **previews live**: the whole screen
 repaints in the chosen theme, with a sample of the state colours. Finishing
@@ -861,15 +864,19 @@ Generated from the goldens in `src/ui/testdata/` (80×24, `NO_COLOR`):
           ▀▀ ▀▀
 
      workspace   ┃/tmp                                                    ┃
+                 1 project in this folder
+                   kedai-web/  project
+                 > notes/
+                   roti-docs/
+                   Works/
 
-                 projects = folders with CLAUDE.md, AGENTS.md or .git
-                 only sessions started here show up in bungkus-mc
 
 
 
 
 
-                                        enter next · esc skip · ctrl-c quit
+
+                        ↑↓ pick · → open · ← up · enter use this · esc skip
 ```
 
 ```
@@ -936,9 +943,11 @@ Generated from the goldens in `src/ui/testdata/` (80×24, `NO_COLOR`):
 ```
 
 **Settings screen** — `,` in NORMAL (and `w`, which opens it on the
-workspace field). A dialog with all three fields; `↑`/`↓`/`tab` move between
-them, `←`/`→` change a choice, typing edits the workspace, `enter` saves and
-rescans, `esc` cancels and reverts the theme preview. Never reachable from
+workspace field). A dialog with all three fields; `tab`/`shift-tab` (and
+`↑`/`↓` off the workspace field) move between them, `←`/`→` change a
+choice, and on the workspace field the same folder browser opens under it
+(`↑`/`↓` pick, `→` open, `←` up); `enter` saves and rescans, `esc` cancels
+and reverts the theme preview. Never reachable from
 INTERACT: every key there goes to the agent.
 
 ```
