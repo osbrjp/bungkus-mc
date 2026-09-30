@@ -375,7 +375,64 @@ fn draw_getah(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
         Span::styled(mode, theme.badge(token)),
         Span::styled(format!(" {text}"), theme.fg(Token::FgMuted)),
     ]);
+    let left = line.width();
     frame.render_widget(line, area);
+    let limits = Line::from(limit_spans(model, theme, area.width >= THREE_PANE_WIDTH));
+    if left + limits.width() + 2 <= usize::from(area.width) {
+        frame.render_widget(limits.alignment(Alignment::Right), area);
+    }
+}
+
+/// Returns the plan limits for the getah bar's right end (DESIGN §6.1):
+/// `C 5h 42% · 7d 18% · X 5h 10% · 7d 3%`, with 5-cell bars when only one
+/// vendor reported, only the 5-hour figure when narrow; `warn` from 80 %,
+/// `err` from 95 %, `fg-muted` once a window's reset time has passed.
+fn limit_spans(model: &Model, theme: Theme, wide: bool) -> Vec<Span<'static>> {
+    let vendors: Vec<(char, &Vec<crate::agent::usage::Window>)> = crate::agent::Kind::ALL
+        .iter()
+        .map(|k| (k.badge(), &model.limits[*k as usize]))
+        .filter(|(_, w)| !w.is_empty())
+        .collect();
+    let bars = vendors.len() == 1 && wide;
+    let mut spans = Vec::new();
+    for (v, (badge, windows)) in vendors.iter().enumerate() {
+        if v > 0 {
+            spans.push(Span::styled(" · ", theme.fg(Token::FgMuted)));
+        }
+        spans.push(Span::styled(format!("{badge} "), theme.fg(Token::Accent)));
+        let shown = windows.iter().filter(|w| wide || w.label == "5h");
+        for (i, w) in shown.enumerate() {
+            let stale = w.resets_at.is_some_and(|at| at < model.unix_now);
+            let token = match w.used_pct {
+                _ if stale => Token::FgMuted,
+                p if p >= 95.0 => Token::Err,
+                p if p >= 80.0 => Token::Warn,
+                _ => Token::Fg,
+            };
+            if i > 0 {
+                spans.push(Span::styled(" · ", theme.fg(Token::FgMuted)));
+            }
+            let label = if wide {
+                format!("{} ", w.label)
+            } else {
+                String::new()
+            };
+            let bar = if bars {
+                let filled = (0..5).filter(|n| f64::from(*n) * 20.0 < w.used_pct).count();
+                format!("{}{} ", "#".repeat(filled), "-".repeat(5 - filled))
+            } else {
+                String::new()
+            };
+            spans.push(Span::styled(
+                format!("{label}{bar}{:.0}%", w.used_pct),
+                theme.fg(token),
+            ));
+        }
+    }
+    if !spans.is_empty() {
+        spans.push(Span::raw(" "));
+    }
+    spans
 }
 
 /// Returns a pane: heavy `ok` border when focused, light `border`
@@ -556,6 +613,7 @@ pub(crate) mod tests {
         for line in recorded.lines().take(6) {
             model.update(hook_line(a, line));
         }
+        model.update(crate::app::model::tests::usage_line(a));
         model.update(hook_line(
             a,
             r#"{"hook_event_name":"Notification","notification_type":"permission_prompt"}"#,
@@ -565,6 +623,58 @@ pub(crate) mod tests {
         model.focus = Focus::Sessions;
         model.card = 0;
         assert_golden("hooks-120x40.txt", &render(&mut model, 120, 40));
+    }
+
+    #[test]
+    fn limits_render_per_vendor_with_thresholds() {
+        use crate::agent::usage::Window;
+        let w = |label: &str, used_pct: f64, resets_at: u64| Window {
+            label: label.into(),
+            used_pct,
+            resets_at: Some(resets_at),
+        };
+        let mut model = sample(PROJECTS);
+        model.unix_now = 1_000;
+        model.limits[0] = vec![w("5h", 42.0, 2_000), w("7d", 81.0, 2_000)];
+        let line = |m: &Model, wide| {
+            limit_spans(m, m.theme, wide)
+                .iter()
+                .map(|s| s.content.to_string())
+                .collect::<String>()
+        };
+        assert_eq!(
+            line(&model, true),
+            "C 5h ###-- 42% · 7d #####- 81% ".replace("#####-", "#####")
+        );
+        model.limits[1] = vec![w("5h", 10.0, 2_000), w("7d", 3.0, 500)];
+        assert_eq!(line(&model, true), "C 5h 42% · 7d 81% · X 5h 10% · 7d 3% ");
+        assert_eq!(line(&model, false), "C 42% · X 10% ");
+        let theme = Theme::new(
+            theme::ThemeName::Dark,
+            theme::Profile::Ansi256,
+            theme::Background::Paint,
+        );
+        let spans = limit_spans(&model, theme, true);
+        let colour = |text: &str| {
+            spans
+                .iter()
+                .find(|s| s.content.contains(text))
+                .unwrap()
+                .style
+                .fg
+        };
+        assert_eq!(colour("81%"), Some(theme.color(Token::Warn)));
+        assert_eq!(
+            colour("3%"),
+            Some(theme.color(Token::FgMuted)),
+            "stale window is dimmed"
+        );
+        model.limits = [Vec::new(), Vec::new()];
+        assert_eq!(
+            line(&model, true),
+            "",
+            "nothing when no session reported limits"
+        );
     }
 
     #[test]

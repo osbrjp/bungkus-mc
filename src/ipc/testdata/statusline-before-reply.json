@@ -1,0 +1,39 @@
+{
+ "session_id": "8857be58-d6b4-4201-a259-59f07e6cc1da",
+ "transcript_path": "/Users/me/.claude/projects/-Users-me-Works-OSBR-demo-proj/8857be58-d6b4-4201-a259-59f07e6cc1da.jsonl",
+ "cwd": "/Users/me/Works/OSBR/demo-proj",
+ "session_name": "sl-test",
+ "model": {
+  "id": "claude-haiku-4-5-20251001",
+  "display_name": "Haiku 4.5"
+ },
+ "workspace": {
+  "current_dir": "/Users/me/Works/OSBR/demo-proj",
+  "project_dir": "/Users/me/Works/OSBR/demo-proj",
+  "added_dirs": []
+ },
+ "version": "2.1.285",
+ "output_style": {
+  "name": "default"
+ },
+ "cost": {
+  "total_cost_usd": 0,
+  "total_duration_ms": 805,
+  "total_api_duration_ms": 0,
+  "total_lines_added": 0,
+  "total_lines_removed": 0
+ },
+ "context_window": {
+  "total_input_tokens": 0,
+  "total_output_tokens": 0,
+  "context_window_size": 200000,
+  "current_usage": null,
+  "used_percentage": null,
+  "remaining_percentage": null
+ },
+ "exceeds_200k_tokens": false,
+ "fast_mode": false,
+ "thinking": {
+  "enabled": true
+ }
+}

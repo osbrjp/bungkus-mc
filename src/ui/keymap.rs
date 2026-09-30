@@ -243,7 +243,7 @@ pub(crate) const BINDINGS: &[Binding] = &[
         label: "/",
         action: Action::Filter,
         help: "filter",
-        hint: Some("/ filter"),
+        hint: None,
         scope: Scope::Global,
     },
     Binding {
@@ -259,7 +259,7 @@ pub(crate) const BINDINGS: &[Binding] = &[
         label: ",",
         action: Action::Settings,
         help: "settings",
-        hint: Some(", settings"),
+        hint: None,
         scope: Scope::Global,
     },
     Binding {

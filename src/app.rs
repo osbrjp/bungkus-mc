@@ -191,6 +191,9 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<()> {
     let mut next_tick = Instant::now() + TICK;
     loop {
         model.now = Instant::now();
+        model.unix_now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
         resize_sessions(&mut model);
         terminal.draw(|frame| ui::draw(frame, &mut model))?;
         announce(&mut model, env.config.notify, &mut title);
@@ -256,8 +259,14 @@ fn launch(
         kind,
         mut launch,
     } = request;
+    let mut user_line = None;
     if let (Some(hooks), Kind::Claude) = (hooks, kind) {
-        launch.settings = Some(agent::claude::settings(&hooks.exe));
+        let config_dir = std::env::var_os("CLAUDE_CONFIG_DIR").map_or_else(
+            || model.home.clone().unwrap_or_default().join(".claude"),
+            PathBuf::from,
+        );
+        user_line = agent::claude::user_statusline(&project, &config_dir);
+        launch.settings = Some(agent::claude::settings(&hooks.exe, user_line.as_ref()));
     }
     let mut card = Card::new(
         launch.id,
@@ -290,6 +299,9 @@ fn launch(
     let mut extra = vec![("BUNGKUS_MC_SESSION", OsStr::new(&id))];
     if let Some(hooks) = hooks {
         extra.push(("BUNGKUS_MC_SOCK", hooks.socket.as_os_str()));
+    }
+    if let Some(line) = &user_line {
+        extra.push(("BUNGKUS_MC_USER_STATUSLINE", OsStr::new(&line.command)));
     }
     let child = child_env(std::env::vars_os(), &extra);
     if launch.settings.is_some() {

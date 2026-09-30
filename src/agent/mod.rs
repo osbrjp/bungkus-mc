@@ -5,6 +5,7 @@
 //! events.
 
 pub(crate) mod claude;
+pub(crate) mod usage;
 
 use std::ffi::{OsStr, OsString};
 use std::os::unix::fs::PermissionsExt;
