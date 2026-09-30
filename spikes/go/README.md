@@ -20,20 +20,20 @@ dump), `tui.go` (interactive model), `headless.go` (case runner).
   the `ultraviolet` cell/screen types that Bubble Tea v2 uses, so it builds
   against the `ultraviolet` version Bubble Tea v2.0.9 pins with no
   replace directives.
-- Why: same vendor and types as the TUI stack mcc already uses (bungkus-cli),
+- Why: same vendor and types as the TUI stack mc already uses (bungkus-cli),
   `Render()` gives a styled string that drops straight into `tea.View.Content`,
   built-in scrollback (10 000 lines default), and it answers terminal queries
   itself. Rejected alternatives are in `docs/TECH_STACK.md`.
 - `SafeEmulator` (a mutex wrapper shipped with the package) is used because the
   PTY reader goroutine writes while the UI reads.
 
-## Gaps vs what mcc needs
+## Gaps vs what mc needs
 
 | Area | x/vt provides | What we added / would add |
 |------|---------------|---------------------------|
 | Key encoding | Legacy xterm only: C0 ctrl chords, DECCKM-aware arrows, F-keys, keypad, shift+tab, alt as ESC prefix. **No kitty / CSI-u / modifyOtherKeys** (TODO in its source). It also silently drops any key with a modifier it doesn't list, e.g. shift+letter. | `sendKey` (~10 lines): shift+enter → `ESC CR`; any key with `Text` and no ctrl/alt → its UTF-8 (covers shifted chars and IME input); else `SendKey`. Modified arrows/home/end (`CSI 1;m A`) and ctrl+enter are still dropped: ~15 more lines. A kitty encoder for agents that ask for it: ~150 lines. |
 | Scrollback viewport | `Scrollback().Lines()`, `ScrollbackLen()`, each `uv.Line` has `Render()`. No viewport. | Wheel offset + slice of scrollback+screen lines: ~20 lines (`paneContent`). The scrollback read is unlocked (race, marked `ponytail:`); a real build copies lines under the lock. No scrollback on the alt screen (Codex), as expected. |
-| OSC 10/11 | Answers queries, but with its defaults (white on black) unless `SetDefault{Fore,Back}groundColor` is called. | Not done. mcc should request the host colours (`tea.RequestBackgroundColor`) and forward them into every emulator: ~10 lines. `SafeEmulator` doesn't wrap `SetDefault*`, so call them on the embedded `Emulator` before the reader starts or under our own lock. |
+| OSC 10/11 | Answers queries, but with its defaults (white on black) unless `SetDefault{Fore,Back}groundColor` is called. | Not done. mc should request the host colours (`tea.RequestBackgroundColor`) and forward them into every emulator: ~10 lines. `SafeEmulator` doesn't wrap `SetDefault*`, so call them on the embedded `Emulator` before the reader starts or under our own lock. |
 | Wide chars | Correct: wide cells + zero spacer; grapheme clustering; `Line.String()` skips the spacer. | Nothing. Japanese renders and dumps correctly. |
 | Query replies | DSR (CPR), DA, OSC 10/11/12 are answered into an internal `io.Pipe`. `Write` **blocks** until that pipe is read. | One pump goroutine per session, `io.Copy(ptmx, emu)` (1 line). All our input (keys, paste, `SendText`) goes through the same pipe, so the pump is the only PTY writer. Verified: DSR case returns `ESC[1;1R` and doesn't hang. |
 | Mouse | `SendMouse` encodes X10/normal/button/any-event in SGR or X10 format based on the modes the child set. | Not forwarded in the spike (the wheel always scrolls our viewport). Forwarding when the child enabled mouse modes: ~15 lines. |

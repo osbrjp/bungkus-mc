@@ -1,13 +1,13 @@
-# bungkus-mcc
+# bungkus-mc
 
 <p align="center"><img src="docs/assets/mascot.gif" width="160" alt="the bungkus mascot: a green banana-leaf packet with tan paper corners, hopping"></p>
 
 **Status: proposal / pre-development.** This repo holds the design
-documents for review and the M0 foundation spike (`spikes/`). bungkus-mcc
+documents for review and the M0 foundation spike (`spikes/`). bungkus-mc
 is written in **Rust** (decided on the spike's evidence); bungkus-cli
 stays Go.
 
-bungkus-mcc ("mission control") is a terminal panel for running AI coding
+bungkus-mc ("mission control") is a terminal panel for running AI coding
 agents — Claude Code and Codex CLI — across the projects in a workspace.
 Projects on the left, sessions with their subagents and usage (tokens,
 cost, context %) in the middle, the selected agent's live interactive UI
@@ -35,7 +35,7 @@ language.
 ## Build (once code exists)
 
 ```bash
-cargo build --release              # target/release/bungkus-mcc (Rust stable 1.97, pinned)
+cargo build --release              # target/release/bungkus-mc (Rust stable 1.97, pinned)
 cargo run -- ~/Works               # run with a workspace
 cargo fmt --all --check && cargo clippy --all-targets --all-features -- -D warnings \
   && cargo test --all-features && RUSTDOCFLAGS="-D warnings" cargo doc --no-deps \
@@ -45,7 +45,8 @@ cargo fmt --all --check && cargo clippy --all-targets --all-features -- -D warni
 ## Planned install (not yet available)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/osbrjp/bungkus-mcc/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/osbrjp/bungkus-mc/main/install.sh | bash
+bkmc        # short command; same as bungkus-mc
 ```
 
 Notes for later users (from the design):
@@ -54,9 +55,9 @@ Notes for later users (from the design):
   `icons: "unicode"` or `"nerd"` as opt-ins.
 - The right pane talks to the agent whenever it has focus; `ctrl-\` brings
   you back. If tmux's vim-tmux-navigator, VS Code, or a JIS/German keyboard
-  takes that key, set `interactExit` in `~/.config/bungkus/mcc/config.json`
+  takes that key, set `interactExit` in `~/.config/bungkus/mc/config.json`
   (suggested: `ctrl-^`).
-- Only sessions started from bungkus-mcc appear in it. A project is a
+- Only sessions started from bungkus-mc appear in it. A project is a
   folder in the workspace that contains `CLAUDE.md`, `AGENTS.md` or `.git`.
 - Quitting stops the agents and the processes they started (dev servers);
   the quit dialog lists them first and lets you keep any of them

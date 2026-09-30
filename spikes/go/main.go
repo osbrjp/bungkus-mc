@@ -1,4 +1,4 @@
-// Command proto is the M0 Go spike for mcc's embedded terminal pane: two
+// Command proto is the M0 Go spike for mc's embedded terminal pane: two
 // agent sessions (claude, codex) running in PTYs, parsed by charmbracelet/x/vt
 // and shown in a Bubble Tea v2 TUI. With --headless it instead runs one case
 // file for the comparison harness (see spikes/SPEC.md).

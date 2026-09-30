@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**bungkus-mcc** ("mission control") is a **Rust** terminal TUI for people
+**bungkus-mc** ("mission control") is a **Rust** terminal TUI for people
 who run AI coding agents (Claude Code, Codex CLI) in the terminal. One
 screen: projects in a workspace (left), the selected project's agent
 sessions with their subagents and usage figures (middle), the selected
@@ -51,7 +51,7 @@ src/workspace.rs   # project dir scan
 
 - **Rust, not Go** (owner, M0 spike: 12× faster on heavy output, 1.2 MB binary, a maintained emulator crate on crates.io). bungkus-cli stays Go.
 - Live pane = PTY + `alacritty_terminal` advanced on the UI thread (M3 re-times the flood cases; pump-thread fallback); per session a bounded reader thread, a **writer thread** that owns the PTY writer (the UI thread only sends), and a waiter (exit on reader EOF or 500 ms after `wait`); query replies (DSR/DA/OSC 10/11 from the theme, CSI 14 t; 18 t is alacritty's); `kitty_keyboard: true` + our own encoder (`term/keys.rs`) incl. kitty CSI-u toward the agent (M3); sync-update deadline + `stop_sync`; mouse forwarded when the agent enabled it; EIO after child exit ignored. **Focusing the output pane is INTERACT** (full passthrough); `ctrl-\` returns to the sessions pane.
-- Structure = agent hooks → `bungkus-mcc hook` → unix socket. Usage = Claude status line → `bungkus-mcc statusline` (forwards within 200 ms, then runs the user's own status line under `sh`). **Never parse agent transcripts — except `agent/codex_usage.rs`** (`token_count` records only, owner-approved).
+- Structure = agent hooks → `bungkus-mc hook` → unix socket. Usage = Claude status line → `bungkus-mc statusline` (forwards within 200 ms, then runs the user's own status line under `sh`). **Never parse agent transcripts — except `agent/codex_usage.rs`** (`token_count` records only, owner-approved).
 - Render on a dirty flag or the 350 ms animation tick, never on a fixed timer.
 - Child env: `TERM`/`COLORTERM` set; host-terminal identity vars, `TYPESAFE_API_KEY` and the Claude/Codex **session-marker** vars (`CLAUDECODE`, `CLAUDE_CODE_CHILD_SESSION`, …, see ARCHITECTURE §3.1) unset; `CLAUDE_CONFIG_DIR`/`CODEX_HOME` kept.
 - Quit and `x` also stop observed descendants (dev servers): 2 s scan, uid filter, pid + start-time identity (pidfd on Linux), `[stop]/[keep]` dialog with a default-keep list, SIGTERM → 3 s → SIGKILL; never by port; a user stop yields `stopped`.
@@ -65,7 +65,7 @@ src/workspace.rs   # project dir scan
 ## Build, Run, Test
 
 ```bash
-cargo build --release                 # target/release/bungkus-mcc
+cargo build --release                 # target/release/bungkus-mc
 cargo run -- ~/Works                  # TUI with a workspace
 cargo run -- hook < payload.json      # the silent hook subcommand
 UPDATE_GOLDEN=1 cargo test            # regenerate rendering goldens on purpose
@@ -85,7 +85,7 @@ cargo deny check
 
 - Conventional commits (`feat:`, `fix:`, `test:`, `chore:`, `docs:`); semantic-release: `main` = canary, `release` = stable (merge commit, never squash the promotion PR)
 - Branch naming: `i{issue#}-{date}-{seq}` (e.g. `i12-20261007-0930`)
-- GitHub repo: `osbrjp/bungkus-mcc`
+- GitHub repo: `osbrjp/bungkus-mc`; binary `bungkus-mc`, short command `bkmc`
 - Tests in `#[cfg(test)]` modules next to the code, table-driven; recorded hook payloads and `ps` output in `testdata/`; goldens are plain text + cursor at 120×40 and 80×24 with `NO_COLOR=1` and the ascii default
 - Doc comments carry the documentation (skill §2); no agent chatter in comments
-- No shell in `Command` for anything mcc decides; no raw agent bytes to stdout; no secrets persisted; no `unsafe` (see `docs/SECURITY.md`)
+- No shell in `Command` for anything mc decides; no raw agent bytes to stdout; no secrets persisted; no `unsafe` (see `docs/SECURITY.md`)

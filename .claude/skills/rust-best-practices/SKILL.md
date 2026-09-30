@@ -1,9 +1,9 @@
 ---
 name: rust-best-practices
-description: Rules every agent must follow when writing, editing or reviewing Rust in this repo — idiomatic, lint-clean Rust and structured rustdoc comments (JSDoc/Javadoc-style sections). Use for any .rs file, Cargo.toml change, or Rust code review in bungkus-mcc.
+description: Rules every agent must follow when writing, editing or reviewing Rust in this repo — idiomatic, lint-clean Rust and structured rustdoc comments (JSDoc/Javadoc-style sections). Use for any .rs file, Cargo.toml change, or Rust code review in bungkus-mc.
 ---
 
-# Rust best practices for bungkus-mcc
+# Rust best practices for bungkus-mc
 
 Follow these strictly. They sit on top of `docs/CODING_RULES.md` (simplicity, YAGNI,
 tests next to code) and `docs/SECURITY.md`. If a rule here conflicts with those docs,

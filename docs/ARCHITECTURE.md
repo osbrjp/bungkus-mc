@@ -1,4 +1,4 @@
-# bungkus-mcc — Architecture
+# bungkus-mc — Architecture
 
 Status: proposal (product-owner decisions of 2026-09-30 applied; **Rust**
 per the M0 spike, PROPOSAL.md §6). Decisions are for stage 1 unless
@@ -11,7 +11,7 @@ those. ASSUMPTION / UNCONFIRMED items are re-verified at implementation.
 
 ## 1. One-paragraph summary
 
-bungkus-mcc is a single Rust binary: a ratatui/crossterm full-screen app
+bungkus-mc is a single Rust binary: a ratatui/crossterm full-screen app
 with one event loop that owns all state. It spawns each AI agent
 (`claude`, `codex`) as a child process in a PTY it owns and renders that
 PTY through an embedded VT emulator (`alacritty_terminal`) in the right
@@ -19,24 +19,24 @@ pane; focusing that pane is interacting with the agent. It learns
 *structure* (session state, subagents, current tool, waiting-for-input)
 and *usage* (tokens, cost, context %, plan limits) not by parsing anything
 on screen but from the agents' own **hook** and **status-line** extension
-points: every hook runs `bungkus-mcc hook`, Claude's status line runs
-`bungkus-mcc statusline`, and both forward a trimmed JSON line over a
-per-process unix socket back into the app. mcc never parses agent
+points: every hook runs `bungkus-mc hook`, Claude's status line runs
+`bungkus-mc statusline`, and both forward a trimmed JSON line over a
+per-process unix socket back into the app. mc never parses agent
 transcripts — with **one documented, contained exception**: Codex's usage
 figures come from the `token_count` records of the rollout file Codex's
 own hook names (§6.3). Optionally (off by default) it asks TypeSafe's Jev
 which model tier a start prompt needs (§13). On quit it stops the agents
 and the processes they left behind (§3.3).
 
-## 2. How mcc sees subagents — options evaluated
+## 2. How mc sees subagents — options evaluated
 
 | # | Option | Gives | Costs / breaks | Verdict |
 |---|--------|-------|----------------|---------|
 | 1 | **PTY + embedded VT emulator** (`portable-pty` + `alacritty_terminal`) | The agent's real UI, permission prompts, colours, interactive input. Works for any CLI agent. Spike-verified against a tmux reference on every case (slash menu, shift+enter, paste, resize, Codex, CJK/emoji, alt screen, queries). | Zero structure. Our own key encoder (the crate has none). | **Use — live pane.** |
-| 2 | **Tail transcripts** (`~/.claude/projects/<slug>/<sid>.jsonl` + `<sid>/subagents/agent-<id>.jsonl`; `~/.codex/sessions/…/rollout-*.jsonl`) | Full history, sessions mcc did not start. | Both formats are explicitly internal (Claude docs: "changes between versions … can break on any release"; Codex undocumented and mid-migration to SQLite). Transcripts hold every secret the agent saw. | **Not for structure.** One owner-approved exception: Codex `token_count` records for usage only (§6.3). |
-| 3 | **Hooks → unix socket** (Claude `--settings`; Codex `-c hooks.*`) | Documented, structured, push-based; identical JSON shape in both agents (VERIFIED). | Only sessions mcc launched (accepted for v0.1). Codex needs one-time hook trust. One process spawn per event. | **Use — structure.** |
-| 4 | **Headless structured mode** (`claude -p --output-format stream-json`, `codex exec --json`, Codex app-server JSON-RPC) | Cleanest structured stream incl. usage. | Not the agent's interactive UI: mcc would have to build chat + permission UIs — a different product. | **Not for stage 1.** |
-| 5 | **tmux/zellij panes** | Detach for free. | Two code paths, requires a multiplexer, mcc cannot draw inside another pane. | **No.** Run mcc *inside* tmux instead. |
+| 2 | **Tail transcripts** (`~/.claude/projects/<slug>/<sid>.jsonl` + `<sid>/subagents/agent-<id>.jsonl`; `~/.codex/sessions/…/rollout-*.jsonl`) | Full history, sessions mc did not start. | Both formats are explicitly internal (Claude docs: "changes between versions … can break on any release"; Codex undocumented and mid-migration to SQLite). Transcripts hold every secret the agent saw. | **Not for structure.** One owner-approved exception: Codex `token_count` records for usage only (§6.3). |
+| 3 | **Hooks → unix socket** (Claude `--settings`; Codex `-c hooks.*`) | Documented, structured, push-based; identical JSON shape in both agents (VERIFIED). | Only sessions mc launched (accepted for v0.1). Codex needs one-time hook trust. One process spawn per event. | **Use — structure.** |
+| 4 | **Headless structured mode** (`claude -p --output-format stream-json`, `codex exec --json`, Codex app-server JSON-RPC) | Cleanest structured stream incl. usage. | Not the agent's interactive UI: mc would have to build chat + permission UIs — a different product. | **Not for stage 1.** |
+| 5 | **tmux/zellij panes** | Detach for free. | Two code paths, requires a multiplexer, mc cannot draw inside another pane. | **No.** Run mc *inside* tmux instead. |
 
 Recommendation: **1 + 3** (plus Claude's status line and the Codex usage
 reader for numbers, §6).
@@ -47,7 +47,7 @@ reader for numbers, §6).
  terminal (kitty / ghostty / tmux ...)
    │ raw mode, alt screen (crossterm)
    ▼
- ┌──────────────────────────────── bungkus-mcc (one process) ─────────────────────────────┐
+ ┌──────────────────────────────── bungkus-mc (one process) ─────────────────────────────┐
  │  UI thread: the event loop owns the whole model (Elm-style)                              │
  │   ├─ projects pane   ├─ sessions pane (selected project)   ├─ output pane               │
  │                                                             (one alacritty Term/session) │
@@ -64,22 +64,22 @@ reader for numbers, §6).
  │  the loop: recv_timeout(deadline) → drain with try_recv → update model → one render     │
  │            deadline = min(next animation tick, each Term's sync_timeout())               │
  │                                                                                          │
- │  unix socket  $BUNGKUS_MCC_SOCK = clean(${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}})/bungkus-mcc-<uid>/<pid>.sock │
+ │  unix socket  $BUNGKUS_MC_SOCK = clean(${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}})/bungkus-mc-<uid>/<pid>.sock │
  └───────────┬──────────────────────────────────────────┬───────────────────────────────────┘
-             │ PTY; env += BUNGKUS_MCC_SOCK,             │ PTY; same env
-             │        BUNGKUS_MCC_SESSION=<mcc id>        │
+             │ PTY; env += BUNGKUS_MC_SOCK,             │ PTY; same env
+             │        BUNGKUS_MC_SESSION=<mc id>        │
              ▼                                            ▼
    claude --session-id <uuid> --settings '{…}' [--model m] [--name n] -- <prompt>    codex -c 'hooks.PreToolUse=[…]' [-m m] … -- <prompt>
              │ runs hooks + statusLine via `sh -c`          │ runs hooks via `sh -c`; writes rollout-*.jsonl
              ▼                                              ▼
-   bungkus-mcc hook | bungkus-mcc statusline ──one JSON line──▶ socket ──▶ listener thread
+   bungkus-mc hook | bungkus-mc statusline ──one JSON line──▶ socket ──▶ listener thread
    (exit 0 always; never blocks the agent beyond its own runtime)
 ```
 
-- One process, no daemon, no async runtime. Socket per pid so two mcc
+- One process, no daemon, no async runtime. Socket per pid so two mc
   instances never cross-talk. If the socket directory cannot be created or
   verified (§7, SECURITY.md), or the path exceeds the 104-byte `sun_path`
-  limit, mcc runs **without a socket**: every card is "output only" with
+  limit, mc runs **without a socket**: every card is "output only" with
   the hint from DESIGN.md §11. The live pane never depends on the socket.
 - Agents are ordinary children; `portable-pty` makes the child the session
   leader of its PTY (inside the crate, not in our code), so the process
@@ -100,7 +100,7 @@ Start from `std::env::vars_os()` and then:
   `TERM_PROGRAM_VERSION`, `KITTY_WINDOW_ID`, `TMUX`, `TMUX_PANE`,
   `WEZTERM_*`, `ITERM_*` (agents probe these to pick notification and
   hyperlink strategies);
-- unset `TYPESAFE_API_KEY` (the routing key is mcc's, never the agent's);
+- unset `TYPESAFE_API_KEY` (the routing key is mc's, never the agent's);
 - **unset the agents' session-marker variables** (NEW, spike finding: a
   child inherited `CLAUDE_CODE_CHILD_SESSION` from the Claude Code session
   the spike ran under and *disabled transcript saving*). Observed in a
@@ -109,30 +109,30 @@ Start from `std::env::vars_os()` and then:
   `CLAUDE_CODE_EXECPATH`, `CLAUDE_CODE_MESSAGING_SOCKET`,
   `CLAUDE_CODE_MESSAGING_TOKEN`, `CLAUDE_CODE_SESSION_ATTENDED`,
   `CLAUDE_CODE_SESSION_ID`, `CLAUDE_EFFORT`, `CLAUDE_PID`. No `CODEX_*`
-  markers were present in that session; any found at M3/M6 (running mcc
+  markers were present in that session; any found at M3/M6 (running mc
   from inside a Codex session) join the list. **User configuration vars
   are kept**: `CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_PROJECT_DIR_NAME`,
   `CLAUDE_CODE_*` settings the user set on purpose (the list is an explicit
   denylist, not a `CLAUDE_*` wildcard, precisely so those survive),
   `CODEX_HOME`. A test asserts the denylist is absent and the kept names
   present;
-- add `BUNGKUS_MCC_SOCK`, `BUNGKUS_MCC_SESSION`, and for Claude
-  `BUNGKUS_MCC_USER_STATUSLINE` (§6.2).
+- add `BUNGKUS_MC_SOCK`, `BUNGKUS_MC_SESSION`, and for Claude
+  `BUNGKUS_MC_USER_STATUSLINE` (§6.2).
 
 The emulator's default foreground/background are **the theme's painted
 `bg`/`fg`** (`#1c2a21`/`#d6e2d3` dark, `#f0f3d8`/`#1f2a22` light) whenever
-mcc paints (TrueColor and `background: "paint"`), so the agent's screen
+mc paints (TrueColor and `background: "paint"`), so the agent's screen
 blends into the pane; otherwise the host's colours (queried once at start:
-mcc writes `OSC 10 ; ? ST` / `OSC 11 ; ? ST` to the tty and waits for the
+mc writes `OSC 10 ; ? ST` / `OSC 11 ; ? ST` to the tty and waits for the
 reply with `rustix::event::poll` on stdin for up to 200 ms **before**
 crossterm's input reader is started — crossterm has no API for this, and a
 late reply would otherwise leak into the key stream; the theme's reference
 values are used when the host does not answer). **OSC 10/11 replies to the agent
 carry those same colours** (spike finding: the prototype answered fixed
-values; mcc answers `Event::ColorRequest` from the active theme), so
+values; mc answers `Event::ColorRequest` from the active theme), so
 agents pick their dark (or light) theme to match.
 
-### 3.2 What happens when mcc quits while agents run (decided by the owner)
+### 3.2 What happens when mc quits while agents run (decided by the owner)
 
 **Stop the agents, stop what they started, remember the session ids, offer
 resume.**
@@ -155,7 +155,7 @@ resume.**
   `pidfd_send_signal`, so the check and the signal cannot race; macOS:
   re-read `ps` for that pid, then `kill`) — SIGTERM, 3 s grace, SIGKILL.
   `EPERM` → the row shows `could not stop`. Signals go only to the group
-  mcc created or to observed descendants, never to anything merely
+  mc created or to observed descendants, never to anything merely
   because it holds a port. The socket stays open until the last child has
   exited so `SessionEnd` hooks are delivered.
 - A user-initiated `x` or quit forces the session state to **`stopped`**,
@@ -194,7 +194,7 @@ long-term answer and a stage-2 candidate.
   `lsof -nP -iTCP -sTCP:LISTEN -a -p <pid,pid,…>` once when the dialog
   opens; missing `lsof` = no port labels, nothing else.
 - `comm` goes through `sanitise()` before display; argv is never read.
-- Scope: descendants of mcc-launched agents only.
+- Scope: descendants of mc-launched agents only.
 
 ## 4. Data flow
 
@@ -225,7 +225,7 @@ thread**, one **waiter thread**.
   thread is the only holder of the PTY writer. The Term listener that
   alacritty calls with `Event::PtyWrite` is a struct holding that `Sender`.
   `Event::TextAreaSizeRequest` (CSI 14 t, pixel size) is not answered by
-  the crate; mcc answers it from the writer with the pane's cell size ×
+  the crate; mc answers it from the writer with the pane's cell size ×
   a nominal cell size (M3).
 - **Backpressure.** The reader's channel is bounded; a flooding agent fills
   it and the reader blocks on the PTY, which slows the agent instead of
@@ -289,7 +289,7 @@ thread**, one **waiter thread**.
 - **Queries answered** (M3 checklist from the spike): DSR/CPR, DA1/DA2,
   OSC 10/11/12 with the painted theme colours, CSI 18 t (character-cell
   size, answered by alacritty itself via `PtyWrite`), **CSI 14 t** (pixel
-  size, `TextAreaSizeRequest`, answered by mcc — the spike ignored it),
+  size, `TextAreaSizeRequest`, answered by mc — the spike ignored it),
   kitty keyboard mode query.
 
 ### 4.2 Rendered-output sanitiser (allowlist)
@@ -312,8 +312,8 @@ bytes, `ESC c`, `CSI ? 1049 h/l`.
 ### 4.3 Structure (hook events)
 
 ```
-agent ──sh -c '<exe> hook'──▶ bungkus-mcc hook
-                               reads stdin (cap 8 MiB, drains the rest), env BUNGKUS_MCC_SOCK/SESSION
+agent ──sh -c '<exe> hook'──▶ bungkus-mc hook
+                               reads stdin (cap 8 MiB, drains the rest), env BUNGKUS_MC_SOCK/SESSION
                                keeps only the fields below, writes one JSON line to the socket, exit 0
 listener thread ──▶ AppEvent::Hook ──▶ agent::Adapter::reduce(&mut session, event)
 ```
@@ -350,7 +350,7 @@ Subagents (flat list, no nesting in stage 1):
 
 Session-id binding: Claude sessions get `--session-id <uuid>` (generated
 with `uuid::Uuid::new_v4`). Codex sessions bind on the first event carrying
-their `BUNGKUS_MCC_SESSION`; after that the reducer **ignores any event
+their `BUNGKUS_MC_SESSION`; after that the reducer **ignores any event
 whose `session_id` differs** (nested `claude`/`codex` runs inherit the
 env). All ids must parse with `uuid::Uuid::parse_str` before use in argv
 or file names — `codex resume <non-uuid>` would be treated as a *name* and
@@ -372,7 +372,7 @@ pub(crate) enum Kind { Claude, Codex }
 /// One normalised hook event; every field optional at the wire (serde defaults).
 pub(crate) struct Event {
     kind: Kind,
-    mcc_session: String,              // from BUNGKUS_MCC_SESSION
+    mc_session: String,              // from BUNGKUS_MC_SESSION
     name: String,                     // hook_event_name
     session_id: Option<Uuid>,
     prompt_id: Option<String>,
@@ -445,7 +445,7 @@ registry.
 - Trust: Codex only runs hooks the user approved once via `/hooks`.
   **M6's first task** is to verify whether that approval persists for our
   byte-stable injected hooks. If yes, `setup codex` is deleted. If not,
-  `bungkus-mcc setup codex` merges an mcc block into `~/.codex/hooks.json`
+  `bungkus-mc setup codex` merges an mc block into `~/.codex/hooks.json`
   (round-trip `serde_json::Value`, abort on malformed JSON, `.bak`, keep
   mode, canonicalize, idempotent, y/N, manual removal documented).
   **Never `--dangerously-bypass-hook-trust`.**
@@ -456,9 +456,9 @@ registry.
 
 | Source | Claude Code 2.1.285 | Codex 0.153.4 |
 |--------|---------------------|---------------|
-| set at launch | `-n, --name <name>` — VERIFIED in `claude --help`; mcc passes the picker's name | no launch flag; mcc keeps the name for its own card only |
+| set at launch | `-n, --name <name>` — VERIFIED in `claude --help`; mc passes the picker's name | no launch flag; mc keeps the name for its own card only |
 | read live | status line stdin `session_name` — VERIFIED present, refreshed on every assistant message / 30 s; `SessionStart` hook `session_title` — documented (UNCONFIRMED whether it reflects a later rename) | no hook or status-line field; the thread name lives in `~/.codex/session_index.jsonl` and presumably a rollout record (UNCONFIRMED type) — outside the approved `token_count` exception, so **not read in stage 1** |
-| renamed inside the agent | `/rename` (verify in M4 that `session_name` follows) | `/rename` (UNCONFIRMED) — mcc would not see it |
+| renamed inside the agent | `/rename` (verify in M4 that `session_name` follows) | `/rename` (UNCONFIRMED) — mc would not see it |
 | auto-generated title | Claude generates titles (`ai-title` records exist); UNCONFIRMED whether `session_name` carries them | — |
 
 Resolution order: live `session_name` → `session_title` → the picker's
@@ -496,7 +496,7 @@ Claude: all four numbers from the status line. Codex: tokens, context %
 and limits from the rollout `token_count` records; cost `-`. Both feed the
 getah bar per vendor (DESIGN.md §6.1). Per-subagent tokens: not shown.
 
-### 6.2 Claude status line delivery (`bungkus-mcc statusline`)
+### 6.2 Claude status line delivery (`bungkus-mc statusline`)
 
 `--settings` sets `statusLine` for the session and **displaces the user's
 own status line** (VERIFIED). To keep the user's status line working:
@@ -509,12 +509,12 @@ own status line** (VERIFIED). To keep the user's status line working:
    readable and would override ours anyway (usage then `-`). Project/local
    settings are repo-controlled; running their command is acceptable
    because Claude's workspace-trust gate precedes any status-line
-   execution and Claude would run the same command without mcc.
+   execution and Claude would run the same command without mc.
 2. **Inject** `{"type":"command","command":"'<exe>' statusline",
    "padding": <user's>, "refreshInterval": <user's, or 30 when none>}`.
    30 s keeps `rate_limits` fresh; it also means the user's own command now
    runs every 30 s — documented; their `refreshInterval: 0` is honoured.
-3. **Run**: `bungkus-mcc statusline` reads stdin up to 1 MiB. Concurrently
+3. **Run**: `bungkus-mc statusline` reads stdin up to 1 MiB. Concurrently
    (one thread, joined with a **≤ 200 ms budget** that never delays the
    user's line) it forwards a `Usage` line (`session_id, session_name,
    cost, context_window, rate_limits` — nothing else) to the socket. Then
@@ -533,7 +533,7 @@ shown dimmed as stale.
 
 ### 6.3 Codex usage reader — the one transcript exception (approved)
 
-- **One module:** `agent/codex_usage.rs`. Nothing else in mcc opens a
+- **One module:** `agent/codex_usage.rs`. Nothing else in mc opens a
   transcript.
 - **Input:** the `transcript_path` from Codex's own `SessionStart` hook,
   validated: `Path::canonicalize` on both the path and
@@ -577,12 +577,12 @@ shown dimmed as stale.
 
 | What | Path | Mode |
 |------|------|------|
-| config | `${XDG_CONFIG_HOME:-~/.config}/bungkus/mcc/config.json` | 0600, dir 0700 |
-| state | `${XDG_STATE_HOME:-~/.local/state}/bungkus/mcc/sessions.json` | 0600, dir 0700 |
-| routing consent | `${XDG_STATE_HOME:-~/.local/state}/bungkus/mcc/consent.json` (`{"routing": "2026-09-30T…"}`) | 0600 |
-| debug log (`--debug` only) | `${XDG_STATE_HOME:-~/.local/state}/bungkus/mcc/mcc.log` | 0600 |
-| socket | `clean(${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}})/bungkus-mcc-<uid>/<pid>.sock` | dir 0700, sock 0600 |
-| update-check cache | `${XDG_CACHE_HOME:-~/.cache}/bungkus-mcc/latest-release` (macOS: `~/Library/Caches`, matching bungkus-cli's `os.UserCacheDir`) | 0600 |
+| config | `${XDG_CONFIG_HOME:-~/.config}/bungkus/mc/config.json` | 0600, dir 0700 |
+| state | `${XDG_STATE_HOME:-~/.local/state}/bungkus/mc/sessions.json` | 0600, dir 0700 |
+| routing consent | `${XDG_STATE_HOME:-~/.local/state}/bungkus/mc/consent.json` (`{"routing": "2026-09-30T…"}`) | 0600 |
+| debug log (`--debug` only) | `${XDG_STATE_HOME:-~/.local/state}/bungkus/mc/mc.log` | 0600 |
+| socket | `clean(${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}})/bungkus-mc-<uid>/<pid>.sock` | dir 0700, sock 0600 |
+| update-check cache | `${XDG_CACHE_HOME:-~/.cache}/bungkus-mc/latest-release` (macOS: `~/Library/Caches`, matching bungkus-cli's `os.UserCacheDir`) | 0600 |
 
 `config.json` (all keys optional; workspace can also be the first CLI argument):
 
@@ -612,7 +612,7 @@ shown dimmed as stale.
 }
 ```
 
-mcc never writes `config.json`. The Jev model id (`jev-latest`), the
+mc never writes `config.json`. The Jev model id (`jev-latest`), the
 request budget (1.5 s) and the confidence floor (0.6) are `const`s in
 `route`; consent lives in the state dir.
 
@@ -723,26 +723,30 @@ INTERACT. `n` targets the selected project.
 |--------|------|------|----------|
 | A. Separate repo + binary; **share by spec and script**, not by code | zero coupling, own cadence, own language | two implementations of the palette | **Yes** |
 | B. Shared module | one source of truth | impossible across Go and Rust without FFI | no |
-| C. `bungkus-cli mc` subcommand | one install | would force mcc into Go | no (decided: Rust) |
+| C. `bungkus-cli mc` subcommand | one install | would force mc into Go | no (decided: Rust) |
 | D. Monorepo | shared CI | breaks bungkus-cli's conventions; two toolchains in one tree | no |
-| E. `bungkus-cli mcc …` exec shim (git/kubectl style) | discoverability, ~20 lines of Go | it is a shim | after mcc's first stable release |
+| E. `bungkus-cli mc …` exec shim (git/kubectl style) | discoverability, ~20 lines of Go | it is a shim | after mc's first stable release |
 
-**Decided: A now, E later.** Since mcc is Rust, nothing is copied from the
+**Decided: A now, E later.** Since mc is Rust, nothing is copied from the
 Go code any more:
 
 - The updater (~150 lines: GitHub latest-release lookup with a daily
   0600 cache, semver compare, `update --check`, re-running the installer
   at the resolved tag) is **ported** to `src/update/`, behaviour-identical
   (same `BUNGKUS_NO_UPDATE_CHECK`, same one-line hint).
-- `install.sh` is **reused as-is** with `REPO=osbrjp/bungkus-mcc` and
-  `BIN_NAME=bungkus-mcc`; the release workflow is the same four-workflow
+- `install.sh` is **reused as-is** with `REPO=osbrjp/bungkus-mc` and
+  `BIN_NAME=bungkus-mc`. One addition: after installing, it creates the
+  short command `bkmc` as a symlink next to the binary, but only if nothing
+  named `bkmc` is already on `PATH` or in the install dir. Otherwise it
+  prints one line suggesting `alias bkmc=bungkus-mc` and leaves the existing
+  command alone. The release workflow is the same four-workflow
   shape, with the build job in Rust (TECH_STACK.md).
 - The **palette is shared as a token spec** — the tables in DESIGN.md §2
   — implemented twice: bungkus-cli `internal/tui/styles.go` (Go, the owner
-  is doing it) and mcc `src/ui/theme.rs`. A token-table test in each repo
+  is doing it) and mc `src/ui/theme.rs`. A token-table test in each repo
   compares its implementation with the spec, so drift is caught in CI on
   both sides. Both ship together (owner decision).
-- The `bungkus-cli mcc` PATH-exec shim is language-agnostic and unchanged.
+- The `bungkus-cli mc` PATH-exec shim is language-agnostic and unchanged.
 - Both SECURITY.md files say the installer script is shared and fixes to it
   apply to both repos. Stage 2: `N` runs `bungkus-cli`'s wizard in the
   output pane (zero coupling).
@@ -775,7 +779,7 @@ against tmux.
 
 ## 13. Model routing with TypeSafe Jev (opt-in, off by default)
 
-Goal (owner): pick a cheaper model for easy tasks. Where mcc can do that:
+Goal (owner): pick a cheaper model for easy tasks. Where mc can do that:
 only where it sees prompt text — **the optional start prompt at `n`, and
 nothing else** (resume is not routed: the session already has a model).
 **Keystrokes typed in INTERACT go straight to the PTY and are never
@@ -828,7 +832,7 @@ pub(crate) fn route(cfg: &Config, prompt: &str) -> Decision                // ne
   shows `haiku · routed 0.82` / `opus · chosen` / `default · routing fell
   back` (DESIGN.md §10). `sessions.json` records model, source, confidence.
 - API key: `TYPESAFE_API_KEY`, else `routing.apiKeyCommand` (an argv array
-  — no shell — whose stdout is the key). The command runs **once per mcc
+  — no shell — whose stdout is the key). The command runs **once per mc
   process, lazily on the first routed start**, in its own process group
   (`std::os::unix::process::CommandExt::process_group(0)`, safe — no
   `pre_exec`, no `setsid`), `Stdio::null()` stdin (so it cannot prompt

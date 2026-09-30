@@ -1,4 +1,4 @@
-//! `proto`: M0 spike of mcc's embedded terminal pane (see `spikes/SPEC.md`).
+//! `proto`: M0 spike of mc's embedded terminal pane (see `spikes/SPEC.md`).
 //!
 //! With no flags it runs the interactive TUI ([`ui`]); with `--headless` it
 //! runs one harness case ([`headless`]).

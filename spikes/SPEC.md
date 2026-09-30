@@ -1,6 +1,6 @@
 # M0 spike: embedded terminal pane, Go vs Rust
 
-Goal: choose mcc's foundation before M1. The riskiest part of mcc is the
+Goal: choose mc's foundation before M1. The riskiest part of mc is the
 right pane: Claude Code / Codex run inside an embedded terminal emulator,
 and the user types into them directly (prompts, slash commands, accepting
 edits, shift+enter, paste, Japanese text). Both prototypes are built to
@@ -91,7 +91,7 @@ emulator had consumed all PTY output after the child exited.
 
 - The emulator crate or package chosen, and why. Include its version,
   maintenance status and licence.
-- Anything the emulator doesn't do that mcc needs, and how much code it
+- Anything the emulator doesn't do that mc needs, and how much code it
   took or would take. Cover:
   - key encoding, including the kitty protocol / shift+enter;
   - scrollback viewport;

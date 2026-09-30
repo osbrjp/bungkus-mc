@@ -1,6 +1,6 @@
-# bungkus-mcc — Tech Stack
+# bungkus-mc — Tech Stack
 
-Status: proposal. **bungkus-mcc is written in Rust** (product-owner
+Status: proposal. **bungkus-mc is written in Rust** (product-owner
 decision, 2026-09-30, on the evidence of the M0 spike — PROPOSAL.md §6 and
 `spikes/`). bungkus-cli stays Go. Rule: every crate must earn its line
 here, with the alternatives rejected. Versions are the crates.io releases
@@ -32,8 +32,8 @@ major-pinned by caret, and `cargo update` is a reviewed commit.
 | `serde` (+ `derive`) | 1.0 | Config, state, hook payloads, status-line payload, Codex `token_count` records, TypeSafe request/response — **tolerant structs, never `deny_unknown_fields` for agent payloads** | hand-rolled JSON (no) |
 | `serde_json` | 1.0 | The JSON codec for all of the above; `from_slice` on capped buffers | `simd-json` (unneeded speed, unsafe inside) |
 | `uuid` (+ `v4`) | 1.26 | Session ids we choose for Claude (`--session-id`) and strict UUID validation of ids from hooks | a regex (we need generation too) |
-| `lexopt` | 0.3 | CLI parsing for `bungkus-mcc [workspace]`, `hook`, `statusline`, `setup codex`, `update`, and ~6 flags | `clap` (derive): the obvious choice, but it adds ~15 crates and ~600 KB for four subcommands; `lexopt` has zero dependencies and the help text is 30 hand-written lines. Revisit if the CLI grows past two levels |
-| `ureq` (rustls) | 3.4 | **Synchronous** HTTPS for the daily release check and the opt-in TypeSafe routing request: timeouts, no redirects, body size caps via ureq's body limit / `Read::take` — no async runtime anywhere in mcc. Note: ureq 3's default rustls crypto provider is `ring`, which contains C/asm; that is fine on native runners, and `cargo-zigbuild` handles it, but it is the one place a pure-Rust build assumption breaks (switch to the `aws-lc-rs` or a pure-Rust provider feature only if cross-compiling ever fails) | `reqwest` (pulls tokio/hyper for two requests); `curl` bindings (C dependency); native-tls (platform TLS quirks) |
+| `lexopt` | 0.3 | CLI parsing for `bungkus-mc [workspace]`, `hook`, `statusline`, `setup codex`, `update`, and ~6 flags | `clap` (derive): the obvious choice, but it adds ~15 crates and ~600 KB for four subcommands; `lexopt` has zero dependencies and the help text is 30 hand-written lines. Revisit if the CLI grows past two levels |
+| `ureq` (rustls) | 3.4 | **Synchronous** HTTPS for the daily release check and the opt-in TypeSafe routing request: timeouts, no redirects, body size caps via ureq's body limit / `Read::take` — no async runtime anywhere in mc. Note: ureq 3's default rustls crypto provider is `ring`, which contains C/asm; that is fine on native runners, and `cargo-zigbuild` handles it, but it is the one place a pure-Rust build assumption breaks (switch to the `aws-lc-rs` or a pure-Rust provider feature only if cross-compiling ever fails) | `reqwest` (pulls tokio/hyper for two requests); `curl` bindings (C dependency); native-tls (platform TLS quirks) |
 | `semver` | 1.0 | Compare the running version with the release tag; validate the cached tag before display | hand-written compare |
 | `rustix` (+ `process`, `fs`, `event`) | 1.1 | **Safe wrappers** for what the port needs: `kill`/`kill_process_group`, `pidfd_open`/`pidfd_send_signal` (Linux), `getuid` (`process`); `OFlags::NONBLOCK` for the Codex log open (`fs`, nothing else — regular-file checks use std `File::metadata()`); `poll` on stdin for the start-up OSC 11 reply (`event`) — so `unsafe_code` stays denied crate-wide | `nix` (fine, but rustix is the modern, `unsafe`-free-at-the-API choice); `libc` directly (would require our own `unsafe`) |
 
@@ -69,7 +69,7 @@ permissive licence (MIT/Apache-2.0/ISC; `cargo deny` enforces the allowlist).
 ## Runtime prerequisites (not dependencies)
 
 - `claude` and/or `codex` on PATH (detected at start; shown on the first-run screen).
-- `bash`, `curl` for `bungkus-mcc update` (the installer script is reused from bungkus-cli).
+- `bash`, `curl` for `bungkus-mc update` (the installer script is reused from bungkus-cli).
 - macOS: `ps` (ships with the OS); Linux: `/proc`. `lsof` on either OS for
   port annotation; missing `lsof` = no port labels in the quit dialog.
 - A UTF-8 locale for box-drawing borders and the half-block mascot (ASCII
@@ -93,6 +93,6 @@ Release: semantic-release with conventional commits (`main` = canary,
 job compiles `--release` for darwin/linux × arm64/amd64 on native runners
 (`macos-latest` for both macOS targets, `ubuntu-latest` + `ubuntu-24.04-arm`
 for Linux), or `cargo-zigbuild` from one runner if the ARM Linux runner is
-unavailable; uploads `bungkus-mcc-<os>-<arch>` + `checksums.txt`.
+unavailable; uploads `bungkus-mc-<os>-<arch>` + `checksums.txt`.
 `install.sh` is bungkus-cli's script with `REPO`/`BIN_NAME` changed and is
 fetched at the resolved release tag.

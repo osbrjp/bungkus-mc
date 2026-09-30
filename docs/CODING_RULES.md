@@ -1,6 +1,6 @@
-# bungkus-mcc — Coding Rules
+# bungkus-mc — Coding Rules
 
-bungkus-mcc is Rust (decided 2026-09-30). The one-line rule stays: **the
+bungkus-mc is Rust (decided 2026-09-30). The one-line rule stays: **the
 lazy solution that works and is tested is the right one.** These rules
 cover behaviour, tests, process and simplicity; **Rust style is defined
 once, in `.claude/skills/rust-best-practices/SKILL.md`, which is
@@ -37,7 +37,7 @@ behaviour, the skill wins for style.
   writes to a 0600 file only under `--debug` and is a no-op otherwise;
   never to stdout/stderr while the TUI runs; never payload bodies,
   prompts, env or keys. No logging crate.
-- Env vars: `BUNGKUS_MCC_*`; `BUNGKUS_NO_UPDATE_CHECK` shared with
+- Env vars: `BUNGKUS_MC_*`; `BUNGKUS_NO_UPDATE_CHECK` shared with
   bungkus-cli. Read in one place each (`store::paths`, `ipc::hook`,
   `ipc::statusline`).
 - Timeouts and caps are `const`s with a doc comment naming their source
@@ -49,7 +49,7 @@ behaviour, the skill wins for style.
 - The **palette is a token spec** (DESIGN.md §2 tables). `ui/theme.rs`
   implements it; a table test compares every token's painted hex, fallback
   hex, 256 and 16 index with the spec, so the two implementations
-  (bungkus-cli's `styles.go`, mcc's `theme.rs`) cannot drift unnoticed.
+  (bungkus-cli's `styles.go`, mc's `theme.rs`) cannot drift unnoticed.
 
 ## 2. Testing
 
@@ -138,7 +138,7 @@ has none. Coverage is not a target.
 - **Emulator and session threads** (`term`): feeding `CSI 6n`, `CSI c`,
   `CSI > c`, `CSI 14 t`, `CSI 18 t`, `OSC 10/11 ?` → replies arrive on the
   PTY side within 100 ms through the writer thread, OSC 10/11 carrying
-  the painted theme colours, CSI 14 t answered by mcc; the UI thread never
+  the painted theme colours, CSI 14 t answered by mc; the UI thread never
   blocks when the writer's PTY is stalled (fake writer test); the reader
   blocks on a full bounded channel instead of allocating; BSU with no ESU
   renders after 150 ms (`sync_timeout` deadline + `stop_sync`); child exit
@@ -227,7 +227,7 @@ has none. Coverage is not a target.
 - [ ] Every new state/badge: glyph + word + colour, an ascii glyph, Narrow width.
 - [ ] Every new string from outside the PTY goes through `sanitise()`.
 - [ ] Tested with `NO_COLOR=1`, the ascii default, inside tmux, at 80×24.
-- [ ] Security rules (SECURITY.md): argv not shell; paths under mcc dirs or workspace; no transcript reads outside `codex_usage.rs`; no signal outside the observed-descendant set; no secrets persisted; socket limits; no `--dangerously-*`; no new egress without consent; no `unsafe`.
+- [ ] Security rules (SECURITY.md): argv not shell; paths under mc dirs or workspace; no transcript reads outside `codex_usage.rs`; no signal outside the observed-descendant set; no secrets persisted; socket limits; no `--dangerously-*`; no new egress without consent; no `unsafe`.
 - [ ] Hook/statusline fields read optionally; recorded payload added to `testdata/`.
 - [ ] Golden diffs reviewed line by line.
 - [ ] Docs touched if behaviour, keys, files or crates changed.

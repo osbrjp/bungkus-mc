@@ -1,4 +1,4 @@
-# bungkus-mcc — Proposal
+# bungkus-mc — Proposal
 
 Status: **proposal / pre-development** (product-owner decisions of
 2026-09-30 applied). Companion documents: ARCHITECTURE.md
@@ -7,18 +7,18 @@ SECURITY.md.
 
 ## 1. Executive summary
 
-bungkus-mcc ("mission control") is a terminal panel for people who run AI
+bungkus-mc ("mission control") is a terminal panel for people who run AI
 coding agents (Claude Code, Codex CLI) in the terminal. One screen: the
 projects in a workspace, the selected project's agent sessions with their
 subagents as a live list, the selected session's real interactive UI —
 plus what it is costing you: tokens, cost, context fill and your plans'
 5-hour / weekly limits. You watch three agents work, hear a bell when one
 needs you, jump in with `!` and answer without hunting through tabs. When
-you quit, mcc stops the agents *and* the dev servers they left behind, and
+you quit, mc stops the agents *and* the dev servers they left behind, and
 remembers every session so you can resume it.
 
 Technical core (ARCHITECTURE.md): **written in Rust** (owner decision on
-the M0 spike, §6 item 15), mcc runs each agent in a PTY it owns and
+the M0 spike, §6 item 15), mc runs each agent in a PTY it owns and
 renders it with an embedded terminal emulator (`alacritty_terminal`) —
 focusing that pane is talking to the agent. It learns session state and the subagent list from
 the agents' own **hook** systems (verified live on both), and usage
@@ -52,8 +52,8 @@ adoption of the shared Daun Pisang palette.
 
 - Being an agent client (own chat UI, own permission UI). We render the
   vendor's UI.
-- Persisting sessions across mcc restarts (stop + resume instead).
-- Showing sessions that were not started from mcc (accepted for v0.1).
+- Persisting sessions across mc restarts (stop + resume instead).
+- Showing sessions that were not started from mc (accepted for v0.1).
 - Windows. Remote/SSH-hosted agents. Multiple workspaces at once.
 - Parsing transcripts, except the approved Codex `token_count` reader.
 - Per-subagent token counts. Nested subagent trees (flat list).
@@ -74,8 +74,8 @@ adoption of the shared Daun Pisang palette.
 - As someone on a Max plan and a Codex plan, I want both 5-hour / weekly
   usages in one bar, and how much context each session has left.
 - As someone whose agents keep starting `vite` on :5173, I want quitting
-  mcc to stop those too, and to see exactly what will be stopped first.
-- As a tmux user (with vim-tmux-navigator), I want mcc to work inside tmux,
+  mc to stop those too, and to see exactly what will be stopped first.
+- As a tmux user (with vim-tmux-navigator), I want mc to work inside tmux,
   to know exactly when keystrokes go to the agent, and to change the exit
   chord because `ctrl-\` is taken.
 - As a cost-conscious user, I want easy tasks to start on a cheap model
@@ -89,11 +89,11 @@ adoption of the shared Daun Pisang palette.
 | Milestone | Scope | Done when |
 |-----------|-------|-----------|
 | **M0 Foundation spike — done** | Two prototypes of the embedded terminal pane built to `spikes/SPEC.md` (Go: Bubble Tea v2 + x/vt + creack/pty; Rust: ratatui + crossterm + portable-pty + alacritty_terminal 0.26), a headless case harness and `spikes/compare.py` scoring both against a tmux reference | Both matched tmux on every case; the numbers below decided the language (§6 item 15) |
-| M1 Skeleton | crate, `rust-toolchain.toml`, lint set from the skill, CI (`fmt`, `clippy -D warnings`, `test`, `doc -D warnings`, `cargo deny check` with `deny.toml` targets = the four unix triples), release pipeline (native runners or `cargo-zigbuild`, `checksums.txt`, reused `install.sh`), `update` ported from bungkus-cli, `ui/theme.rs` implementing the token spec (painted + fallback sets, TrueColor gate, `background` config) with the token-table and contrast tests, mascot pixel maps + static half-block/ASCII renderers, three empty panes with layout/breakpoints/modes/keymap + generated help, goldens at 120×40 and 80×24 | `bungkus-mcc` installs via install.sh, renders green at TrueColor and plain at 256, `?` shows generated help, `q` quits |
+| M1 Skeleton | crate, `rust-toolchain.toml`, lint set from the skill, CI (`fmt`, `clippy -D warnings`, `test`, `doc -D warnings`, `cargo deny check` with `deny.toml` targets = the four unix triples), release pipeline (native runners or `cargo-zigbuild`, `checksums.txt`, reused `install.sh`), `update` ported from bungkus-cli, `ui/theme.rs` implementing the token spec (painted + fallback sets, TrueColor gate, `background` config) with the token-table and contrast tests, mascot pixel maps + static half-block/ASCII renderers, three empty panes with layout/breakpoints/modes/keymap + generated help, goldens at 120×40 and 80×24 | `bungkus-mc` installs via install.sh, renders green at TrueColor and plain at 256, `?` shows generated help, `q` quits |
 | M2 Workspace + projects | config/state files, first-run screen, workspace by CLI arg/config/text input, project list = child folders with `CLAUDE.md`/`AGENTS.md`/`.git`, sanitised names | pick a folder, see projects |
-| M3 Live pane | `term/session.rs` from the spike: PTY + `alacritty_terminal` advanced on the UI thread (flood cases re-timed interactively; pump-thread fallback if needed), reader (bounded) / **writer** (owns the PTY writer, unbounded channel) / waiter threads, key encoder (`keys.rs` from the spike + **kitty CSI-u output toward the agent, ~80 lines**, with `Config { kitty_keyboard: true }`), full passthrough incl. `esc`/`tab`/arrows/ctrl, **spike findings**: OSC 10/11 replies from the painted theme colours, mouse forwarding when the agent enabled it, EIO on PTY writes after child exit ignored, CSI 14 t reply (18 t is alacritty's), sync-update deadline + `stop_sync` (BSU-without-ESU test), child exit on reader EOF or 500 ms after `wait`, render on dirty flag/tick instead of a 16 ms timer; host OSC 11 query via `rustix::event::poll` before the input reader; session-marker env scrub with test; cell allowlist + hostile corpus; wheel scrollback; resize-all; INTERACT-on-focus with configurable exit chord; `n` launches `claude`/`codex` with `--` and `--name`; `x` stops; quit confirm; tests: query replies, hostile streams, CJK/emoji width, `spikes/cases/` replayed green; decide Codex `--no-alt-screen`; JIS/German chord check; confirm interactive `claude`/`codex` accept `--` | a full Claude Code session runs inside mcc on kitty, Ghostty, tmux (+navigator), VS Code, including answering a permission prompt via passthrough; `compare.py` matches tmux on every case |
-| M4 Structure + notifications (Claude) | `bungkus-mcc hook` (silent, trimmed, quoted path), socket server, Claude adapter via `--settings` (new + resume argv, unit-tested), decided state machine with `background_tasks`, subagent list, sidebar precedence, `!` across projects, session names (`--name`, `session_title`, verify `/rename` → `session_name`), `notify` bell/desktop/off + OSC 2 title push/pop | cards and sidebar update live during a real session with parallel subagents; bell rings on needs-you; card titles follow renames |
-| M5 Usage (Claude) | `bungkus-mcc statusline` wrapper (200 ms concurrent forward, then the user's status line under `sh` with buffered stdin; resolver with `CLAUDE_CONFIG_DIR`, recursion guard), `Usage` messages, compact card line, expanded selected card (sessions pane focused), getah-bar limits with thresholds and stale dimming; record a multi-turn session to settle `total_input_tokens` semantics and check which shell Claude uses | tokens/cost/ctx on every Claude card; limits in the bar on a subscription account; `-` on API-key accounts; the user's own status line still renders |
+| M3 Live pane | `term/session.rs` from the spike: PTY + `alacritty_terminal` advanced on the UI thread (flood cases re-timed interactively; pump-thread fallback if needed), reader (bounded) / **writer** (owns the PTY writer, unbounded channel) / waiter threads, key encoder (`keys.rs` from the spike + **kitty CSI-u output toward the agent, ~80 lines**, with `Config { kitty_keyboard: true }`), full passthrough incl. `esc`/`tab`/arrows/ctrl, **spike findings**: OSC 10/11 replies from the painted theme colours, mouse forwarding when the agent enabled it, EIO on PTY writes after child exit ignored, CSI 14 t reply (18 t is alacritty's), sync-update deadline + `stop_sync` (BSU-without-ESU test), child exit on reader EOF or 500 ms after `wait`, render on dirty flag/tick instead of a 16 ms timer; host OSC 11 query via `rustix::event::poll` before the input reader; session-marker env scrub with test; cell allowlist + hostile corpus; wheel scrollback; resize-all; INTERACT-on-focus with configurable exit chord; `n` launches `claude`/`codex` with `--` and `--name`; `x` stops; quit confirm; tests: query replies, hostile streams, CJK/emoji width, `spikes/cases/` replayed green; decide Codex `--no-alt-screen`; JIS/German chord check; confirm interactive `claude`/`codex` accept `--` | a full Claude Code session runs inside mc on kitty, Ghostty, tmux (+navigator), VS Code, including answering a permission prompt via passthrough; `compare.py` matches tmux on every case |
+| M4 Structure + notifications (Claude) | `bungkus-mc hook` (silent, trimmed, quoted path), socket server, Claude adapter via `--settings` (new + resume argv, unit-tested), decided state machine with `background_tasks`, subagent list, sidebar precedence, `!` across projects, session names (`--name`, `session_title`, verify `/rename` → `session_name`), `notify` bell/desktop/off + OSC 2 title push/pop | cards and sidebar update live during a real session with parallel subagents; bell rings on needs-you; card titles follow renames |
+| M5 Usage (Claude) | `bungkus-mc statusline` wrapper (200 ms concurrent forward, then the user's status line under `sh` with buffered stdin; resolver with `CLAUDE_CONFIG_DIR`, recursion guard), `Usage` messages, compact card line, expanded selected card (sessions pane focused), getah-bar limits with thresholds and stale dimming; record a multi-turn session to settle `total_input_tokens` semantics and check which shell Claude uses | tokens/cost/ctx on every Claude card; limits in the bar on a subscription account; `-` on API-key accounts; the user's own status line still renders |
 | M6 Codex | verify `/hooks` trust persistence for `-c` injected hooks (delete or build `setup codex`), record real Codex SubagentStart/PreToolUse payloads, Codex adapter, resume rules, "hooks off" hints; **Codex usage reader** (`agent/codex_usage.rs`: canonicalised path under `CODEX_HOME`, `fstat` regular file, tail-only 256 KiB, `token_count` only, tolerant serde structs, fixtures) feeding cards and the `X` limits | Codex session with subagents shows structure and `312k tok · - · ctx 22%`; untrusted path degrades to output only; bad/missing rollout shows `-` |
 | M7 Descendant tracking + cleanup | `src/proc/`: 2 s process-tree scan (Linux `/proc` + `rustix` pidfd, macOS `ps` with `LC_ALL=C` and `uid=`), pruning, uid filter, pid + start-time identity, `lsof` port annotation on both OSes, default-keep rule + `cleanup.keep`, quit/`x` dialog (sessions then processes, `[stop]/[keep]` toggle, `… and N more`), fresh scan on open, SIGTERM → 3 s → SIGKILL, EPERM handling, forced `stopped` state; fixture tests per OS incl. ja_JP `ps` | a session that started `vite` is quit; the dialog shows `vite :5173 pid …`; the port is free afterwards; `ssh-agent` is kept; a reused pid is never signalled (test) |
 | M8 Resume + polish | `sessions.json`, `r`/`d` with confirms, light theme, `--icons unicode|nerd`, `NO_COLOR`, non-UTF-8 locale, mascot animation in the empty state (tick only while visible), full terminal/keyboard matrix pass, README (exit-chord alternates, manual hook removal) | release **v0.1.0** on the `release` branch, together with bungkus-cli's Daun Pisang release |
@@ -110,36 +110,36 @@ is replaced by the Rust equivalents in ARCHITECTURE.md and CODING_RULES.md
 ### Stage 2 — candidates, each gated on a request
 
 - Detached sessions via `claude --bg`/`attach` and the Codex app-server;
-  listing sessions mcc did not start (`claude agents --json`).
+  listing sessions mc did not start (`claude agents --json`).
 - Codex thread names (extend the rollout reader once the record type is
   confirmed, or app-server).
 - `N` new project: `bungkus-cli`'s wizard in the output pane; the
-  `bungkus-cli mcc` PATH-exec shim.
+  `bungkus-cli mc` PATH-exec shim.
 - Headless "task" sessions with structured cards and per-turn usage.
 - History adapter (transcript tailing) — only with demand.
 - Nested subagent tree; per-subagent tokens (needs transcripts).
 - Routing beyond the start prompt (e.g. re-routing on resume by reading the
-  agent's own summary) — needs data mcc does not have without transcripts.
+  agent's own summary) — needs data mc does not have without transcripts.
 - Third agent, if it has hooks. `bungkus-kit` when a third product appears.
 
 ## 6. Decided by the product owner (2026-09-30)
 
 1. **Quit:** sessions end on quit; all session ids are recorded for
-   resume; mcc also stops the processes it observed as descendants of its
+   resume; mc also stops the processes it observed as descendants of its
    agents (dev servers etc.) — tracked by a periodic process-tree scan,
    identified by pid + start time, never killed merely for holding a port,
    listed in the confirm dialog, SIGTERM then SIGKILL after a grace period
    (ARCHITECTURE.md §3.2–3.3, SECURITY.md, M7).
 2. **Workspace:** direct child folders are projects only if they contain
    `CLAUDE.md`, `AGENTS.md` or `.git`; dot-dirs skipped, symlinks followed.
-3. **Sessions started outside mcc are invisible** in v0.1 — accepted.
+3. **Sessions started outside mc are invisible** in v0.1 — accepted.
 4. **Codex usage:** approved to read Codex's own session log, limited to
    the rollout `token_count` records at the path Codex's hook reports —
    the one contained transcript exception (ARCHITECTURE.md §6.3, M6).
 5. **Default icon set = ASCII.** Borders stay box-drawing when the locale is
    UTF-8; ASCII borders only when it is not.
 6. **Palette:** bungkus-cli adopts Daun Pisang now, released together with
-   mcc; the owner implements the bungkus-cli side.
+   mc; the owner implements the bungkus-cli side.
 7. **Middle pane** shows the selected project's sessions only; the sidebar
    badges show other projects' state; `!` jumps across projects.
 8. **Right pane is interactive on focus:** focusing it is INTERACT (full
@@ -150,7 +150,7 @@ is replaced by the Rust equivalents in ARCHITECTURE.md and CODING_RULES.md
    the `n` picker gets a name field prefilled from the prompt.
 10. **Model routing with TypeSafe Jev**, opt-in and off by default, scoped
     to the start prompt (M9, ARCHITECTURE.md §13).
-11. **mcc paints a low-saturation green background** ("Daun Teduh"
+11. **mc paints a low-saturation green background** ("Daun Teduh"
     `#1c2a21`, body text ~11:1; light "Santan" `#f0f3d8`) when the terminal
     is TrueColor; otherwise the terminal's own bg/fg. Config `background:
     paint | terminal`. The output-pane emulator uses the same colours and
@@ -180,7 +180,7 @@ is replaced by the Rust equivalents in ARCHITECTURE.md and CODING_RULES.md
     parsing; `lsof` for ports on both OSes; user-initiated stop = state
     `stopped`. Routing: `n` start prompt only, secret-shape guard, consent
     in the state dir, constants instead of config knobs.
-15. **bungkus-mcc is written in Rust; bungkus-cli stays Go.** Evidence, the
+15. **bungkus-mc is written in Rust; bungkus-cli stays Go.** Evidence, the
     M0 spike (`spikes/`, both prototypes matched the tmux reference on
     every case — Claude Code slash menu, shift+enter, paste and resize;
     Codex; CJK/emoji; alt screen; terminal queries):
@@ -214,13 +214,20 @@ Closed earlier: `--settings` hooks merge with user hooks (verified); Codex
 hook injection per launch via `-c` (verified); the start prompt is optional
 with the last agent preselected.
 
+16. **Name: bungkus-mc** (was bungkus-mcc), short command **`bkmc`**. Checked
+    on 2026-09-30: `bungkus-mc` and `bkmc` are free on crates.io, Homebrew,
+    Debian, npm and PyPI, and on GitHub under `osbrjp`. Bare `mc` is not used
+    as a command because it clashes with Midnight Commander and the MinIO
+    client. `bgmc` was rejected because an npm package installs a `bgmc`
+    command. From bungkus-cli: `bungkus-cli mc`.
+
 ## 7. Open questions for the product owner
 
 1. **License** for the new repo (bungkus-cli's LICENSE file is empty).
 2. **Plain / screen-reader mode:** out of scope for v0.1 unless required
-   (Claude Code has `--ax-screen-reader`; a mcc equivalent is a line-based
+   (Claude Code has `--ax-screen-reader`; a mc equivalent is a line-based
    view, significant work).
-3. **Title-bar name:** `bungkus-mcc` or `bungkus mission control`?
+3. **Title-bar name:** `bungkus-mc` or `bungkus mission control`?
 4. **"wrapped"** as the word for a finished session — keep, or plain "done"?
 5. **Routing tiers per agent:** Claude `quick → haiku`, `standard → sonnet`,
    `deep → opus` is the proposed default; exact model ids per tier?
@@ -234,13 +241,13 @@ with the last agent preselected.
    model?
 8. **Codex thread names:** extend the approved rollout reader to the
    thread-name record once its type is confirmed, or leave Codex titles to
-   mcc's own name/prompt?
+   mc's own name/prompt?
 
 ## 8. Risks
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| `alacritty_terminal` renders an agent's TUI wrongly in a case the spike did not cover | low (spike matched tmux on all cases) | high | `spikes/cases/` corpus in CI; `term` is one module; `ctrl-l`/`R`; the agent runs fine outside mcc |
+| `alacritty_terminal` renders an agent's TUI wrongly in a case the spike did not cover | low (spike matched tmux on all cases) | high | `spikes/cases/` corpus in CI; `term` is one module; `ctrl-l`/`R`; the agent runs fine outside mc |
 | Rust build time / crate count slows the team | medium | low | 7.3 s clean, incremental seconds; `cargo deny` bans duplicate heavy crates; no async runtime |
 | Accidental keystrokes to the agent (INTERACT on focus) | medium | medium | four instant signals; `(ctrl-\ back)` in the sessions-pane hint; INTERACT ends when the process exits |
 | Key translation misses a key the agent needs | medium | medium | table + both-direction tests; `shift-enter` verified in M3 |
@@ -252,6 +259,6 @@ with the last agent preselected.
 | Jev API unavailable / key missing | medium | none | 1.5 s budget, silent fallback to the default model |
 | CJK ambiguous-width terminals shift columns | medium (JP team) | medium | ascii default glyphs; narrow unicode set; recorded stream test |
 | `ctrl-\` clashes (navigator, VS Code, JIS/German) | medium | low | configurable `interactExit`; documented alternates; tested keyboards |
-| Two mcc instances on one workspace | low | low | per-pid socket; `sessions.json` last-writer-wins; README note |
+| Two mc instances on one workspace | low | low | per-pid socket; `sessions.json` last-writer-wins; README note |
 | Team bandwidth: TUI + PTY + IPC + proc, in a second language | — | — | 12 crates, no daemon, no async, one contained transcript reader, the Rust skill + YAGNI rules; the spike's `session.rs`/`keys.rs`/`ui.rs` are the starting point |
 | `Term` on the UI thread cannot keep up with a flood | low–medium | medium | M3 replays `spikes/cases/flood-*` interactively; fallback is the spike's pump-thread model (ARCHITECTURE.md §4.1) |

@@ -32,7 +32,7 @@ pinning problem (no `cargo deny`/`cargo audit` story for it). vt100 would need a
 the query handling written by hand. Missing key encoding is the cheaper gap to
 fill: about 100 lines, below.
 
-## What mcc needs that the emulator does not do
+## What mc needs that the emulator does not do
 
 - **Key encoding and shift+enter.** Our own table in `src/keys.rs` is **98 lines**
   of code, excluding doc comments. About 40 of those are the headless key-name
