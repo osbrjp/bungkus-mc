@@ -1,6 +1,4 @@
 
-
-
             ▄▄
           ▄████▄         bungkus-mc  v0.1.0
          ████████        mission control for AI agents
@@ -18,8 +16,10 @@
 
 
 
+
+
+
+
                                                      enter start · esc back
-
-
 
 cursor: hidden

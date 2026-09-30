@@ -159,8 +159,7 @@ fn main() -> Result<()> {
     let path_var = std::env::var_os("PATH").unwrap_or_default();
     let found = Kind::ALL
         .map(|kind| find_on_path(kind.command(), &path_var).map(|p| tilde(&p, home.as_deref())));
-    let git_parent = app::form::git_parent(&cwd);
-    let fallback = git_parent.clone().unwrap_or_else(|| cwd.clone());
+    let fallback = default_workspace(home.as_deref(), &cwd);
     let icons = icons_arg.unwrap_or(config.icons);
     let theme = Theme::new(ThemeName::Dark, Profile::detect(var), config.background).with_view(
         icons,
@@ -194,11 +193,7 @@ fn main() -> Result<()> {
             apply(&mut model, &config, workspace, &cwd);
             None
         }
-        None => Some(
-            git_parent
-                .map(|p| tilde(&p, home.as_deref()))
-                .unwrap_or_default(),
-        ),
+        None => Some(tilde(&model.fallback_workspace, home.as_deref())),
     };
     let state_path = store::state::state_file(var);
     if let Some(path) = &state_path {
@@ -234,6 +229,16 @@ fn utf8_locale(var: impl Fn(&str) -> Option<String>) -> bool {
         l.contains("utf-8") || l.contains("utf8")
     });
     utf8 && term != "linux" && term != "dumb"
+}
+
+/// Returns the wizard's default workspace: `~/Documents` when it exists,
+/// else the parent of the git repository mc was started in, else the
+/// current folder.
+fn default_workspace(home: Option<&Path>, cwd: &Path) -> PathBuf {
+    home.map(|h| h.join("Documents"))
+        .filter(|d| d.is_dir())
+        .or_else(|| app::form::git_parent(cwd))
+        .unwrap_or_else(|| cwd.to_path_buf())
 }
 
 /// Applies the config's settings on `workspace` and scans it.
