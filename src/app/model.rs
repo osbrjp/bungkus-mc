@@ -12,6 +12,7 @@ use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModif
 use ratatui::layout::Rect;
 use rustix::process::Signal;
 
+use crate::agent::usage::Window;
 use crate::agent::{Kind, Launch};
 use crate::app::AppEvent;
 use crate::app::form::{Field, Form, FormKind, Outcome};
@@ -155,6 +156,11 @@ pub(crate) struct Model {
     pub quitting: Option<Instant>,
     /// Announcements for the loop to send (bell, desktop, title).
     pub alerts: Vec<Alert>,
+    /// The latest plan limits per vendor (`Kind::ALL` order); per
+    /// account, not per session (DESIGN §6.1).
+    pub limits: [Vec<Window>; 2],
+    /// Wall-clock time in unix seconds, for stale limit windows.
+    pub unix_now: u64,
 }
 
 impl Model {
@@ -199,6 +205,8 @@ impl Model {
             frame: 0,
             quitting: None,
             alerts: Vec::new(),
+            limits: [Vec::new(), Vec::new()],
+            unix_now: 0,
         }
     }
 
@@ -370,6 +378,13 @@ impl Model {
         else {
             return;
         };
+        if let Some(usage) = wire.usage {
+            if !usage.limits.is_empty() {
+                self.limits[card.kind as usize].clone_from(&usage.limits);
+            }
+            card.report(usage);
+            return;
+        }
         let before = card.state.clone();
         card.reduce(&wire.event, now);
         if card.state == State::NeedsYou && before != State::NeedsYou {
@@ -897,6 +912,7 @@ pub(crate) mod tests {
         let wire = Wire {
             mc_session: id.0.hyphenated().to_string(),
             event: crate::ipc::trim(&raw),
+            usage: None,
         };
         AppEvent::Hook(serde_json::to_vec(&wire).unwrap())
     }
@@ -927,6 +943,34 @@ pub(crate) mod tests {
             m.cards[0].state,
             State::NeedsYou,
             "garbage and unknown sessions are dropped"
+        );
+    }
+
+    /// Returns a socket line for `id` carrying the status-line fixture.
+    pub(crate) fn usage_line(id: SessionId) -> AppEvent {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/ipc/testdata/statusline.json");
+        let raw = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let wire = Wire {
+            mc_session: id.0.hyphenated().to_string(),
+            event: crate::ipc::HookEvent::default(),
+            usage: Some(crate::agent::usage::from_statusline(&raw)),
+        };
+        AppEvent::Hook(serde_json::to_vec(&wire).unwrap())
+    }
+
+    #[test]
+    fn usage_lines_update_the_card_name_and_limits() {
+        let mut m = sample(&["a"]);
+        let (id, _w) = with_session(&mut m, "picker name");
+        m.cards[0].expect_hooks();
+        m.update(usage_line(id));
+        assert_eq!(m.cards[0].name, "sl-test", "session_name wins");
+        assert_eq!(m.cards[0].usage.as_ref().unwrap().ctx_pct, Some(23.0));
+        assert_eq!(m.limits[Kind::Claude as usize].len(), 2);
+        assert!(
+            !m.cards[0].output_only(m.now + HOOK_GRACE),
+            "a usage line counts as a sign of life"
         );
     }
 

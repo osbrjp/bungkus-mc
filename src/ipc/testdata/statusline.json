@@ -1,0 +1,71 @@
+{
+ "session_id": "8857be58-d6b4-4201-a259-59f07e6cc1da",
+ "transcript_path": "/Users/me/.claude/projects/-Users-me-Works-OSBR-demo-proj/8857be58-d6b4-4201-a259-59f07e6cc1da.jsonl",
+ "cwd": "/Users/me/Works/OSBR/demo-proj",
+ "prompt_id": "1f65ad92-5b0f-42f2-ad27-2a196882943d",
+ "session_name": "sl-test",
+ "model": {
+  "id": "claude-haiku-4-5-20251001",
+  "display_name": "Haiku 4.5"
+ },
+ "workspace": {
+  "current_dir": "/Users/me/Works/OSBR/demo-proj",
+  "project_dir": "/Users/me/Works/OSBR/demo-proj",
+  "added_dirs": []
+ },
+ "version": "2.1.285",
+ "output_style": {
+  "name": "default"
+ },
+ "cost": {
+  "total_cost_usd": 0.035214699999999995,
+  "total_duration_ms": 16093,
+  "total_api_duration_ms": 2326,
+  "total_lines_added": 0,
+  "total_lines_removed": 0
+ },
+ "context_window": {
+  "total_input_tokens": 45769,
+  "total_output_tokens": 140,
+  "context_window_size": 200000,
+  "current_usage": {
+   "input_tokens": 10,
+   "output_tokens": 140,
+   "cache_creation_input_tokens": 15752,
+   "cache_read_input_tokens": 30007
+  },
+  "used_percentage": 23,
+  "remaining_percentage": 77
+ },
+ "exceeds_200k_tokens": false,
+ "prompt_cache": {
+  "warm": true,
+  "caching_observed": true,
+  "ttl": "1h",
+  "expires_at": 1790782779,
+  "requests": 1,
+  "misses": 0,
+  "expected_rebuilds": 0,
+  "hit_ratio": 0.6556184316895716,
+  "cache_write_tokens": 15752,
+  "miss_recache_tokens": 0,
+  "last_miss_at": null,
+  "last_miss_cause": null,
+  "miss_causes": {},
+  "recache_tokens_if_cold": 45769
+ },
+ "fast_mode": false,
+ "thinking": {
+  "enabled": true
+ },
+ "rate_limits": {
+  "five_hour": {
+   "used_percentage": 6,
+   "resets_at": 1790785200
+  },
+  "seven_day": {
+   "used_percentage": 18,
+   "resets_at": 1791093600
+  }
+ }
+}

@@ -8,10 +8,12 @@
 
 pub(crate) mod hook;
 pub(crate) mod server;
+pub(crate) mod statusline;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::agent::usage::Usage;
 use crate::ui::sanitise::truncate;
 
 /// Longest description, message or tool field kept (SECURITY.md).
@@ -72,13 +74,18 @@ pub(crate) struct HookEvent {
     pub transcript: Option<String>,
 }
 
-/// One line on the socket: mc's session id and the trimmed event.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// One line on the socket: mc's session id and either a trimmed hook
+/// event or usage figures from the status line.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Wire {
-    /// `BUNGKUS_MC_SESSION` of the hook process.
+    /// `BUNGKUS_MC_SESSION` of the sending process.
     pub mc_session: String,
-    /// The event.
+    /// The hook event (empty name for a usage line).
+    #[serde(default)]
     pub event: HookEvent,
+    /// Usage from `bungkus-mc statusline`.
+    #[serde(default)]
+    pub usage: Option<Usage>,
 }
 
 /// Trims a raw hook payload to a [`HookEvent`]; never fails on odd input

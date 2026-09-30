@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use crate::agent::Kind;
+use crate::agent::usage::Usage;
 use crate::ipc::HookEvent;
 use crate::term::SessionId;
 use crate::term::session::Session;
@@ -125,6 +126,8 @@ pub(crate) struct Card {
     main_done: bool,
     /// Tool calls seen, for the wrapped line.
     pub tool_calls: u32,
+    /// The last usage report.
+    pub usage: Option<Usage>,
 }
 
 impl Card {
@@ -170,6 +173,7 @@ impl Card {
             pending: VecDeque::new(),
             main_done: false,
             tool_calls: 0,
+            usage: None,
         }
     }
 
@@ -228,6 +232,24 @@ impl Card {
             };
             State::Failed(sanitise(&reason, NAME_MAX))
         };
+    }
+
+    /// Applies a usage report: its figures, and the session's own name
+    /// when it has one (ARCHITECTURE §5.3). Reports after the process
+    /// ended are ignored.
+    pub(crate) fn report(&mut self, usage: Usage) {
+        if !self.running() {
+            return;
+        }
+        if let Some(name) = usage
+            .session_name
+            .as_deref()
+            .filter(|n| !n.trim().is_empty())
+        {
+            self.name = sanitise(name.trim(), NAME_MAX);
+        }
+        self.events = self.events.saturating_add(1);
+        self.usage = Some(usage);
     }
 
     /// Applies one hook event (ARCHITECTURE §4.3).

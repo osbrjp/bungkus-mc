@@ -9,6 +9,8 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Wrap};
 
+use crate::agent::Kind;
+use crate::agent::usage::tokens;
 use crate::app::model::{Focus, Model};
 use crate::app::sessions::{Card, State};
 use crate::ui::sanitise::truncate;
@@ -40,12 +42,17 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
         .iter()
         .enumerate()
         .map(|(pos, &i)| {
-            let marker = if pos == model.card && focused {
-                ">"
-            } else {
-                " "
-            };
-            let mut lines = card_lines(&model.cards[i], marker, width, spin, model.now, theme);
+            let selected = pos == model.card && focused;
+            let marker = if selected { ">" } else { " " };
+            let mut lines = card_lines(
+                &model.cards[i],
+                marker,
+                selected,
+                width,
+                spin,
+                model.now,
+                theme,
+            );
             lines.push(Line::from(""));
             lines
         })
@@ -123,6 +130,7 @@ fn minutes(from: Instant, to: Instant) -> u64 {
 fn card_lines(
     card: &Card,
     marker: &str,
+    expanded: bool,
     width: usize,
     spin: char,
     now: Instant,
@@ -175,11 +183,20 @@ fn card_lines(
             Span::styled(format!("  {}", truncate(s, body_width)), style),
         ])
     };
-    let mut lines = vec![
-        title,
-        body(&detail(card, now), text),
-        body("- tok · - · ctx -", text),
-    ];
+    let mut lines = vec![title, body(&detail(card, now), text)];
+    if expanded {
+        for row in expanded_usage(card) {
+            lines.push(body(&row, text));
+        }
+    } else {
+        let (usage, ctx, token) = compact_usage(card);
+        lines.push(Line::from(vec![
+            Span::raw(" "),
+            Span::styled(gutter, theme.fg(gutter_token)),
+            Span::styled(format!("  {usage}"), text),
+            Span::styled(ctx, theme.fg(token)),
+        ]));
+    }
     let skip = card.subagents.len().saturating_sub(SUBAGENT_ROWS);
     for sub in card.subagents.iter().skip(skip) {
         let mark = if sub.ended.is_some() { '+' } else { spin };
@@ -198,6 +215,68 @@ fn card_lines(
         ]));
     }
     lines
+}
+
+/// Returns the context fill for display: `None` when unknown or once the
+/// session ended (the last report is not a live context, DESIGN §6.2).
+fn live_ctx(card: &Card) -> Option<f64> {
+    card.usage
+        .as_ref()
+        .and_then(|u| u.ctx_pct)
+        .filter(|_| card.running())
+}
+
+/// Returns the compact usage line (DESIGN §6.2) as the text before the
+/// context figure, the context figure, and the context colour (`warn`
+/// from 80 %, `err` from 90 %).
+fn compact_usage(card: &Card) -> (String, String, Token) {
+    let u = card.usage.clone().unwrap_or_default();
+    let tok = u.tokens().map_or_else(|| "-".to_owned(), tokens);
+    let cost = u
+        .cost_usd
+        .map_or_else(|| "-".to_owned(), |c| format!("${c:.2}"));
+    let (ctx, token) = match live_ctx(card) {
+        Some(p) if p >= 90.0 => (format!("ctx {p:.0}%"), Token::Err),
+        Some(p) if p >= 80.0 => (format!("ctx {p:.0}%"), Token::Warn),
+        Some(p) => (format!("ctx {p:.0}%"), Token::Fg),
+        None => ("ctx -".to_owned(), Token::Fg),
+    };
+    (format!("{tok} tok · {cost} · "), ctx, token)
+}
+
+/// Returns the expanded usage rows of the selected card (DESIGN §6.3).
+fn expanded_usage(card: &Card) -> Vec<String> {
+    let u = card.usage.clone().unwrap_or_default();
+    let n = |v: Option<u64>| v.map_or_else(|| "-".to_owned(), tokens);
+    let mut rows = vec![format!("tokens   in {} · out {}", n(u.input), n(u.output))];
+    if card.kind == Kind::Claude {
+        rows.push(format!(
+            "cache    read {} · write {}",
+            n(u.cache_read),
+            n(u.cache_write)
+        ));
+        let cost = u
+            .cost_usd
+            .map_or_else(|| "-".to_owned(), |c| format!("${c:.2} (list price)"));
+        rows.push(format!("cost     {cost}"));
+    }
+    rows.push(match (live_ctx(card), u.ctx_size) {
+        (Some(p), Some(size)) => {
+            let used = u.input.map_or_else(|| "-".to_owned(), tokens);
+            format!("context  {p:.0}% of {} · {used} used", tokens(size))
+        }
+        (Some(p), None) => format!("context  {p:.0}%"),
+        (None, _) => "context  -".to_owned(),
+    });
+    if !u.limits.is_empty() {
+        let windows: Vec<String> = u
+            .limits
+            .iter()
+            .map(|w| format!("{} {:.0}%", w.label, w.used_pct))
+            .collect();
+        rows.push(format!("limits   {}", windows.join(" · ")));
+    }
+    rows
 }
 
 /// Returns the state line: state word and detail (DESIGN §5.2).

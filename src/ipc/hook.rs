@@ -55,6 +55,7 @@ fn encode(payload: &[u8], session: &str) -> Option<Vec<u8>> {
     let wire = Wire {
         mc_session: session.to_owned(),
         event: trim(&raw),
+        usage: None,
     };
     let mut line = serde_json::to_vec(&wire).ok()?;
     line.push(b'\n');
@@ -62,7 +63,7 @@ fn encode(payload: &[u8], session: &str) -> Option<Vec<u8>> {
 }
 
 /// Writes one line to the socket at `path`.
-fn send(path: &std::path::Path, line: &[u8]) -> std::io::Result<()> {
+pub(crate) fn send(path: &std::path::Path, line: &[u8]) -> std::io::Result<()> {
     let mut stream = UnixStream::connect(path)?;
     stream.set_write_timeout(Some(SEND_TIMEOUT))?;
     stream.write_all(line)

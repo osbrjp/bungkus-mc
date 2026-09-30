@@ -1,17 +1,17 @@
  bungkus-mc  ~/Works/OSBR › kedai-web                                                            ! 1 needs you · v0.1.0
-┌ projects ──────────┐┏ sessions · kedai-web ━━━━━━━━━━━━━━┓┌ output · C #a3f1 · rec-test ─────────────────────────────┐
-│:  kedai-web    ! 1 │┃>┃! C #a3f1 rec-test              0m┃│                                                          │
+┌ projects ──────────┐┏ sessions · kedai-web ━━━━━━━━━━━━━━┓┌ output · C #a3f1 · sl-test ──────────────────────────────┐
+│:  kedai-web    ! 1 │┃>┃! C #a3f1 sl-test               0m┃│                                                          │
 │   pasar-mobile     │┃ ┃  needs you · permission: Agent   ┃│                                                          │
-│   roti-docs        │┃ ┃  - tok · - · ctx -               ┃│                                                          │
-│   teh-cli          │┃ ┃  * say hi                    | 0m┃│                                                          │
-│   warung-api       │┃                                    ┃│                                                          │
+│   roti-docs        │┃ ┃  tokens   in 45k · out 140       ┃│                                                          │
+│   teh-cli          │┃ ┃  cache    read 30k · write 15k   ┃│                                                          │
+│   warung-api       │┃ ┃  cost     $0.04 (list price)     ┃│                                                          │
+│                    │┃ ┃  context  23% of 200k · 45k used ┃│                                                          │
+│                    │┃ ┃  limits   5h 6% · 7d 18%         ┃│                                                          │
+│                    │┃ ┃  * say hi                    | 0m┃│                                                          │
+│                    │┃                                    ┃│                                                          │
 │                    │┃  ~ C #a3f2 seo audit      your turn┃│                                                          │
 │                    │┃    done: "Three fixes, see above"  ┃│                                                          │
 │                    │┃    - tok · - · ctx -               ┃│                                                          │
-│                    │┃                                    ┃│                                                          │
-│                    │┃                                    ┃│                                                          │
-│                    │┃                                    ┃│                                                          │
-│                    │┃                                    ┃│                                                          │
 │                    │┃                                    ┃│                                                          │
 │                    │┃                                    ┃│                                                          │
 │                    │┃                                    ┃│                                                          │
@@ -37,5 +37,5 @@
 │                    │┃                                    ┃│                                                          │
 │                    │┃                                    ┃│                                                          │
 └────────────────────┘┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛└──────────────────────────────────────────────────────────┘
- NORMAL  enter → agent (ctrl-\ back) · n new · x stop · j/k · ! next · / filter · , settings · ? help
+ NORMAL  enter → agent (ctrl-\ back) · n new · x stop · j/k · ! next · ? help              C 5h #---- 6% · 7d #---- 18%
 cursor: hidden

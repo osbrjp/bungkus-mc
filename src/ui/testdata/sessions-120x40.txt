@@ -6,7 +6,10 @@
 │   teh-cli          │┃                                    ┃│                                                          │
 │   warung-api       │┃> | C #a3f2 flaky payment test    0m┃│                                                          │
 │                    │┃    output only · live tree unavail…┃│                                                          │
-│                    │┃    - tok · - · ctx -               ┃│                                                          │
+│                    │┃    tokens   in - · out -           ┃│                                                          │
+│                    │┃    cache    read - · write -       ┃│                                                          │
+│                    │┃    cost     -                      ┃│                                                          │
+│                    │┃    context  -                      ┃│                                                          │
 │                    │┃                                    ┃│                                                          │
 │                    │┃  + C #a3f3 bump deps        wrapped┃│                                                          │
 │                    │┃    0m · 0 tools · 0 subagents      ┃│                                                          │
@@ -33,9 +36,6 @@
 │                    │┃                                    ┃│                                                          │
 │                    │┃                                    ┃│                                                          │
 │                    │┃                                    ┃│                                                          │
-│                    │┃                                    ┃│                                                          │
-│                    │┃                                    ┃│                                                          │
-│                    │┃                                    ┃│                                                          │
 └────────────────────┘┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛└──────────────────────────────────────────────────────────┘
- NORMAL  enter → agent (ctrl-\ back) · n new · x stop · j/k · ! next · / filter · , settings · ? help
+ NORMAL  enter → agent (ctrl-\ back) · n new · x stop · j/k · ! next · ? help
 cursor: hidden

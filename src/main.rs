@@ -27,7 +27,8 @@ const HELP: &str = "\
 bungkus-mc - mission control for AI coding agents
 
 Usage: bungkus-mc [options] [WORKSPACE]
-       bungkus-mc hook      (run by agent hooks; silent)
+       bungkus-mc hook        (run by agent hooks; silent)
+       bungkus-mc statusline  (Claude's status line inside mc)
 
   WORKSPACE        folder whose child folders are projects
                    (default: the workspace in config.json; first run asks)
@@ -51,6 +52,8 @@ enum Command {
     Version,
     /// The silent hook subcommand agents run.
     Hook,
+    /// The status-line wrapper Claude runs.
+    StatusLine,
 }
 
 /// Parses command-line arguments (without the program name).
@@ -73,6 +76,9 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, lexopt:
             Short('h') | Long("help") => return Ok(Command::Help),
             Short('V') | Long("version") => return Ok(Command::Version),
             Value(value) if workspace.is_none() && value == "hook" => return Ok(Command::Hook),
+            Value(value) if workspace.is_none() && value == "statusline" => {
+                return Ok(Command::StatusLine);
+            }
             Value(value) if workspace.is_none() => workspace = Some(value.string()?),
             _ => return Err(arg.unexpected()),
         }
@@ -99,6 +105,7 @@ fn main() -> Result<()> {
             ipc::hook::run();
             return Ok(());
         }
+        Command::StatusLine => std::process::exit(ipc::statusline::run()),
         Command::Tui(workspace) => workspace,
     };
     if !stdout.is_terminal() {
@@ -184,6 +191,7 @@ mod tests {
             (&["--help"], Command::Help),
             (&["-V"], Command::Version),
             (&["hook"], Command::Hook),
+            (&["statusline"], Command::StatusLine),
             (&["--version"], Command::Version),
         ];
         for (args, want) in cases {

@@ -540,11 +540,21 @@ own status line** (VERIFIED). To keep the user's status line working:
    not forwarded.
 4. Same silence rules as `hook`.
 
-Token semantics (M5 records a multi-turn session): `total_input_tokens`
-includes cache and may be per-request; `used_percentage`/`current_usage`
-are `null` before the first reply (→ `-`); `context_window_size` varies
-(200k, 1M observed). Limits past `resets_at` without a fresher report are
-shown dimmed as stale.
+Token semantics, **settled in M5** by a recorded two-turn session (Claude
+Code 2.1.285, `src/ipc/testdata/statusline*.json`): `total_input_tokens`
+includes cache (it equals `current_usage.input_tokens +
+cache_creation_input_tokens + cache_read_input_tokens`) and is **per
+request, not cumulative** — about 46k after both the first and the second
+turn — so it is the current context size, and `used_percentage` is that
+over `context_window_size`. `total_cost_usd` is cumulative. The card's
+token figure is therefore "the last request's input + output", and the
+expanded card's `used` is `total_input_tokens`.
+`used_percentage`/`current_usage` are `null` before the first reply (→ `-`);
+`context_window_size` varies (200k, 1M observed). Limits past `resets_at`
+without a fresher report are shown dimmed as stale. Whether Claude
+itself runs status-line commands through `sh` or `$SHELL` is still
+unverified; the wrapper uses `sh -c`, which ran the owner's bash-invoking
+command unchanged.
 
 ### 6.3 Codex usage reader — the one transcript exception (approved)
 
