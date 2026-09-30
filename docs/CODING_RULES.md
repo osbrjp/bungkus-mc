@@ -29,10 +29,15 @@ Aligned with bungkus-cli; differences are called out. The one-line rule:
 - **Copied code** from bungkus-cli starts with
   `// copied from osbrjp/bungkus-cli@<sha> <path>` and is changed as little
   as possible so fixes can be mirrored.
-- Comments explain *why*. A deliberate simplification with a known ceiling
-  gets a `// ponytail:` comment naming the ceiling and the upgrade path
-  (e.g. `// ponytail: FIFO pairing of PreToolUse→SubagentStart; corrected
-  by background_tasks on the next Stop`).
+- Documentation lives in doc comments: every exported identifier and every
+  non-trivial function has one, stating what it does, its inputs, results,
+  errors and any known limit (e.g. "FIFO pairing of PreToolUse→SubagentStart;
+  corrected by background_tasks on the next Stop").
+- Inline comments are rare and explain *why*. No agent chatter: no comments
+  narrating edits ("added", "now uses", "fixed per review"), restating the
+  code, addressing the reviewer or crediting a tool. History belongs in
+  commit messages. Rust code also follows
+  `.claude/skills/rust-best-practices/SKILL.md`.
 
 ## 2. Testing
 

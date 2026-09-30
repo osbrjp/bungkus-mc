@@ -159,7 +159,7 @@ and outlive the agent. Design, per owner rulings:
   after it reparents to init/launchd; that is the whole point of scanning
   periodically. Entries whose `{pid, startTime}` is **missing from a new
   snapshot are pruned** (the process is gone; the pid may be reused).
-  (`// ponytail:` a process that forks and reparents between two scans is
+  (Known limit: a process that forks and reparents between two scans is
   missed; shorten the interval if that shows up in practice.)
 - **Identity = pid + start time.** Each entry is `{pid, startTime, uid,
   comm}`; before any signal the start time is re-read and must match, so a

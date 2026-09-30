@@ -208,7 +208,7 @@ with the last agent preselected.
 | Accidental keystrokes to the agent (INTERACT on focus) | medium | medium | four instant signals; `(ctrl-\ back)` in the sessions-pane hint; INTERACT ends when the process exits |
 | Key translation misses a key the agent needs | medium | medium | table + both-direction tests; `shift-enter` verified in M3 |
 | Cleanup kills the wrong process | low | high | descendants observed by scan only; pid + start-time identity re-checked before every signal; never by port; dialog lists everything first; fixture tests per OS |
-| Cleanup misses a daemonised process (forked between scans) | low | low | 2 s interval; `// ponytail:` note; shorten if seen |
+| Cleanup misses a daemonised process (forked between scans) | low | low | 2 s interval; documented limit; shorten if seen |
 | Hook / statusLine / rollout schema changes | medium | low | all fields optional; recorded fixtures; unknown → ignored / `-` |
 | Codex hook trust does not persist for injected hooks | medium | low | M6 first task; `setup codex` fallback fully specified |
 | Routing misroutes a hard task to a small model | medium | medium | opt-in; confidence threshold; card shows the model; override in picker; `/model` inside the agent |
