@@ -339,10 +339,13 @@ Session state machine (decided; the same for both agents):
 Subagents (flat list, no nesting in stage 1):
 
 - `SubagentStart{agent_id, agent_type}` adds a child (VERIFIED fields).
-- Description: the `PreToolUse` for `tool_name == "Agent"` (Claude) /
-  `"spawn_agent"` (Codex, ASSUMPTION until M6 records it) carries
-  `tool_input.description` and `tool_use_id`; the next unpaired
-  `SubagentStart` takes it (FIFO).
+- Description: the `PreToolUse` for `tool_name == "Agent"` (Claude) / a
+  name ending in `spawn_agent` (Codex 0.159.2 sends
+  `collaborationspawn_agent`, recorded in M6) carries
+  `tool_input.description` (Claude) or `tool_input.task_name` (Codex, e.g.
+  `say_hi`); the next unpaired `SubagentStart` takes it (FIFO). Codex's
+  `Stop` has no `background_tasks`; its list comes from
+  `SubagentStart`/`SubagentStop` alone.
 - **`background_tasks` is authoritative.** Every Claude `Stop` and
   `SubagentStop` carries `background_tasks: [{id, type: "subagent",
   agent_type, description, status}]` (VERIFIED); the child list is
@@ -457,15 +460,19 @@ registry.
 - **Resume:** `codex resume <uuid>` with the same `-c` hooks. Never
   `resume --last`. If hooks are not trusted the card says
   `not resumable — hooks off`.
-- Trust: Codex only runs hooks the user approved once via `/hooks`.
-  **M6's first task** is to verify whether that approval persists for our
-  byte-stable injected hooks. If yes, `setup codex` is deleted. If not,
-  `bungkus-mc setup codex` merges an mc block into `~/.codex/hooks.json`
-  (round-trip `serde_json::Value`, abort on malformed JSON, `.bak`, keep
-  mode, canonicalize, idempotent, y/N, manual removal documented).
-  **Never `--dangerously-bypass-hook-trust`.**
-- **M6's second task**: record real `SubagentStart`/`SubagentStop`/
-  `PreToolUse(spawn_agent)` payloads into `testdata/codex/`.
+- Trust: Codex only runs hooks the user approved, and records the trust
+  against the hook definition's hash. **Verified in M6 (Codex 0.159.2):**
+  on the first launch with mc's `-c` hooks Codex itself shows "Hooks need
+  review · 9 hooks are new or changed" in the pane (answered through
+  INTERACT: "Trust all and continue"), and a restart with the
+  byte-identical definition goes straight to the prompt. So there is **no
+  `setup codex`** subcommand. The definition changes when mc's executable
+  path does (a new install location asks once more). A session whose
+  hooks never report reads `hooks not trusted · /hooks in codex` after
+  10 s. **Never `--dangerously-bypass-hook-trust`.**
+- Recorded payloads: `src/agent/testdata/codex/session.jsonl` (scrubbed;
+  the prompt and the encrypted spawn message removed) and
+  `rollout.jsonl` (the session's three `token_count` records plus decoys).
 
 ### 5.3 Session names (decided: the card title is the session's own name)
 

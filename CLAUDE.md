@@ -34,7 +34,7 @@ docs before writing any.
 ## Module layout
 
 ```
-src/main.rs        # lexopt → subcommand (TUI, hook, statusline, setup, update); anyhow only here; panic hook restores the terminal
+src/main.rs        # lexopt → subcommand (TUI, hook, statusline, update); anyhow only here; panic hook restores the terminal
 src/app/           # event loop + Model (Elm-style): mode/focus, sessions, dirty flag, ticks, AppEvent
 src/ui/            # panes, dialogs, first run, keymap.rs, theme.rs (token spec), mascot.rs, string sanitise
 src/term/          # session.rs (PTY + Term + reader/waiter threads), keys.rs (encoder), query replies
