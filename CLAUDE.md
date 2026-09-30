@@ -85,6 +85,7 @@ cargo deny check
 
 - Conventional commits (`feat:`, `fix:`, `test:`, `chore:`, `docs:`); semantic-release: `main` = canary, `release` = stable (merge commit, never squash the promotion PR)
 - Branch naming: `i{issue#}-{date}-{seq}` (e.g. `i12-20261007-0930`)
+- Licence: proprietary (`LICENSE`, `publish = false`); never add code under a non-permissive licence.
 - GitHub repo: `osbrjp/bungkus-mc`; binary `bungkus-mc`, short command `bkmc`
 - Tests in `#[cfg(test)]` modules next to the code, table-driven; recorded hook payloads and `ps` output in `testdata/`; goldens are plain text + cursor at 120×40 and 80×24 with `NO_COLOR=1` and the ascii default
 - Doc comments carry the documentation (skill §2); no agent chatter in comments

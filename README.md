@@ -69,3 +69,7 @@ Notes for later users (from the design):
   start prompt you type, after a consent dialog.
 - Two instances on the same workspace work but share `sessions.json`
   (last writer wins).
+
+## Licence
+
+Proprietary. Copyright (c) 2026 OSBR. All rights reserved. See `LICENSE`.

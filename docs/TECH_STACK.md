@@ -46,6 +46,11 @@ heavy ones (`syn`, `windows-sys` families) from creeping in twice, with
 `x86_64-unknown-linux-gnu`) — otherwise the `windows-sys` duplicate ban
 fails on crates we never build. Every crate here is on crates.io with a
 permissive licence (MIT/Apache-2.0/ISC; `cargo deny` enforces the allowlist).
+bungkus-mc itself is proprietary: `Cargo.toml` sets `license-file = "LICENSE"`
+and `publish = false`, and `deny.toml` sets `[licenses.private] ignore = true`
+so our own crate isn't checked against the allowlist. The release job
+generates `THIRD-PARTY-NOTICES` (dependency licence texts, as MIT/Apache
+require) and ships it next to each binary.
 
 ## Deliberately not used
 

@@ -221,25 +221,38 @@ with the last agent preselected.
     client. `bgmc` was rejected because an npm package installs a `bgmc`
     command. From bungkus-cli: `bungkus-cli mc`.
 
+17. **Licence: proprietary, all rights reserved** (owner decision, for
+    now). The repo has a `LICENSE` file. `Cargo.toml` sets
+    `license-file = "LICENSE"` and `publish = false`, so the crate can never
+    be published to crates.io by accident. Every dependency's licence
+    (MIT/Apache-2.0/ISC) allows use in proprietary software, provided its
+    notice ships with the binary: each release includes a generated
+    `THIRD-PARTY-NOTICES`.
+
+18. **Screen-reader mode: not in v0.1.** Revisit if anyone asks. Users who
+    need it can run Claude Code on its own with its screen-reader option.
+
 ## 7. Open questions for the product owner
 
-1. **License** for the new repo (bungkus-cli's LICENSE file is empty).
-2. **Plain / screen-reader mode:** out of scope for v0.1 unless required
-   (Claude Code has `--ax-screen-reader`; a mc equivalent is a line-based
-   view, significant work).
-3. **Title-bar name:** `bungkus-mc` or `bungkus mission control`?
-4. **"wrapped"** as the word for a finished session — keep, or plain "done"?
-5. **Routing tiers per agent:** Claude `quick → haiku`, `standard → sonnet`,
+1. **Public or private GitHub repo?** The planned installer (`curl … |
+   bash`) downloads release binaries anonymously, which only works if the
+   repo or its releases are public. A proprietary licence can still sit in
+   a public repo (source visible, no rights granted). A private repo would
+   need an authenticated install (`gh release download`) and no one-line
+   curl installer.
+2. **Title-bar name:** `bungkus-mc` or `bungkus mission control`?
+3. **"wrapped"** as the word for a finished session — keep, or plain "done"?
+4. **Routing tiers per agent:** Claude `quick → haiku`, `standard → sonnet`,
    `deep → opus` is the proposed default; exact model ids per tier?
-6. **Route Codex too?** Codex's `-m` accepts model ids, but the tier map is
+5. **Route Codex too?** Codex's `-m` accepts model ids, but the tier map is
    empty by default (no obvious cheap/standard/deep triple); provide one,
    or Claude-only for M9?
-7. **Jev cost vs tokens saved:** a Jev call is ~$0.00002 per routed start
+6. **Jev cost vs tokens saved:** a Jev call is ~$0.00002 per routed start
    (≤ 4 KiB prompt at $0.042/Mtok), negligible; the real trade is
    quality-on-misroute vs cheaper sessions. Is the 0.6 confidence floor
    right, and should a fallback default to the *cheaper* or the *default*
    model?
-8. **Codex thread names:** extend the approved rollout reader to the
+7. **Codex thread names:** extend the approved rollout reader to the
    thread-name record once its type is confirmed, or leave Codex titles to
    mc's own name/prompt?
 
