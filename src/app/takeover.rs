@@ -46,6 +46,13 @@ impl Model {
             self.message = Some("This session has no id to resume.".into());
             return None;
         }
+        if project.as_os_str().is_empty() {
+            self.message = Some(
+                "It runs outside the workspace's projects; resume it there with claude --resume."
+                    .into(),
+            );
+            return None;
+        }
         if !crate::workspace::same_dir(&ext.cwd, &project) {
             self.message = Some(format!(
                 "It runs in a subfolder ({}); resume it there with claude --resume.",

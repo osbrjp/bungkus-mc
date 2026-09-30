@@ -194,6 +194,9 @@ pub(crate) struct Model {
     pub state_dirty: bool,
     /// Agent sessions running outside mc, read-only (ARCHITECTURE §3.4).
     pub external: Vec<External>,
+    /// The "elsewhere" row that ends the projects list while an outside
+    /// session runs in no project folder; its path is empty.
+    pub elsewhere: Project,
 }
 
 impl Model {
@@ -247,6 +250,11 @@ impl Model {
             next_scan: None,
             state_dirty: false,
             external: Vec::new(),
+            elsewhere: Project {
+                name: "elsewhere".into(),
+                path: PathBuf::new(),
+                worktree_of: None,
+            },
         }
     }
 
@@ -260,12 +268,16 @@ impl Model {
         }
     }
 
-    /// Returns the projects matching the filter, in display order.
+    /// Returns the projects matching the filter, in display order, then
+    /// the [`Model::elsewhere`] row while an outside session runs in no
+    /// project folder.
     #[must_use]
     pub(crate) fn visible(&self) -> Vec<&Project> {
         let needle = self.filter.to_lowercase();
+        let elsewhere = (!self.external_in(Path::new("")).is_empty()).then_some(&self.elsewhere);
         self.projects
             .iter()
+            .chain(elsewhere)
             .filter(|p| p.name.to_lowercase().contains(&needle))
             .collect()
     }
@@ -285,13 +297,21 @@ impl Model {
     }
 
     /// Returns the sessions outside mc running in `project` (or below it),
-    /// leaving out every session mc started: by pid, by a tracked
+    /// or, for the empty path of [`Model::elsewhere`], in no project folder;
+    /// every session mc started is left out: by pid, by a tracked
     /// descendant's pid, or by the agent's session id.
     #[must_use]
     pub(crate) fn external_in(&self, project: &Path) -> Vec<&External> {
+        let inside = |e: &External| {
+            if project.as_os_str().is_empty() {
+                !self.projects.iter().any(|p| e.cwd.starts_with(&p.path))
+            } else {
+                e.cwd.starts_with(project)
+            }
+        };
         self.external
             .iter()
-            .filter(|e| e.cwd.starts_with(project))
+            .filter(|e| inside(e))
             .filter(|e| {
                 !self.cards.iter().any(|c| {
                     c.pid == Some(e.pid)
@@ -443,6 +463,7 @@ impl Model {
             AppEvent::Procs(snapshot) => self.track(&snapshot),
             AppEvent::External(list) => {
                 self.external = list;
+                self.selected = self.selected.min(self.visible().len().saturating_sub(1));
                 self.card = self.card.min(self.session_rows().saturating_sub(1));
             }
             AppEvent::HostGone => return self.host_gone(),
@@ -857,7 +878,11 @@ impl Model {
                 self.filter.clear();
                 self.selected = 0;
             }
-            Action::NewSession if self.selected_project().is_some() => {
+            Action::NewSession
+                if self
+                    .selected_project()
+                    .is_some_and(|p| !p.path.as_os_str().is_empty()) =>
+            {
                 let agent = self
                     .settings
                     .as_ref()

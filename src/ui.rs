@@ -924,6 +924,25 @@ pub(crate) mod tests {
             "mc's own session is not listed twice"
         );
         assert!(!screen.contains("other project"), "{screen}");
+        assert!(
+            screen.contains("6 elsewhere"),
+            "sessions in no project get a row"
+        );
+        model.focus = crate::app::model::Focus::Projects;
+        for _ in 0..5 {
+            model.update(crate::app::model::tests::press(KeyCode::Char('j')));
+        }
+        let screen = render(&mut model, 120, 40);
+        assert!(screen.contains("other project"), "{screen}");
+        assert!(screen.contains("pid 702 · /elsewhere"), "{screen}");
+        model.external.pop();
+        model.update(crate::app::AppEvent::External(model.external.clone()));
+        assert_eq!(
+            model.visible().len(),
+            5,
+            "the row goes with its last session"
+        );
+        assert_eq!(model.selected, 4);
     }
 
     #[test]
