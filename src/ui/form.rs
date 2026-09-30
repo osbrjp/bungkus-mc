@@ -66,7 +66,7 @@ pub(super) fn draw_wizard(
     }
     draw_error(frame, error, form, theme);
     let hints = match form.field {
-        Field::Workspace => "↑↓ pick · → open · ← up · enter use this · esc skip",
+        Field::Workspace => "↑↓ pick · → open · ← up · enter choose · esc skip",
         Field::Agent | Field::Theme => "← → choose · enter next · esc back",
         Field::Done => "enter start · esc back",
     };
@@ -203,7 +203,7 @@ pub(super) fn draw_settings(
     frame.render_widget(
         Line::styled(
             if browsing {
-                "tab field · ↑↓ pick · → open · ← up · enter save · esc cancel "
+                "↑↓ pick · → open · ← up · enter choose · tab field · esc cancel "
             } else {
                 "tab ↑↓ field · ← → change · enter save · esc cancel "
             },
@@ -233,28 +233,27 @@ fn draw_browser(frame: &mut Frame, area: Rect, form: &Form, theme: Theme) {
     let rows = usize::from(area.height.saturating_sub(1));
     let start = (b.selected + 1).saturating_sub(rows);
     let width = usize::from(area.width).saturating_sub(usize::from(LABEL_WIDTH) + 12);
-    for (i, entry) in b.entries.iter().enumerate().skip(start).take(rows) {
+    let here_row = (".".to_owned(), "  this folder", false);
+    let rows_iter = std::iter::once(here_row).chain(b.entries.iter().map(|e| {
+        let note = if e.project { "  project" } else { "" };
+        (crate::ui::sanitise::truncate(&e.name, width), note, true)
+    }));
+    for (i, (name, note, folder)) in rows_iter.enumerate().skip(start).take(rows) {
         let chosen = i == b.selected;
         let marker = if chosen { "> " } else { "  " };
-        let style = if chosen {
-            bold_if(theme.fg(Token::Accent), true)
-        } else {
-            theme.fg(Token::Fg)
+        let style = match (chosen, folder) {
+            (true, _) => bold_if(theme.fg(Token::Accent), true),
+            (false, true) => theme.fg(Token::Fg),
+            (false, false) => theme.fg(Token::FgMuted),
         };
-        let mut spans = vec![
+        lines.push(Line::from(vec![
             Span::raw(" ".repeat(usize::from(LABEL_WIDTH))),
             Span::styled(marker, theme.fg(Token::Ok)),
-            Span::styled(
-                format!("{}/", crate::ui::sanitise::truncate(&entry.name, width)),
-                style,
-            ),
-        ];
-        if entry.project {
-            spans.push(Span::styled("  project", theme.fg(Token::FgMuted)));
-        }
-        lines.push(Line::from(spans));
+            Span::styled(format!("{name}/"), style),
+            Span::styled(note, theme.fg(Token::FgMuted)),
+        ]));
     }
-    if b.entries.is_empty() {
+    if b.entries.is_empty() && rows > 1 {
         lines.push(indent(
             "(no folders here — ← to go up)",
             theme.fg(Token::FgMuted),
@@ -450,6 +449,9 @@ mod tests {
                     "wizard-1-workspace-120x40.txt",
                     &render(&mut model, 120, 40),
                 );
+                if let Some(crate::app::model::Overlay::Form(form)) = &mut model.overlay {
+                    form.browser.step(-1);
+                }
             }
             key(&mut model, KeyCode::Enter);
         }
@@ -470,7 +472,11 @@ mod tests {
         };
         assert_eq!(form(&model).browser.dir, root);
         key(&mut model, KeyCode::Right);
+        assert_eq!(form(&model).browser.dir, root, "→ on ./ stays");
+        key(&mut model, KeyCode::Down);
+        key(&mut model, KeyCode::Right);
         assert_eq!(form(&model).browser.dir, root.join("Works"));
+        key(&mut model, KeyCode::Down);
         key(&mut model, KeyCode::Right);
         let f = form(&model);
         assert_eq!(f.workspace, root.join("Works/OSBR").to_string_lossy());

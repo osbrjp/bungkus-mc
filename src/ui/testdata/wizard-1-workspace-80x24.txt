@@ -9,8 +9,9 @@
 
      workspace   ┃/tmp                                                    ┃
                  1 project in this folder
-                   kedai-web/  project
-                 > notes/
+                   ./  this folder
+                 > kedai-web/  project
+                   notes/
                    roti-docs/
                    Works/
 
@@ -19,7 +20,6 @@
 
 
 
-
-                        ↑↓ pick · → open · ← up · enter use this · esc skip
+                          ↑↓ pick · → open · ← up · enter choose · esc skip
 
 cursor: 22,9

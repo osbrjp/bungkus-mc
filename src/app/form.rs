@@ -139,6 +139,9 @@ impl Form {
             self.error = None;
             return Outcome::Continue;
         }
+        if self.field == Field::Workspace && key.code == KeyCode::Enter {
+            return self.choose_workspace();
+        }
         match (self.kind, key.code) {
             (_, KeyCode::Left | KeyCode::Char('h')) => self.change(false),
             (_, KeyCode::Right | KeyCode::Char('l')) => self.change(true),
@@ -151,6 +154,25 @@ impl Form {
             _ => {}
         }
         Outcome::Continue
+    }
+
+    /// Chooses the highlighted folder (or, on the `./` row, the one in the
+    /// field) as the workspace and moves on to the next field; the panel
+    /// stays open, and a folder that cannot be used shows why.
+    fn choose_workspace(&mut self) -> Outcome {
+        if let Some(dir) = self.browser.highlighted().map(Path::to_path_buf) {
+            self.set_workspace(&tilde(&dir, self.home.as_deref()));
+        }
+        match self.kind {
+            FormKind::Wizard => self.wizard_next(),
+            FormKind::Settings => {
+                match self.validated() {
+                    Ok(_) => self.field = Field::Agent,
+                    Err(e) => self.error = Some(e),
+                }
+                Outcome::Continue
+            }
+        }
     }
 
     /// Returns the folder the field points at: the typed folder when it
@@ -434,6 +456,41 @@ mod tests {
             Kind::Codex,
             "nothing installed: both selectable"
         );
+    }
+
+    #[test]
+    fn enter_on_the_workspace_chooses_the_highlighted_folder_and_stays_open() {
+        let root = std::env::temp_dir().join(format!("mc-choose-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("works/app/.git")).unwrap();
+        let current = Settings {
+            workspace: root.clone(),
+            theme: ThemeChoice::Auto,
+            default_agent: Kind::Claude,
+        };
+        let mut form = Form::new(
+            FormKind::Settings,
+            &current,
+            [None, None],
+            PathBuf::new(),
+            None,
+        );
+        form.set_workspace(&root.to_string_lossy());
+        assert_eq!(form.browser.highlighted(), None, "./ comes first");
+        form.key(press(KeyCode::Down));
+        assert_eq!(form.key(press(KeyCode::Enter)), Outcome::Continue);
+        assert_eq!(form.field, Field::Agent, "on to the next field");
+        assert_eq!(PathBuf::from(&form.workspace), root.join("works"));
+        form.key(press(KeyCode::Up));
+        form.key(press(KeyCode::Up));
+        assert_eq!(form.field, Field::Workspace);
+        form.key(press(KeyCode::Enter));
+        assert_eq!(
+            PathBuf::from(&form.workspace),
+            root.join("works"),
+            "enter on ./ keeps the folder in the field"
+        );
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]

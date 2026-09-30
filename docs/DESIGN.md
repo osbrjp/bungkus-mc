@@ -877,8 +877,9 @@ Generated from the goldens in `src/ui/testdata/` (80×24, `NO_COLOR`):
 
      workspace   ┃/tmp                                                    ┃
                  1 project in this folder
-                   kedai-web/  project
-                 > notes/
+                   ./  this folder
+                 > kedai-web/  project
+                   notes/
                    roti-docs/
                    Works/
 
@@ -887,9 +888,15 @@ Generated from the goldens in `src/ui/testdata/` (80×24, `NO_COLOR`):
 
 
 
-
-                        ↑↓ pick · → open · ← up · enter use this · esc skip
+                          ↑↓ pick · → open · ← up · enter choose · esc skip
 ```
+
+The folder list works like a folder picker: `./` (this folder) comes
+first and is highlighted when a folder opens, `↑`/`↓` move, `→` opens the
+highlighted folder, `←` goes up, and `enter` chooses the highlighted row
+as the workspace and moves on to the next field or step. On the settings
+screen `enter` there never saves and closes; `enter` on the agent or theme
+row saves.
 
 ```
             ▄▄
