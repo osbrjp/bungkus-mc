@@ -56,6 +56,12 @@ const CHANNEL_CAPACITY: usize = 64;
 /// How often sessions outside mc are listed (ARCHITECTURE §3.4).
 const EXTERNAL_EVERY: Duration = Duration::from_secs(5);
 
+/// Appended to Claude's system prompt when another session already runs in
+/// the project, so it can move to a git worktree instead of clashing.
+const SHARED_FOLDER: &str = "Another coding agent session is already working in this folder. \
+If this is a git repository and your changes could clash with its work, \
+do yours in a git worktree instead of this checkout.";
+
 /// Everything the loop wakes up for.
 #[derive(Debug)]
 pub(crate) enum AppEvent {
@@ -134,6 +140,8 @@ pub(crate) struct Env {
     pub cwd: PathBuf,
     /// Workspace field prefill for the wizard, when it runs.
     pub wizard_prefill: Option<String>,
+    /// Whether to start a quick session popup at once (`bungkus-mc quick`).
+    pub quick: bool,
     /// The config as loaded (agent commands, mouse, notify).
     pub config: Config,
     /// Where `sessions.json` lives; `None` when no home directory is known.
@@ -190,6 +198,11 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<bool> {
     let (tx, rx) = mpsc::sync_channel::<AppEvent>(CHANNEL_CAPACITY);
     let uid = rustix::process::getuid().as_raw();
     let (hooks, _listener) = start_background(&mut model, &tx, uid);
+    if env.quick
+        && let Some(cmd) = model.quick_session()
+    {
+        run_cmd(&mut model, env, hooks.as_ref(), &tx, uid, cmd);
+    }
     let mut title = String::new();
     let input = tx.clone();
     thread::spawn(move || {
@@ -563,7 +576,8 @@ fn launch(
         ));
         return;
     };
-    let argv = agent::argv(kind, &program, &agent.args, &launch);
+    let extra_args = shared_note(model, kind, &project, replaces, agent.args.clone());
+    let argv = agent::argv(kind, &program, &extra_args, &launch);
     let id = launch.id.0.hyphenated().to_string();
     let mut extra = vec![("BUNGKUS_MC_SESSION", OsStr::new(&id))];
     if let Some(hooks) = hooks {
@@ -616,6 +630,30 @@ fn launch(
         }
     }
     model.add_card(card);
+}
+
+/// Returns `args` plus, for a Claude session in a project where another
+/// session already runs (`replaces` aside), [`SHARED_FOLDER`] as
+/// `--append-system-prompt`. Quick sessions share the root and get none.
+fn shared_note(
+    model: &Model,
+    kind: Kind,
+    project: &Path,
+    replaces: Option<SessionId>,
+    mut args: Vec<String>,
+) -> Vec<String> {
+    let shared = model.root() != Some(project)
+        && model
+            .cards
+            .iter()
+            .any(|c| c.running() && c.project == project && Some(c.id) != replaces);
+    if kind == Kind::Claude && shared {
+        args.extend([
+            "--append-system-prompt".to_owned(),
+            SHARED_FOLDER.to_owned(),
+        ]);
+    }
+    args
 }
 
 /// Sends pending alerts and keeps the terminal title on the tally
@@ -907,6 +945,26 @@ pub(crate) fn absolute(path: &str, cwd: &Path, home: Option<&Path>) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_claude_session_joining_a_busy_project_gets_the_shared_note() {
+        let mut model = crate::app::model::tests::sample(&["a", "b"]);
+        let (id, _writes) = crate::app::model::tests::with_session(&mut model, "first");
+        let (a, b) = (
+            model.projects[0].path.clone(),
+            model.projects[1].path.clone(),
+        );
+        let cases = [
+            (Kind::Claude, &a, None, 2),
+            (Kind::Codex, &a, None, 0),
+            (Kind::Claude, &b, None, 0),
+            (Kind::Claude, &a, Some(id), 0),
+        ];
+        for (kind, project, replaces, want) in cases {
+            let args = shared_note(&model, kind, project, replaces, Vec::new());
+            assert_eq!(args.len(), want, "{kind:?} {project:?} {replaces:?}");
+        }
+    }
 
     #[test]
     fn stops_an_outside_session_only_while_it_is_still_an_agent() {

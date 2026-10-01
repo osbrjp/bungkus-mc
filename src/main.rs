@@ -31,6 +31,7 @@ const HELP: &str = "\
 bungkus-mc - mission control for AI coding agents
 
 Usage: bungkus-mc [options] [WORKSPACE]
+       bungkus-mc quick [WORKSPACE]  (open a quick session popup at once)
        bungkus-mc hook        (run by agent hooks; silent)
        bungkus-mc statusline  (Claude's status line inside mc)
        bungkus-mc update [--check]
@@ -52,8 +53,10 @@ Config: ~/.config/bungkus/mc/config.json
 /// What the command line asks for.
 #[derive(Debug, PartialEq, Eq)]
 enum Command {
-    /// Run the TUI, optionally on a workspace given on the command line.
-    Tui(Option<String>, Option<IconSet>, bool),
+    /// Run the TUI, optionally on a workspace given on the command line:
+    /// workspace, icon set, `--debug`, and whether `quick` asked for a
+    /// quick session popup at start.
+    Tui(Option<String>, Option<IconSet>, bool, bool),
     /// Print [`HELP`].
     Help,
     /// Print the version.
@@ -91,7 +94,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, lexopt:
     let mut parser = lexopt::Parser::from_args(args);
     let mut workspace = None;
     let mut icons = None;
-    let mut debug = false;
+    let (mut debug, mut quick) = (false, false);
     while let Some(arg) = parser.next()? {
         match arg {
             Short('h') | Long("help") => return Ok(Command::Help),
@@ -119,6 +122,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, lexopt:
                 };
                 return Ok(Command::Update { check });
             }
+            Value(value) if workspace.is_none() && !quick && value == "quick" => quick = true,
             Long("debug") => debug = true,
             Long("icons") => {
                 let value = parser.value()?.string()?;
@@ -137,7 +141,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, lexopt:
             _ => return Err(arg.unexpected()),
         }
     }
-    Ok(Command::Tui(workspace, icons, debug))
+    Ok(Command::Tui(workspace, icons, debug, quick))
 }
 
 /// Parses the command line and runs the chosen command.
@@ -149,7 +153,8 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, lexopt:
 fn main() -> Result<()> {
     let command = parse_args(std::env::args().skip(1)).context("reading arguments")?;
     let mut stdout = std::io::stdout();
-    let Some(Command::Tui(workspace_arg, icons_arg, debug)) = run_subcommand(command, &mut stdout)?
+    let Some(Command::Tui(workspace_arg, icons_arg, debug, quick)) =
+        run_subcommand(command, &mut stdout)?
     else {
         return Ok(());
     };
@@ -224,6 +229,7 @@ fn main() -> Result<()> {
         config_path,
         cwd,
         wizard_prefill,
+        quick,
         config,
         state_path,
     };
@@ -344,19 +350,25 @@ mod tests {
     #[test]
     fn parses_each_flag_to_its_command() {
         let cases: &[(&[&str], Command)] = &[
-            (&[], Command::Tui(None, None, false)),
+            (&[], Command::Tui(None, None, false, false)),
             (
                 &["~/Works"],
-                Command::Tui(Some("~/Works".into()), None, false),
+                Command::Tui(Some("~/Works".into()), None, false, false),
             ),
-            (&["--debug"], Command::Tui(None, None, true)),
+            (&["--debug"], Command::Tui(None, None, true, false)),
+            (&["quick"], Command::Tui(None, None, false, true)),
+            (
+                &["quick", "~/Works"],
+                Command::Tui(Some("~/Works".into()), None, false, true),
+            ),
+            (&["quick", "--debug"], Command::Tui(None, None, true, true)),
             (&["-h"], Command::Help),
             (&["--help"], Command::Help),
             (&["-V"], Command::Version),
             (&["hook"], Command::Hook),
             (
                 &["--icons", "unicode"],
-                Command::Tui(None, Some(IconSet::Unicode), false),
+                Command::Tui(None, Some(IconSet::Unicode), false, false),
             ),
             (&["statusline"], Command::StatusLine),
             (&["update"], Command::Update { check: false }),
