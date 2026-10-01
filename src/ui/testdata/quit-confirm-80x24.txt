@@ -1,4 +1,4 @@
- bungkus-mc  kedai-web › sessions      x 1 failed · | 1 working · v0.1.0-beta.2
+ bungkus-mc  kedai-web › sessions      x 1 failed · | 1 working · v0.1.0-beta.3
 ┏ [2] sessions · kedai-web ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃ ┃x C #a3f1 checkout redesign                                           failed┃
 ┃ ┃  exit 1 · boom                                                             ┃
