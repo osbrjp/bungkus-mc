@@ -72,6 +72,9 @@ pub(crate) struct Form {
     home: Option<PathBuf>,
     /// The folder list under the workspace field.
     pub browser: Browser,
+    /// Whether the workspace field takes typing (after `/`, `~` or `i`);
+    /// otherwise `j`/`k`/`h`/`l` drive the folder browser.
+    pub typing: bool,
 }
 
 impl Form {
@@ -108,6 +111,7 @@ impl Form {
             fallback,
             home,
             browser: Browser::open(Path::new("/")),
+            typing: false,
         };
         form.sync_browser();
         if !form.selectable(form.agent) {
@@ -118,9 +122,9 @@ impl Form {
 
     /// Handles one key press.
     ///
-    /// `ctrl-c` quits from anywhere. The workspace field takes typing,
-    /// `backspace` and `ctrl-u`, and drives the folder browser with the
-    /// arrows; the choices move with `←`/`→` (and `h`/`l`). In the wizard
+    /// `ctrl-c` quits from anywhere. The workspace field browses folders
+    /// and types a path on request ([`Form::workspace_key`]); the choices
+    /// move with `←`/`→` (and `h`/`l`). In the wizard
     /// `enter` goes to the next step and `esc` back, and `esc` on the first
     /// step skips the wizard with defaults; on the settings screen
     /// `tab`/`shift-tab` (and `↑`/`↓` off the workspace field) move between
@@ -130,17 +134,10 @@ impl Form {
         if ctrl && key.code == KeyCode::Char('c') {
             return Outcome::Quit;
         }
-        if self.field == Field::Workspace && self.edit_text(key) {
-            self.error = None;
-            self.sync_browser();
-            return Outcome::Continue;
-        }
-        if self.field == Field::Workspace && self.browse_key(key) {
-            self.error = None;
-            return Outcome::Continue;
-        }
-        if self.field == Field::Workspace && key.code == KeyCode::Enter {
-            return self.choose_workspace();
+        if self.field == Field::Workspace
+            && let Some(outcome) = self.workspace_key(key)
+        {
+            return outcome;
         }
         match (self.kind, key.code) {
             (_, KeyCode::Left | KeyCode::Char('h')) => self.change(false),
@@ -149,8 +146,12 @@ impl Form {
             (FormKind::Wizard, KeyCode::Esc) => return self.wizard_back(),
             (FormKind::Settings, KeyCode::Enter) => return self.submit(),
             (FormKind::Settings, KeyCode::Esc) => return Outcome::Cancel,
-            (FormKind::Settings, KeyCode::Down | KeyCode::Tab) => self.move_field(true),
-            (FormKind::Settings, KeyCode::Up | KeyCode::BackTab) => self.move_field(false),
+            (FormKind::Settings, KeyCode::Down | KeyCode::Tab | KeyCode::Char('j')) => {
+                self.move_field(true);
+            }
+            (FormKind::Settings, KeyCode::Up | KeyCode::BackTab | KeyCode::Char('k')) => {
+                self.move_field(false);
+            }
             _ => {}
         }
         Outcome::Continue
@@ -173,6 +174,72 @@ impl Form {
                 Outcome::Continue
             }
         }
+    }
+
+    /// Handles a key on the workspace field; `None` lets the form handle it
+    /// (`tab`, `esc` while browsing, …).
+    ///
+    /// Browsing (the default): `j`/`k` or `↓`/`↑` move the highlight, `l`/`→`
+    /// opens the folder, `h`/`←` goes up, `enter` chooses; `/` or `~` start
+    /// typing a new path, `i` (or `backspace`, `ctrl-u`) edits this one.
+    /// Typing: letters edit the path and the list follows it; `esc` stops
+    /// typing, `enter` chooses, the arrows still browse.
+    fn workspace_key(&mut self, key: KeyEvent) -> Option<Outcome> {
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        if key.code == KeyCode::Enter {
+            self.typing = false;
+            return Some(self.choose_workspace());
+        }
+        if self.typing {
+            if key.code == KeyCode::Esc {
+                self.typing = false;
+                return Some(Outcome::Continue);
+            }
+            if self.edit_text(key) {
+                self.error = None;
+                self.sync_browser();
+                return Some(Outcome::Continue);
+            }
+        } else {
+            let arrow = match key.code {
+                KeyCode::Char('j') if !ctrl => Some(KeyCode::Down),
+                KeyCode::Char('k') if !ctrl => Some(KeyCode::Up),
+                KeyCode::Char('l') if !ctrl => Some(KeyCode::Right),
+                KeyCode::Char('h') if !ctrl => Some(KeyCode::Left),
+                _ => None,
+            };
+            if let Some(code) = arrow {
+                self.browse_key(KeyEvent::new(code, KeyModifiers::NONE));
+                self.error = None;
+                return Some(Outcome::Continue);
+            }
+            match key.code {
+                KeyCode::Char(start @ ('/' | '~')) if !ctrl => {
+                    self.typing = true;
+                    self.workspace = start.to_string();
+                    self.sync_browser();
+                    return Some(Outcome::Continue);
+                }
+                KeyCode::Char('i') if !ctrl => {
+                    self.typing = true;
+                    return Some(Outcome::Continue);
+                }
+                KeyCode::Backspace | KeyCode::Char('u')
+                    if key.code == KeyCode::Backspace || ctrl =>
+                {
+                    self.typing = true;
+                    self.edit_text(key);
+                    self.sync_browser();
+                    return Some(Outcome::Continue);
+                }
+                _ => {}
+            }
+        }
+        if self.browse_key(key) {
+            self.error = None;
+            return Some(Outcome::Continue);
+        }
+        None
     }
 
     /// Returns the folder the field points at: the typed folder when it
@@ -491,6 +558,40 @@ mod tests {
             "enter on ./ keeps the folder in the field"
         );
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn j_and_k_move_between_settings_rows_outside_the_text_box() {
+        let current = Settings {
+            workspace: std::env::temp_dir(),
+            theme: ThemeChoice::Auto,
+            default_agent: Kind::Claude,
+        };
+        let mut form = Form::new(
+            FormKind::Settings,
+            &current,
+            [None, None],
+            PathBuf::new(),
+            None,
+        );
+        form.field = Field::Agent;
+        form.key(press(KeyCode::Char('j')));
+        assert_eq!(form.field, Field::Theme);
+        form.key(press(KeyCode::Char('k')));
+        form.key(press(KeyCode::Char('k')));
+        assert_eq!(form.field, Field::Workspace);
+        let before = form.workspace.clone();
+        form.key(press(KeyCode::Char('j')));
+        assert_eq!(
+            (form.field, form.workspace.clone(), form.browser.selected),
+            (Field::Workspace, before.clone(), 1),
+            "on the workspace field j moves the folder list"
+        );
+        form.key(press(KeyCode::Char('i')));
+        form.key(press(KeyCode::Char('j')));
+        assert_eq!(form.workspace, format!("{before}j"), "after i, j is typed");
+        form.key(press(KeyCode::Esc));
+        assert!(!form.typing, "esc stops typing, not the dialog");
     }
 
     #[test]

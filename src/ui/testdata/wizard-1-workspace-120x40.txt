@@ -28,7 +28,7 @@
 
 
 
-                                              ↑↓ pick · → open · ← up · enter choose · esc skip
+                             j/k pick · l open · h up · / type a path · enter choose · esc skip
 
 
 
@@ -38,4 +38,4 @@
 
 
 
-cursor: 42,17
+cursor: hidden

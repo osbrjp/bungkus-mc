@@ -93,6 +93,9 @@ struct TerminalGuard;
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
         release_host_modes();
+        if std::env::var_os("KITTY_WINDOW_ID").is_some() {
+            write_host(KITTY_PASS_KEYS_OFF);
+        }
         ratatui::restore();
         // XTWINOPS: restore the title saved at start (DESIGN §9).
         write_host(b"\x1b[23;0t");
@@ -265,6 +268,9 @@ fn start_background(
         (_, Err(_)) => None,
     };
     write_host(b"\x1b[22;0t");
+    if model.kitty {
+        write_host(KITTY_PASS_KEYS_ON);
+    }
     if std::io::stderr().is_terminal() {
         let tx = tx.clone();
         thread::spawn(move || {
@@ -329,6 +335,7 @@ fn run_cmd(
             }
         }
         Cmd::SaveWorkspaces => save_workspaces(model, env),
+        Cmd::KittyFocus(side) => kitty_focus(side),
         Cmd::NewProject(path, agent_files) => new_project(model, &path, agent_files),
         Cmd::TrashProject(paths) => trash_projects(model, &paths),
         Cmd::RestoreProject(moved) => restore_projects(model, &moved),
@@ -422,6 +429,32 @@ fn save_state(model: &mut Model, env: &Env) {
     // reason: limits are a convenience; the next report brings them back.
     let _ = crate::store::state::save_limits(&crate::store::state::limits_file(path), &limits);
 }
+
+/// Asks kitty to focus its neighbouring window on `side` with
+/// `kitten @ focus-window --match neighbor:<side>` (fixed argv, kitty's
+/// remote control over `KITTY_LISTEN_ON`); a missing `kitten` or a refusal
+/// changes nothing.
+fn kitty_focus(side: &str) {
+    let spawned = std::process::Command::new("kitten")
+        .args(["@", "focus-window", "--match"])
+        .arg(format!("neighbor:{side}"))
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+    if let Ok(mut child) = spawned {
+        thread::spawn(move || {
+            // reason: reaps the child; its exit status does not matter.
+            let _ = child.wait();
+        });
+    }
+}
+
+/// The kitty user variable kitty's `map --when-focus-on var:IS_VIM=true`
+/// rules test, so `ctrl-h/j/k/l` reach mc instead of moving kitty windows.
+const KITTY_PASS_KEYS_ON: &[u8] = b"\x1b]1337;SetUserVar=IS_VIM=dHJ1ZQ==\x07";
+/// Clears [`KITTY_PASS_KEYS_ON`] when mc exits.
+const KITTY_PASS_KEYS_OFF: &[u8] = b"\x1b]1337;SetUserVar=IS_VIM\x07";
 
 /// Writes the saved workspaces to `config.json`, keeping every other key.
 fn save_workspaces(model: &mut Model, env: &Env) {

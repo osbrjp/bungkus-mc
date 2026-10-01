@@ -87,6 +87,14 @@ title, the reverse-video mode word and the hint. The mouse wheel scrolls
 mc's scrollback; to select text, hold `shift` (kitty, Ghostty, iTerm2,
 WezTerm, Alacritty) or `option` (Terminal.app) while dragging.
 
+**kitty with `ctrl+h/j/k/l` window navigation** (`map ctrl+j
+neighboring_window down` and a `--when-focus-on var:IS_VIM=true` passthrough,
+as vim-kitty-navigator setups have): mc sets the kitty user variable
+`IS_VIM=true` while it runs, so those keys reach mc, and hands them back at
+its edges — `ctrl-h` on the projects pane, `ctrl-l` in the output pane,
+`ctrl-j`/`ctrl-k` on the list panes — with `kitten @ focus-window --match
+neighbor:…` (needs `allow_remote_control`).
+
 **`cmd` + 1 2 3 on macOS.** Terminals keep `cmd`-digits for their own tabs,
 so map them to the sequences mc reads (this gives up the terminal's
 `cmd`-1..3 tab switching):

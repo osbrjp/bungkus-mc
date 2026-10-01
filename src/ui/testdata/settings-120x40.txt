@@ -22,7 +22,7 @@
 ┃                    ┃│    ║                                                                ║                          │
 ┃                    ┃│    ║                                                                ║                          │
 ┃                    ┃│    ║                                                                ║ed yet.                   │
-┃                    ┃│    ║            tab ↑↓ field · ← → change · enter save · esc cancel ║session                   │
+┃                    ┃│    ║        j/k ↑↓ field · h/l ← → change · enter save · esc cancel ║session                   │
 ┃                    ┃│    ╚════════════════════════════════════════════════════════════════╝                          │
 ┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │

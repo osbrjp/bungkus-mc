@@ -13,7 +13,7 @@
 ┃            ║  prompt  ┃fix the flaky date test         ┃        ║            ┃
 ┃            ║                                                    ║            ┃
 ┃            ║  prompt and name are optional                      ║            ┃
-┃            ║               enter start · tab next · esc cancel  ║            ┃
+┃            ║     enter start · j/k tab next · h/l change · esc  ║            ┃
 ┃            ║                                                    ║            ┃
 ┃            ╚════════════════════════════════════════════════════╝            ┃
 ┃                                                                              ┃

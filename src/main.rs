@@ -180,6 +180,7 @@ fn main() -> Result<()> {
         .filter_map(|w| config::expand(w, home.as_deref()))
         .collect();
     model.debug_keys = var("BUNGKUS_MC_DEBUG_KEYS").is_some();
+    model.kitty = var("KITTY_WINDOW_ID").is_some();
     if let Some(text) = &config.interact_exit {
         match term::keys::Chord::parse(text) {
             Some(chord) => model.exit_chord = chord,

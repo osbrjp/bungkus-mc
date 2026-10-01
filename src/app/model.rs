@@ -137,6 +137,10 @@ pub(crate) enum Cmd {
     SwitchWorkspace(PathBuf, Option<SessionId>),
     /// Write the saved workspaces to `config.json`.
     SaveWorkspaces,
+    /// Ask kitty to focus its window on that side (`left`, `right`, `top`,
+    /// `bottom`): `ctrl-h/j/k/l` past mc's own edge, as vim-kitty-navigator
+    /// does.
+    KittyFocus(&'static str),
     /// Create this project folder: `git init`, plus `AGENTS.md` and a
     /// `CLAUDE.md` that imports it when the flag is set.
     NewProject(PathBuf, bool),
@@ -234,6 +238,9 @@ pub(crate) struct Model {
     /// Shows every key mc receives in the hint line (`BUNGKUS_MC_DEBUG_KEYS`),
     /// to find chords a terminal keeps for itself.
     pub debug_keys: bool,
+    /// Whether mc runs in kitty (`KITTY_WINDOW_ID`): `ctrl-h/j/k/l` past
+    /// mc's edges then move to kitty's neighbouring window.
+    pub kitty: bool,
     /// Saved workspaces, most recently used first (`w`).
     pub workspaces: Vec<PathBuf>,
     /// The projects last moved to the Trash this run, each `(folder, where
@@ -331,6 +338,7 @@ impl Model {
             popup: None,
             last_trash: Vec::new(),
             workspaces: Vec::new(),
+            kitty: false,
             visual: None,
             popup_menu: false,
             debug_keys: false,
@@ -776,6 +784,9 @@ impl Model {
             self.popup_key(id, key);
             return None;
         }
+        if let Some(side) = self.kitty_edge(key) {
+            return Some(Cmd::KittyFocus(side));
+        }
         if self.focus == Focus::Output && self.overlay.is_none() {
             self.interact_key(key);
             return None;
@@ -892,7 +903,7 @@ impl Model {
                 | KeyCode::Right
                 | KeyCode::Up
                 | KeyCode::Down
-                | KeyCode::Char('h' | 'l')
+                | KeyCode::Char('h' | 'l' | 'j' | 'k')
                 | KeyCode::Tab => {
                     let other = match kind {
                         Kind::Claude => Kind::Codex,
@@ -1044,6 +1055,29 @@ impl Model {
             return None;
         }
         Some(Cmd::RestoreProject(std::mem::take(&mut self.last_trash)))
+    }
+
+    /// Returns the kitty window to move to when `key` is `ctrl-h/j/k/l` past
+    /// mc's edge: `ctrl-h` on the projects pane, `ctrl-l` in the output pane,
+    /// `ctrl-j`/`ctrl-k` on the two list panes (in the output pane they
+    /// belong to the agent: `ctrl-j` is Claude's newline). Only in kitty, and
+    /// never while a dialog, the search or a quick popup has the keys.
+    fn kitty_edge(&self, key: KeyEvent) -> Option<&'static str> {
+        if !self.kitty
+            || key.modifiers != KeyModifiers::CONTROL
+            || self.overlay.is_some()
+            || self.popup.is_some()
+            || self.filtering
+        {
+            return None;
+        }
+        match (key.code, self.focus) {
+            (KeyCode::Char('h'), Focus::Projects) => Some("left"),
+            (KeyCode::Char('l'), Focus::Output) => Some("right"),
+            (KeyCode::Char('j'), Focus::Projects | Focus::Sessions) => Some("bottom"),
+            (KeyCode::Char('k'), Focus::Projects | Focus::Sessions) => Some("top"),
+            _ => None,
+        }
     }
 
     /// Returns whether visible row `row` is inside the `V` selection.
@@ -1661,6 +1695,34 @@ pub(crate) mod tests {
         assert_eq!(m.selected, 1, "ctrl-n moves through the search matches");
         m.update(ctrl('p'));
         assert_eq!(m.selected, 0);
+    }
+
+    #[test]
+    fn in_kitty_ctrl_hjkl_past_the_edge_moves_to_kittys_window() {
+        let ctrl = |ch| {
+            AppEvent::Input(Event::Key(KeyEvent::new(
+                KeyCode::Char(ch),
+                KeyModifiers::CONTROL,
+            )))
+        };
+        let mut m = sample(&["a", "b"]);
+        m.focus = Focus::Projects;
+        assert_eq!(m.update(ctrl('h')), None, "outside kitty nothing leaves mc");
+        m.kitty = true;
+        assert_eq!(m.update(ctrl('h')), Some(Cmd::KittyFocus("left")));
+        assert_eq!(m.update(ctrl('j')), Some(Cmd::KittyFocus("bottom")));
+        assert_eq!(
+            m.update(ctrl('l')),
+            None,
+            "ctrl-l still moves inside mc first"
+        );
+        assert_eq!(m.focus, Focus::Sessions);
+        m.update(press(KeyCode::Char('w')));
+        assert_eq!(
+            m.update(ctrl('j')),
+            None,
+            "a dialog keeps ctrl-j for its list"
+        );
     }
 
     #[test]
