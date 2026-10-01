@@ -81,6 +81,8 @@ pub(crate) enum AppEvent {
     /// The `U` update finished: the installed tag, `None` when already
     /// latest, or why it failed.
     Updated(Result<Option<String>, String>),
+    /// A worktree removal finished; what to tell the user.
+    Worktrees(String),
     /// A deadline passed: animation frame, sync flush or stop grace.
     Tick,
 }
@@ -244,7 +246,7 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<bool> {
                     pty.flush_sync();
                 }
             }
-            if matches!(event, AppEvent::External(_)) {
+            if matches!(event, AppEvent::External(_) | AppEvent::Worktrees(_)) {
                 rescan(&mut model);
                 scan_repos(&mut model, &tx);
             }
@@ -394,8 +396,8 @@ fn run_cmd(
                 model.message = Some(format!("Could not create {}: {e}", path.display()));
             }
         },
-        Cmd::RemoveWorktree(project, name) => forget_worktree(model, &project, &name),
-        Cmd::CleanWorktrees(project) => clean_worktrees(model, &project),
+        Cmd::RemoveWorktree(project, name) => forget_worktree(model, &project, &name, tx),
+        Cmd::CleanWorktrees(project) => clean_worktrees(model, &project, tx),
         Cmd::SaveWidths(widths) => {
             if let Some(path) = &env.config_path
                 && let Err(e) = config::save_widths(path, widths)
@@ -782,11 +784,15 @@ fn worktree_name(name: &str, id: SessionId) -> String {
 }
 
 /// Runs `git` in `dir` with fixed arguments (no shell) and returns what it
-/// printed, or `None` when it failed or is missing.
+/// printed, or `None` when it failed or is missing. It gets its own process
+/// group, so a signal that ends mc (a closed terminal) does not cut a
+/// worktree removal off halfway.
 fn git(dir: &Path, args: &[&OsStr]) -> Option<String> {
+    use std::os::unix::process::CommandExt;
     let output = std::process::Command::new("git")
         .args(args)
         .current_dir(dir)
+        .process_group(0)
         .stdin(std::process::Stdio::null())
         .output()
         .ok()?;
@@ -814,25 +820,33 @@ fn remove_worktree(repo: &Path, path: &Path) -> bool {
     git(repo, &args("remove")).is_some()
 }
 
-/// Removes the worktree a forgotten session ran in, and says what happened.
-fn forget_worktree(model: &mut Model, project: &Path, name: &str) {
+/// Removes the worktree a forgotten session ran in, off the UI thread (a
+/// worktree with dependencies takes seconds to delete), and reports what
+/// happened as [`AppEvent::Worktrees`].
+fn forget_worktree(model: &mut Model, project: &Path, name: &str, tx: &SyncSender<AppEvent>) {
     let path = project.join(".claude/worktrees").join(name);
     if !path.exists() {
         return;
     }
-    model.message = Some(if remove_worktree(project, &path) {
-        format!("Removed worktree {name} (its branch stays).")
-    } else {
-        format!("Worktree {name} has uncommitted files; kept.")
+    model.message = Some(format!("Removing worktree {name}…"));
+    let (project, name, tx) = (project.to_path_buf(), name.to_owned(), tx.clone());
+    thread::spawn(move || {
+        let text = if remove_worktree(&project, &path) {
+            format!("Removed worktree {name} (its branch stays).")
+        } else {
+            format!("Worktree {name} has uncommitted files; kept.")
+        };
+        // reason: mc may have quit meanwhile.
+        let _ = tx.send(AppEvent::Worktrees(text));
     });
-    rescan(model);
 }
 
 /// Removes the unused worktrees of `project` (`c`, confirmed): every
 /// linked worktree git lists, except one a session of mc runs in or can
 /// resume into, one an outside agent session runs in, and (git refuses)
-/// one holding modified or untracked files. Branches stay.
-fn clean_worktrees(model: &mut Model, project: &Path) {
+/// one holding modified or untracked files. Branches stay. The removal
+/// runs off the UI thread and reports as [`AppEvent::Worktrees`].
+fn clean_worktrees(model: &mut Model, project: &Path, tx: &SyncSender<AppEvent>) {
     // reason: pruning only drops records of folders that are gone.
     let _ = git(project, &["worktree", "prune"].map(OsStr::new));
     let args = ["worktree", "list", "--porcelain"].map(OsStr::new);
@@ -859,19 +873,24 @@ fn clean_worktrees(model: &mut Model, project: &Path) {
         .map(PathBuf::from)
         .filter(|path| !used(path))
         .collect();
-    // ponytail: removed on the UI thread; move to a thread if large
-    // worktrees make this freeze noticeably.
-    let removed = unused
-        .iter()
-        .filter(|path| remove_worktree(project, path))
-        .count();
-    let kept = unused.len() - removed;
-    model.message = Some(match (removed, kept) {
-        (0, 0) => "No unused worktrees.".to_owned(),
-        (n, 0) => format!("Removed {n} unused worktrees (branches stay)."),
-        (n, k) => format!("Removed {n} unused worktrees · kept {k} with uncommitted files."),
+    if unused.is_empty() {
+        model.message = Some("No unused worktrees.".into());
+        return;
+    }
+    model.message = Some(format!("Removing {} unused worktrees…", unused.len()));
+    let (project, tx) = (project.to_path_buf(), tx.clone());
+    thread::spawn(move || {
+        let removed = unused
+            .iter()
+            .filter(|path| remove_worktree(&project, path))
+            .count();
+        let text = match (removed, unused.len() - removed) {
+            (n, 0) => format!("Removed {n} unused worktrees (branches stay)."),
+            (n, k) => format!("Removed {n} unused worktrees · kept {k} with uncommitted files."),
+        };
+        // reason: mc may have quit meanwhile.
+        let _ = tx.send(AppEvent::Worktrees(text));
     });
-    rescan(model);
 }
 
 /// Sends pending alerts and keeps the terminal title on the tally
@@ -1273,16 +1292,23 @@ mod tests {
         );
         card.worktree = Some("mine".into());
         model.cards.push(card);
-        clean_worktrees(&mut model, &repo);
+        let (tx, rx) = mpsc::sync_channel(1);
+        let done = || match rx.recv().unwrap() {
+            AppEvent::Worktrees(text) => text,
+            other => panic!("{other:?}"),
+        };
+        clean_worktrees(&mut model, &repo, &tx);
+        let text = done();
         let left = |name: &str| repo.join(".claude/worktrees").join(name).exists();
-        assert!(!left("clean"), "{:?}", model.message);
+        assert!(!left("clean"), "{text}");
         assert!(left("dirty") && left("mine"));
         assert!(
             run(&["branch", "--list", "clean"]).contains("clean"),
             "the branch stays"
         );
-        assert!(model.message.as_deref().unwrap().contains("kept 1"));
-        forget_worktree(&mut model, &repo, "mine");
+        assert!(text.contains("kept 1"));
+        forget_worktree(&mut model, &repo, "mine", &tx);
+        done();
         assert!(!left("mine"));
         std::fs::remove_dir_all(&repo).unwrap();
     }

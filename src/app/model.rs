@@ -658,6 +658,7 @@ impl Model {
                 self.newer = Some(tag);
             }
             AppEvent::Updated(result) => return self.updated(result),
+            AppEvent::Worktrees(text) => self.message = Some(text),
             AppEvent::Pty(PtyEvent::Output(id, bytes)) => {
                 if let Some(pty) = self.card_mut(id).and_then(|c| c.pty.as_mut()) {
                     pty.advance(&bytes);
