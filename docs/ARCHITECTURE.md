@@ -362,7 +362,7 @@ bytes, `ESC c`, `CSI ? 1049 h/l`.
 agent ──sh -c '<exe> hook'──▶ bungkus-mc hook
                                reads stdin (cap 8 MiB, drains the rest), env BUNGKUS_MC_SOCK/SESSION
                                keeps only the fields below, writes one JSON line to the socket, exit 0
-listener thread ──▶ AppEvent::Hook ──▶ agent::Adapter::reduce(&mut session, event)
+listener thread ──▶ AppEvent::Hook ──▶ Model::hook ──▶ Card::reduce(&event, now)
 ```
 
 Session state machine (decided; the same for both agents):
@@ -426,67 +426,108 @@ prompt has been answered**, and managed settings with `disableAllHooks` /
 
 ## 5. Agent adapter boundary
 
+There is no adapter trait. An agent is a variant of `agent::Kind`, and
+what differs between agents is a `match` arm on it. The boundary is four
+pieces in three modules:
+
 ```rust
-// src/agent/mod.rs
+// src/agent/mod.rs — which agent, and its launch argv
 
-pub(crate) enum Kind { Claude, Codex }
-
-/// One normalised hook event; every field optional at the wire (serde defaults).
-pub(crate) struct Event {
-    kind: Kind,
-    mc_session: String,              // from BUNGKUS_MC_SESSION
-    name: String,                     // hook_event_name
-    session_id: Option<Uuid>,
-    prompt_id: Option<String>,
-    transcript: Option<PathBuf>,      // stored opaque; read only by the Codex usage reader
-    agent_id: Option<String>,
-    agent_type: Option<String>,
-    agent_transcript: Option<PathBuf>,// SubagentStop only
-    tool_name: Option<String>,
-    tool_use_id: Option<String>,
-    tool_desc: Option<String>,        // tool_input.description, ≤ 200 chars — the only tool_input field kept
-    notify: Option<String>,           // notification_type (claude) | "permission_request" (codex)
-    last_message: Option<String>,     // ≤ 200 chars
-    session_title: Option<String>,    // SessionStart.session_title (claude), ≤ 80 chars
-    background_tasks: Vec<BackgroundTask>, // {id, kind, agent_type, description(≤200), status}
+pub(crate) enum Kind { Claude, Codex }          // serde: "claude" | "codex"; default Claude
+impl Kind {
+    const ALL: [Kind; 2];                        // picker order
+    const fn command(self) -> &'static str;      // "claude" | "codex"
+    const fn badge(self) -> char;                // 'C' | 'X'
+    const fn product(self) -> &'static str;      // "Claude Code" | "Codex"
+    const fn models(self) -> &'static [&'static str]; // `n` picker; "default" = no flag
 }
 
-/// Usage figures; Claude from `statusline`, Codex from the rollout reader.
+/// What the user chose in the `n` picker.
+pub(crate) struct Launch {
+    id: SessionId,                // mc's id; Claude also gets it as --session-id
+    model: Option<String>,
+    name: Option<String>,         // --name (claude); Codex has no such flag
+    prompt: Option<String>,       // one argument after `--`
+    settings: Option<String>,     // claude --settings JSON; None without a socket
+    hook_args: Vec<String>,       // codex -c hooks.* arguments; empty without a socket
+    resume: Option<String>,       // the agent's own session id; must be a UUID
+    pick: bool,                   // open the agent's own list of past sessions
+    fork: bool,                   // with resume: claude --fork-session
+}
+
+/// The one place CLI flags are written (§5.1, §5.2). No shell.
+pub(crate) fn argv(kind: Kind, program: &Path, args: &[String], launch: &Launch) -> Vec<OsString>;
+pub(crate) fn find_on_path(name: &str, path: &OsStr) -> Option<PathBuf>;
+
+// src/agent/claude.rs — EVENTS, command(exe, subcommand), user_statusline(cwd, config_dir), settings(exe, user)
+// src/agent/codex.rs  — EVENTS, hook_args(exe)
+
+// src/ipc/mod.rs — what crosses the socket
+
+/// One hook event, trimmed; every field defaults when absent.
+pub(crate) struct HookEvent {
+    name: String,                     // hook_event_name, ≤ 64 chars (ids too)
+    session_id: Option<String>,       // the agent's own; compared, not parsed
+    agent_id: Option<String>,
+    agent_type: Option<String>,
+    tool_name: Option<String>,
+    tool_use_id: Option<String>,
+    tool_desc: Option<String>,        // tool_input.description | task_name (codex), ≤ 200 chars — the only tool_input field kept
+    notify: Option<String>,           // notification_type (claude) | "permission_request" (codex)
+    last_message: Option<String>,     // ≤ 200 chars
+    session_title: Option<String>,    // claude, ≤ 80 chars
+    background_tasks: Option<Vec<BackgroundTask>>, // ≤ 64 of {id, kind, agent_type, status, description(≤200)}; None when absent
+    transcript: Option<String>,       // stored opaque; read only by the Codex usage reader
+}
+
+/// One line on the socket.
+pub(crate) struct Wire { mc_session: String /* BUNGKUS_MC_SESSION */, event: HookEvent, usage: Option<Usage> }
+
+/// Raw payload → HookEvent in the `hook` subcommand; a field of the wrong type is absent. Never fails.
+pub(crate) fn trim(raw: &Value) -> HookEvent;
+
+// src/agent/usage.rs — Claude from `statusline`, Codex from the rollout reader
+
+pub(crate) struct Window { label: String /* "5h" | "7d" */, used_pct: f64, resets_at: Option<u64> /* unix s */ }
 #[derive(Default)]
 pub(crate) struct Usage {
-    session_id: Option<Uuid>,
     session_name: Option<String>,     // statusline.session_name (claude), ≤ 80 chars
     input: Option<u64>, output: Option<u64>, cache_read: Option<u64>, cache_write: Option<u64>,
     cost_usd: Option<f64>,            // None = unknown (Codex)
-    ctx_used_pct: Option<f64>, ctx_size: Option<u64>,
-    limits: Option<Limits>,           // None when the account has none
+    ctx_pct: Option<f64>, ctx_size: Option<u64>,
+    limits: Vec<Window>,              // empty when the account has none
 }
-pub(crate) struct Limits { vendor: Kind, windows: Vec<Window> } // Window{label: "5h"|"7d", used_pct, resets_at: SystemTime}
 
-pub(crate) struct LaunchOpts<'a> { cwd: &'a Path, prompt: Option<&'a str>, name: Option<&'a str>,
-                                   resume: Option<Uuid>, model: Option<&'a str>, sock: &'a Path }
+// src/app/sessions.rs — the state machine of §4.3, the same for both agents
 
-pub(crate) trait Adapter {
-    fn kind(&self) -> Kind;
-    /// Argv + extra env for a new or resumed session; `model` → `--model` / `-m` when set.
-    fn launch(&self, o: &LaunchOpts<'_>) -> Result<(Vec<OsString>, Vec<(OsString, OsString)>), LaunchError>;
-    /// One hook line → Event; unknown events keep `name` only. Never panics on input.
-    fn parse(&self, line: &[u8]) -> Result<Event, ParseError>;
-    /// The state machine of §4.3.
-    fn reduce(&self, s: &mut Session, e: &Event);
+impl Card {
+    fn reduce(&mut self, event: &HookEvent, now: Instant);
+    fn report(&mut self, usage: Usage);
 }
 ```
 
-Two implementations (`agent/claude.rs`, `agent/codex.rs`), ~150 lines
-each; adding an agent = new file + one match arm. No capability flags, no
-registry.
+`app.rs` assembles a launch: it fills `settings` / `hook_args` from
+`claude::settings` / `codex::hook_args`, calls `agent::argv`, and adds
+`BUNGKUS_MC_SESSION` (always) and `BUNGKUS_MC_SOCK` (when the socket is
+up) to the child env. `Model::hook` decodes a `Wire` line and calls
+`Card::report` or `Card::reduce`. Limits are kept per vendor in
+`Kind::ALL` order (`store::state::Limits`).
+
+Adding an agent is **not** one match arm: a `Kind` variant, its arms in
+`Kind`'s methods and in `argv`, a hook-injection file next to
+`claude.rs` / `codex.rs`, and the `Kind::Claude` / `Kind::Codex` sites
+in `app/`, `store/` and `ui/` (the per-vendor limits array is sized 2).
+No capability flags, no registry.
 
 ### 5.1 Claude (`claude.rs`)
 
 - **New:** `claude --session-id <uuid> --settings <json> [--model <id>] [--name <name>] -- <prompt?>`
 - **Resume:** `claude --resume <id> --settings <json> [--model <id>]` in the
   stored `cwd` (never together with `--session-id`; unit test covers both).
-  `--name` is not repeated on resume.
+  `--name` is not repeated on resume. `--fork-session` follows the id
+  when the session continues as a new one under the launch folder.
+- **Past sessions:** `claude --resume --settings <json>` (no id, no
+  `--session-id`, no `--name`) opens Claude's own list.
 - `<json>` is built with `serde_json`, passed as one argv element;
   contains only `hooks` (synchronous) and `statusLine` (§6.2). Hook
   command = `'<std::env::current_exe() → canonicalize, POSIX single-quoted>' hook`
@@ -501,8 +542,8 @@ registry.
   per-launch hook injection via `-c` works (VERIFIED). Events: `SessionStart,
   UserPromptSubmit, PreToolUse, PostToolUse, PermissionRequest,
   SubagentStart, SubagentStop, Stop, SessionEnd`.
-- **Resume:** `codex resume <uuid>` with the same `-c` hooks. Never
-  `resume --last`. If hooks are not trusted the card says
+- **Resume:** `codex resume <uuid>` with the same `-c` hooks; `codex
+  resume` without an id opens Codex's own list. Never `resume --last`. If hooks are not trusted the card says
   `not resumable — hooks off`.
 - Trust: Codex only runs hooks the user approved, and records the trust
   against the hook definition's hash. **Verified in M6 (Codex 0.159.2):**
@@ -537,7 +578,7 @@ name → first prompt line → `untitled`. Stored in `sessions.json` as
 |---------|--------------|-------------|
 | Hook field renamed | Card shows less | every field `Option`/`default`; recorded-payload tests |
 | FIFO description pairing | description on a sibling | corrected by `background_tasks` |
-| CLI flags | launch fails | flags exist only in `launch`; CI smoke greps `--help` |
+| CLI flags | launch fails | flags exist only in `agent::argv`; CI smoke greps `--help` |
 | Codex hook trust | Codex card "output only" | detection + hint; PTY unaffected |
 | statusLine schema | Claude usage shows `-` | fields optional |
 | Codex rollout `token_count` shape (internal) | Codex usage shows `-` | one module, tolerant structs, fixtures (§6.3) |
@@ -767,7 +808,7 @@ src/
   ui/                # panes, dialogs, first run, keymap.rs (single source of keys/help), theme.rs (token spec impl),
                      # mascot.rs (pixel maps, frames, moods), sanitise.rs (the one string sanitiser)
   term/              # session.rs (PTY + Term + reader/writer/waiter threads), keys.rs (encoder, from the spike), replies.rs (OSC 10/11, CSI 14 t)
-  agent/             # mod.rs (Event, Usage, Adapter, reduce), claude.rs, codex.rs, codex_usage.rs; testdata/{claude,codex}/
+  agent/             # mod.rs (Kind, Launch, argv), usage.rs (Usage), claude.rs, codex.rs, codex_usage.rs; testdata/{claude,codex}/
   ipc/               # server.rs (UnixListener), hook.rs and statusline.rs (the silent subcommands), wire types
   proc/              # scan (linux.rs: /proc + pidfd; macos.rs: ps), ports.rs (lsof), kill.rs, keep rule
   route/             # Jev tier judgement → model id, key runner, secret-shape guard, consent
