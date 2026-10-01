@@ -60,6 +60,7 @@ impl Model {
             ));
             return None;
         }
+        crate::debug_log!("take over pid {} (alive: {})", ext.pid, alive(ext.pid));
         if alive(ext.pid) {
             self.overlay = Some(Overlay::TakeOver(ext, self.now));
             return None;

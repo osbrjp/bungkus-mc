@@ -50,11 +50,10 @@ pub(crate) enum MoveOption {
     Create(String),
 }
 
-/// Most rows the move dialog lists.
-const OPTIONS_MAX: usize = 8;
-
-/// Projects listed while the field is empty: the most recently used.
-const RECENT: usize = 3;
+/// Projects the move dialog lists: the most recently used while the field
+/// is empty, the best matches while typing. The dialog keeps this many
+/// rows plus the create row, so it never changes height.
+pub(crate) const SLOTS: usize = 3;
 
 impl Model {
     /// Returns the workspace root, once settings are applied.
@@ -104,8 +103,9 @@ impl Model {
     /// Handles a key while the popup shows. The exit chord opens the popup
     /// menu, whose keys are `h` (or the chord again) hide, `m` move to a
     /// project, `p` new project, anything else back to the agent; `ctrl-h`
-    /// hides at once; `ctrl-z` is swallowed; every other key goes to the
-    /// agent, so typing never triggers mc.
+    /// hides at once; `ctrl-m` opens the move dialog; `ctrl-z` is
+    /// swallowed; every other key goes to the agent, so typing never
+    /// triggers mc.
     pub(crate) fn popup_key(&mut self, id: SessionId, key: KeyEvent) {
         let ctrl = key.modifiers == KeyModifiers::CONTROL;
         if self.popup_menu {
@@ -125,6 +125,12 @@ impl Model {
         }
         if ctrl && key.code == KeyCode::Char('h') {
             self.hide_popup(id);
+            return;
+        }
+        // ctrl-m is only told apart from enter under the kitty keyboard
+        // protocol; elsewhere it arrives as enter and goes to the agent.
+        if ctrl && key.code == KeyCode::Char('m') {
+            self.start_move_of(id, false);
             return;
         }
         if ctrl && key.code == KeyCode::Char('z') {
@@ -189,8 +195,9 @@ impl Model {
     }
 
     /// Returns the move dialog's rows for `query`: with nothing typed, the
-    /// [`RECENT`] most recently used projects; otherwise the projects whose
-    /// name contains it, then "create" unless one matches it exactly.
+    /// [`SLOTS`] most recently used projects; otherwise the [`SLOTS`] best
+    /// matches (exact, then prefix, then contains; shorter names first),
+    /// then "create" unless one matches it exactly.
     #[must_use]
     pub(crate) fn move_options(&self, query: &str) -> Vec<MoveOption> {
         let query = query.trim();
@@ -215,17 +222,35 @@ impl Model {
             recent.sort_by_key(|(_, last)| std::cmp::Reverse(*last));
             return recent
                 .into_iter()
-                .take(RECENT)
+                .take(SLOTS)
                 .map(|(p, _)| project(p))
                 .collect();
         }
         let needle = query.to_lowercase();
-        let mut rows: Vec<MoveOption> = self
+        let mut ranked: Vec<(u8, &crate::workspace::Project)> = self
             .projects
             .iter()
-            .filter(|p| p.name.to_lowercase().contains(&needle))
-            .take(OPTIONS_MAX)
-            .map(project)
+            .filter_map(|p| {
+                let name = p.name.to_lowercase();
+                let rank = if name == needle {
+                    0
+                } else if name.starts_with(&needle) {
+                    1
+                } else if name.contains(&needle) {
+                    2
+                } else {
+                    return None;
+                };
+                Some((rank, p))
+            })
+            .collect();
+        ranked.sort_by(|a, b| {
+            (a.0, a.1.name.len(), &a.1.name).cmp(&(b.0, b.1.name.len(), &b.1.name))
+        });
+        let mut rows: Vec<MoveOption> = ranked
+            .into_iter()
+            .take(SLOTS)
+            .map(|(_, p)| project(p))
             .collect();
         if !self.projects.iter().any(|p| p.name == query) {
             rows.push(MoveOption::Create(query.to_owned()));
@@ -311,6 +336,7 @@ impl Model {
             self.message = Some("This session cannot be resumed (hooks were off).".into());
             return None;
         }
+        crate::debug_log!("move {} to {}", id.short(), dest.display());
         card.move_to = Some(dest);
         if self.popup == Some(id) {
             self.popup = None;
@@ -385,6 +411,11 @@ mod tests {
             "a plain m is typed into the agent"
         );
         assert!(m.overlay.is_none());
+        m.update(AppEvent::Input(ratatui::crossterm::event::Event::Key(
+            KeyEvent::new(KeyCode::Char('m'), KeyModifiers::CONTROL),
+        )));
+        assert!(matches!(m.overlay, Some(Overlay::Move(_))), "ctrl-m moves");
+        m.update(press(KeyCode::Esc));
         m.update(menu());
         assert!(m.popup_menu, "the exit chord opens the popup menu");
         m.update(press(KeyCode::Char('m')));
@@ -394,13 +425,19 @@ mod tests {
         m.update(press(KeyCode::Char('h')));
         assert_eq!(m.popup, None, "menu h hides it");
 
-        assert_eq!(
-            m.visible().last().unwrap().name,
-            "quick",
-            "a quick row ends the list"
-        );
+        assert_eq!(m.visible()[0].name, "quick", "a quick row leads the list");
+        m.selected = 2;
         m.update(press(KeyCode::Char('0')));
-        assert_eq!(m.selected, m.visible().len() - 1, "0 jumps to it");
+        assert_eq!(m.selected, 0, "0 jumps to it");
+        m.now += crate::app::model::JUMP_WINDOW;
+        m.update(press(KeyCode::Char('2')));
+        assert_eq!(
+            m.visible()[m.selected].name,
+            "web",
+            "1.. number the projects below it"
+        );
+        m.now += crate::app::model::JUMP_WINDOW;
+        m.update(press(KeyCode::Char('0')));
         m.focus = crate::app::model::Focus::Sessions;
         m.card = 0;
         m.update(press(KeyCode::Char('m')));
@@ -433,7 +470,12 @@ mod tests {
                 .collect()
         };
         assert_eq!(names("").len(), 3, "recent projects while empty");
-        assert_eq!(names("e"), ["kedai-web", "pasar-mobile", "teh-cli", "+e"]);
+        assert_eq!(
+            names("e"),
+            ["teh-cli", "kedai-web", "pasar-mobile", "+e"],
+            "the best three: contains, shorter names first"
+        );
+        assert_eq!(names("pa"), ["pasar-mobile", "+pa"], "a prefix ranks first");
         assert_eq!(
             names("teh-cli"),
             ["teh-cli"],
@@ -465,6 +507,23 @@ mod tests {
             panic!("the create row comes after the match");
         };
         assert_eq!((got, path), (id, root.join("ap")));
+    }
+
+    #[test]
+    fn enter_on_an_ended_quick_session_resumes_it() {
+        let mut m = sample(&["app"]);
+        let root = m.root().unwrap().to_path_buf();
+        let (id, _w) = with_session(&mut m, "quick");
+        m.cards[0].project.clone_from(&root);
+        m.update(AppEvent::Pty(PtyEvent::Exited(id, Some(0))));
+        m.popup = None;
+        m.selected = 0;
+        m.focus = crate::app::model::Focus::Sessions;
+        m.card = 0;
+        let Some(Cmd::Launch(req)) = m.update(press(KeyCode::Enter)) else {
+            panic!("enter resumes an ended quick session");
+        };
+        assert_eq!((req.project, req.replaces), (root, Some(id)));
     }
 
     #[test]

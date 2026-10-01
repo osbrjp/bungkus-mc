@@ -25,7 +25,7 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
         return;
     };
     if model.is_quick(card) {
-        draw_quick_note(frame, area, theme);
+        draw_quick_note(frame, area, theme, card.running());
         return;
     }
     let interact = model.focus == Focus::Output;
@@ -134,7 +134,7 @@ pub(super) fn draw_popup(frame: &mut Frame, area: Rect, model: &Model, theme: Th
     let tail = if model.popup_menu {
         " · h hide · m move".to_owned()
     } else {
-        format!(" · {} menu", model.exit_chord.label())
+        format!(" · ctrl-m move · {} menu", model.exit_chord.label())
     };
     let head = format!("quick · {} {} · ", card.kind.badge(), card.id.short());
     let room =
@@ -164,7 +164,7 @@ pub(super) fn draw_popup(frame: &mut Frame, area: Rect, model: &Model, theme: Th
 
 /// Draws the output pane for a selected quick session, which lives in
 /// its popup instead (issue #46).
-fn draw_quick_note(frame: &mut Frame, area: Rect, theme: Theme) {
+fn draw_quick_note(frame: &mut Frame, area: Rect, theme: Theme, running: bool) {
     let block = pane("[3] output", false, theme);
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -173,7 +173,11 @@ fn draw_quick_note(frame: &mut Frame, area: Rect, theme: Theme) {
         .areas(inner);
     frame.render_widget(
         Line::styled(
-            "Quick session: enter opens it · m moves it to a project",
+            if running {
+                "Quick session: enter opens it · m moves it to a project"
+            } else {
+                "Quick session ended: enter resumes it · m moves it · d forgets it"
+            },
             theme.fg(Token::FgMuted),
         )
         .alignment(Alignment::Center),

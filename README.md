@@ -68,7 +68,7 @@ below it as a branch: `├ i746` under `nrha-timii`.
 | `!` · `ctrl-]` | jump to the next session that needs you, in any project |
 | `j` `k` · `↓` `↑` · `gg` `G` | move |
 | `x` | stop a session (lists what it started too) |
-| `N` | quick session at the workspace root, in a popup. Every key goes to the agent; `ctrl-\` opens the popup menu: `h` hide · `m` move. The move dialog takes a name: it lists the 3 most recent projects, then matches as you type (`↑`/`↓` or `ctrl-j`/`ctrl-k` pick); a name that matches no project creates it (folder + `git init`). The conversation comes along. A hidden one waits under the `quick` row, number `0` at the bottom of the list |
+| `N` | quick session at the workspace root, in a popup. Every key goes to the agent; `ctrl-m` opens the move dialog (in terminals with the kitty keyboard protocol: Ghostty, kitty, WezTerm, iTerm2; elsewhere ctrl-m is enter) and `ctrl-\` opens the popup menu: `h` hide · `m` move. The move dialog takes a name: it lists the 3 most recent projects, then the 3 best matches as you type, with a last row to create one (`↑`/`↓` or `ctrl-j`/`ctrl-k` pick); a name that matches no project creates it (folder + `git init`). The conversation comes along. A hidden one waits under the `quick` row, number `0` at the top of the list (`enter` reopens it, or resumes it once it has ended) |
 | `r` | resume the selected finished session; anywhere else, open the agent's own list of this project's past sessions (`claude --resume` / `codex resume`) to pick any of them |
 | `d` | forget a finished session |
 | `z` | zoom the output pane |
@@ -146,6 +146,9 @@ writes `workspace`, `defaultAgent` and `theme`, a border drag writes
   saves them here (projects 16–40, sessions 28–72, output keeps 40).
 
 Sessions are remembered in `~/.local/state/bungkus/mc/sessions.json`.
+`bungkus-mc --debug` also writes a debug log next to it (`mc.log`, 0600):
+launches, exits, hook event names, stops and moves — never what you type,
+prompts or agent output.
 
 ## How it knows what the agents do
 

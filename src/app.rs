@@ -317,7 +317,11 @@ fn run_cmd(
         Cmd::Apply(settings) => apply(model, env, settings),
         Cmd::Launch(request) => launch(model, env, hooks, request, tx),
         Cmd::WatchRollout(id, path) => watch_rollout(model, id, &path, tx),
-        Cmd::StopOutside(pid) => model.message = Some(stop_outside(pid, uid)),
+        Cmd::StopOutside(pid) => {
+            let text = stop_outside(pid, uid);
+            crate::debug_log!("stop outside {pid}: {text}");
+            model.message = Some(text);
+        }
         Cmd::CreateProject(id, path) => match create_project(&path) {
             Ok(()) => {
                 if let Some(root) = model.root().map(Path::to_path_buf)
@@ -477,6 +481,16 @@ fn launch(
     if let Some(old) = replaces {
         model.cards.retain(|c| c.id != old);
     }
+    crate::debug_log!(
+        "launch {} {} in {} (resume: {}, pick: {}, fork: {}, replaces: {})",
+        kind.command(),
+        launch.id.short(),
+        project.display(),
+        launch.resume.is_some(),
+        launch.pick,
+        launch.fork,
+        replaces.map_or_else(String::new, SessionId::short),
+    );
     let size = if model.root() == Some(project.as_path()) {
         ui::popup_size(model.screen)
     } else {
@@ -496,6 +510,7 @@ fn launch(
             card.pty = Some(session);
         }
         Err(e) => {
+            crate::debug_log!("could not start {command}: {e}");
             card.state = State::Failed(format!("could not start {command}: {e}"));
             card.ended = Some(model.now);
         }
