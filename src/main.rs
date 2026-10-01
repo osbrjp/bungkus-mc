@@ -40,6 +40,7 @@ Usage: bungkus-mc [options] [WORKSPACE]
 
 Options:
   --icons SET      state glyphs: ascii (default), unicode, nerd
+  --debug          write a debug log (~/.local/state/bungkus/mc/mc.log)
   -h, --help       print this help
   -V, --version    print the version
 
@@ -51,7 +52,7 @@ Config: ~/.config/bungkus/mc/config.json
 #[derive(Debug, PartialEq, Eq)]
 enum Command {
     /// Run the TUI, optionally on a workspace given on the command line.
-    Tui(Option<String>, Option<IconSet>),
+    Tui(Option<String>, Option<IconSet>, bool),
     /// Print [`HELP`].
     Help,
     /// Print the version.
@@ -83,6 +84,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, lexopt:
     let mut parser = lexopt::Parser::from_args(args);
     let mut workspace = None;
     let mut icons = None;
+    let mut debug = false;
     while let Some(arg) = parser.next()? {
         match arg {
             Short('h') | Long("help") => return Ok(Command::Help),
@@ -99,6 +101,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, lexopt:
                 };
                 return Ok(Command::Update { check });
             }
+            Long("debug") => debug = true,
             Long("icons") => {
                 let value = parser.value()?.string()?;
                 icons = Some(match value.as_str() {
@@ -116,7 +119,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, lexopt:
             _ => return Err(arg.unexpected()),
         }
     }
-    Ok(Command::Tui(workspace, icons))
+    Ok(Command::Tui(workspace, icons, debug))
 }
 
 /// Parses the command line and runs the chosen command.
@@ -128,7 +131,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, lexopt:
 fn main() -> Result<()> {
     let command = parse_args(std::env::args().skip(1)).context("reading arguments")?;
     let mut stdout = std::io::stdout();
-    let (workspace_arg, icons_arg) = match command {
+    let (workspace_arg, icons_arg, debug) = match command {
         Command::Help => return stdout.write_all(HELP.as_bytes()).context("printing help"),
         Command::Version => {
             return writeln!(stdout, "bungkus-mc {}", env!("CARGO_PKG_VERSION"))
@@ -143,7 +146,7 @@ fn main() -> Result<()> {
             let text = update::run(check).context("update")?;
             return writeln!(stdout, "{text}").context("printing");
         }
-        Command::Tui(workspace, icons) => (workspace, icons),
+        Command::Tui(workspace, icons, debug) => (workspace, icons, debug),
     };
     if !stdout.is_terminal() {
         bail!("bungkus-mc needs a terminal on stdout");
@@ -199,6 +202,10 @@ fn main() -> Result<()> {
         None => Some(tilde(&model.fallback_workspace, home.as_deref())),
     };
     let state_path = store::state::state_file(var);
+    if let (true, Some(path)) = (debug, &state_path) {
+        store::debug::open(&path.with_file_name("mc.log")).context("opening the debug log")?;
+        debug_log!("bungkus-mc {} started", env!("CARGO_PKG_VERSION"));
+    }
     if let Some(path) = &state_path {
         let now = std::time::Instant::now();
         let unix_now = std::time::SystemTime::now()
@@ -262,15 +269,19 @@ mod tests {
     #[test]
     fn parses_each_flag_to_its_command() {
         let cases: &[(&[&str], Command)] = &[
-            (&[], Command::Tui(None, None)),
-            (&["~/Works"], Command::Tui(Some("~/Works".into()), None)),
+            (&[], Command::Tui(None, None, false)),
+            (
+                &["~/Works"],
+                Command::Tui(Some("~/Works".into()), None, false),
+            ),
+            (&["--debug"], Command::Tui(None, None, true)),
             (&["-h"], Command::Help),
             (&["--help"], Command::Help),
             (&["-V"], Command::Version),
             (&["hook"], Command::Hook),
             (
                 &["--icons", "unicode"],
-                Command::Tui(None, Some(IconSet::Unicode)),
+                Command::Tui(None, Some(IconSet::Unicode), false),
             ),
             (&["statusline"], Command::StatusLine),
             (&["update"], Command::Update { check: false }),

@@ -451,6 +451,11 @@ fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
         Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(inner);
     draw_search(frame, search, model, theme);
     let visible = model.visible();
+    let quick_first = usize::from(
+        visible
+            .first()
+            .is_some_and(|p| model.root() == Some(p.path.as_path())),
+    );
     let digits = visible.len().max(1).to_string().len();
     let rows = usize::from(inner.height);
     let width = usize::from(inner.width).saturating_sub(4 + digits);
@@ -516,7 +521,7 @@ fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
                     if model.root() == Some(project.path.as_path()) {
                         format!("{:>digits$} ", 0)
                     } else {
-                        format!("{:>digits$} ", i + 1)
+                        format!("{:>digits$} ", i + 1 - quick_first)
                     },
                     theme.fg(Token::Ok),
                 ),
@@ -600,7 +605,7 @@ fn draw_getah(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
             "h hide · m move to a project or a new one · any other key: back".to_owned()
         } else {
             format!(
-                "keys go to {agent} · {} menu (hide · move · new project)",
+                "keys go to {agent} · ctrl-m move · {} menu",
                 model.exit_chord.label()
             )
         }
@@ -719,6 +724,12 @@ fn age_label(minutes: u64) -> String {
     } else {
         format!("{}h ago", minutes / 60)
     }
+}
+
+/// Returns the bordered box of a text field in a dialog (light border in
+/// `accent`, so it reads as the place to type).
+pub(super) fn field_block(theme: Theme) -> Block<'static> {
+    bordered(Weight::Light, theme).border_style(theme.fg(Token::Accent))
 }
 
 /// Border weights (DESIGN §3): light, heavy (focused), double (INTERACT
@@ -1289,5 +1300,16 @@ pub(crate) mod tests {
         );
         assert!(screen.contains("recent"), "{screen}");
         assert!(screen.contains("▄██████████████▄"), "the mascot: {screen}");
+        let height = |screen: &str| screen.lines().filter(|l| l.contains('║')).count();
+        if let Some(Overlay::Move(d)) = &mut model.overlay {
+            d.query = "zz".into();
+        }
+        let typed = render(&mut model, 120, 40);
+        assert!(typed.contains("+ enter to create zz"), "{typed}");
+        assert_eq!(
+            height(&screen),
+            height(&typed),
+            "the dialog keeps its height"
+        );
     }
 }

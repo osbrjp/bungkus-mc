@@ -321,8 +321,10 @@ pub(super) fn draw_resume_agent(frame: &mut Frame, area: Rect, kind: Kind, theme
 }
 
 /// Draws the quick-session move dialog (issue #46): the mascot, the
-/// field, and under it the recent projects (field empty) or the matches
-/// plus "create" (while typing).
+/// bordered field, [`SLOTS`] project rows (recent while empty, the best
+/// matches while typing) and the create row. Its height never changes.
+///
+/// [`SLOTS`]: crate::app::quick::SLOTS
 pub(super) fn draw_move(
     frame: &mut Frame,
     area: Rect,
@@ -330,59 +332,31 @@ pub(super) fn draw_move(
     model: &Model,
     theme: Theme,
 ) {
-    use crate::app::quick::MoveOption;
     use crate::ui::mascot::{self, Mascot, Mood};
 
-    let options = model.move_options(&dialog.query);
-    let mut lines = vec![
-        Line::styled(
-            "  Move into a project, or name a new one:",
-            theme.fg(Token::Fg),
-        ),
-        Line::styled(format!("  > {}▏", dialog.query), theme.fg(Token::Accent)),
-        Line::styled(
-            if dialog.query.trim().is_empty() {
-                "  recent"
-            } else {
-                "  matches"
-            },
-            theme.fg(Token::FgMuted),
-        ),
-    ];
-    for (i, option) in options.iter().enumerate() {
-        let marker = if i == dialog.selected { "> " } else { "  " };
-        let style = if i == dialog.selected {
-            bold_if(theme.fg(Token::Accent), true)
-        } else {
-            theme.fg(Token::Fg)
-        };
-        let text = match option {
-            MoveOption::Project { name, .. } => truncate(name, 48),
-            MoveOption::Create(name) => format!("+ create {}", truncate(name, 40)),
-        };
-        lines.push(Line::styled(format!("  {marker}{text}"), style));
-    }
-    if let Some(e) = &dialog.error {
-        lines.push(Line::styled(format!("  {e}"), theme.fg(Token::Err)));
-    }
-    lines.push(Line::from(""));
-    lines.push(
-        Line::styled(
-            "↑↓ ctrl-j/k pick · enter move or create · esc cancel  ",
-            theme.fg(Token::FgMuted),
-        )
-        .alignment(Alignment::Right),
+    let list = move_rows(dialog, model, theme);
+    let error = dialog.error.as_deref().map_or_else(
+        || Line::from(""),
+        |e| Line::styled(format!("  {e}"), theme.fg(Token::Err)),
     );
-    let with_mascot = area.height >= u16::try_from(lines.len()).unwrap_or(u16::MAX) + 12;
+    let list_rows = u16::try_from(list.len()).unwrap_or(u16::MAX);
+    let with_mascot = area.height >= list_rows + 22;
     let sprite_rows = if with_mascot { mascot::HEIGHT + 1 } else { 0 };
-    let height = u16::try_from(lines.len()).unwrap_or(u16::MAX) + 3 + sprite_rows;
+    let height = 2 + sprite_rows + 1 + 3 + list_rows + 2;
     let rect = centred(area, 62, height);
     frame.render_widget(Clear, rect);
     let block = dialog_block("move to project", theme);
     let inner = block.inner(rect);
     frame.render_widget(block, rect);
-    let [sprite, text] =
-        Layout::vertical([Constraint::Length(sprite_rows), Constraint::Fill(1)]).areas(inner);
+    let [sprite, title, field, items, err, hint] = Layout::vertical([
+        Constraint::Length(sprite_rows),
+        Constraint::Length(1),
+        Constraint::Length(3),
+        Constraint::Length(list_rows),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .areas(inner);
     if with_mascot {
         let [spot] = Layout::horizontal([Constraint::Length(mascot::WIDTH)])
             .flex(Flex::Center)
@@ -400,9 +374,98 @@ pub(super) fn draw_move(
             spot,
         );
     }
-    let mut body = vec![Line::from("")];
-    body.extend(lines);
-    frame.render_widget(Paragraph::new(body), text);
+    frame.render_widget(
+        Line::styled(
+            "  Move into a project, or name a new one:",
+            theme.fg(Token::Fg),
+        ),
+        title,
+    );
+    draw_field(frame, field, &dialog.query, theme);
+    frame.render_widget(Paragraph::new(list), items);
+    frame.render_widget(error, err);
+    frame.render_widget(
+        Line::styled(
+            "↑↓ ctrl-j/k pick · enter move or create · esc cancel  ",
+            theme.fg(Token::FgMuted),
+        )
+        .alignment(Alignment::Right),
+        hint,
+    );
+}
+
+/// Returns the move dialog's list: the label, [`SLOTS`] project rows
+/// (blank when fewer) and the create row.
+///
+/// [`SLOTS`]: crate::app::quick::SLOTS
+fn move_rows(
+    dialog: &crate::app::quick::MoveDialog,
+    model: &Model,
+    theme: Theme,
+) -> Vec<Line<'static>> {
+    use crate::app::quick::{MoveOption, SLOTS};
+
+    let options = model.move_options(&dialog.query);
+    let row = |i: usize, text: String| {
+        let chosen = i == dialog.selected;
+        let style = if chosen {
+            bold_if(theme.fg(Token::Accent), true)
+        } else {
+            theme.fg(Token::Fg)
+        };
+        Line::styled(
+            format!("  {}{text}", if chosen { "> " } else { "  " }),
+            style,
+        )
+    };
+    let typed = !dialog.query.trim().is_empty();
+    let mut list = vec![Line::styled(
+        if typed { "  best matches" } else { "  recent" },
+        theme.fg(Token::FgMuted),
+    )];
+    let projects = options
+        .iter()
+        .take_while(|o| matches!(o, MoveOption::Project { .. }))
+        .count();
+    for i in 0..SLOTS {
+        list.push(match options.get(i) {
+            Some(MoveOption::Project { name, .. }) => row(i, truncate(name, 48)),
+            _ => Line::from(""),
+        });
+    }
+    list.push(match options.get(projects) {
+        Some(MoveOption::Create(name)) => row(
+            projects,
+            format!("+ enter to create {}", truncate(name, 36)),
+        ),
+        _ => Line::styled(
+            "    type a new name to create a project",
+            theme.fg(Token::FgMuted),
+        ),
+    });
+    list
+}
+
+/// Draws a bordered text field in `area` (2 columns in on each side)
+/// holding the end of `text`, with the cursor after it.
+fn draw_field(frame: &mut Frame, area: Rect, text: &str, theme: Theme) {
+    let field = Rect {
+        x: area.x + 2,
+        width: area.width.saturating_sub(4),
+        ..area
+    };
+    let field_block = super::field_block(theme);
+    let inner = field_block.inner(field);
+    frame.render_widget(field_block, field);
+    let room = usize::from(inner.width).saturating_sub(2);
+    let count = text.chars().count();
+    let shown: String = text.chars().skip(count.saturating_sub(room)).collect();
+    frame.render_widget(
+        Line::styled(format!(" {shown}"), theme.fg(Token::Fg)),
+        inner,
+    );
+    let cursor = u16::try_from(shown.chars().count()).unwrap_or(0);
+    frame.set_cursor_position(Position::new(inner.x + 1 + cursor, inner.y));
 }
 
 /// Draws "stop this outside session?": `x` on a session started outside

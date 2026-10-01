@@ -311,7 +311,7 @@ impl Model {
 
     /// Returns the projects matching the filter, in display order, then
     /// the [`Model::elsewhere`] row while an outside session runs in no
-    /// project folder, then the `quick` row (number 0) while quick
+    /// project folder; the `quick` row (number 0) leads while quick
     /// sessions exist.
     #[must_use]
     pub(crate) fn visible(&self) -> Vec<&Project> {
@@ -322,10 +322,10 @@ impl Model {
             .iter()
             .any(|c| self.is_quick(c))
             .then_some(&self.quick_row);
-        self.projects
-            .iter()
+        quick
+            .into_iter()
+            .chain(&self.projects)
             .chain(elsewhere)
-            .chain(quick)
             .filter(|p| p.name.to_lowercase().contains(&needle))
             .collect()
     }
@@ -542,6 +542,7 @@ impl Model {
             }
             AppEvent::Usage(id, usage) => self.codex_usage(id, usage),
             AppEvent::Pty(PtyEvent::Exited(id, code)) => {
+                crate::debug_log!("{} exited: {code:?}", id.short());
                 let now = self.now;
                 self.state_dirty = true;
                 if let Some(card) = self.card_mut(id) {
@@ -601,6 +602,12 @@ impl Model {
         let before = card.state.clone();
         let bound = card.agent_session.is_some();
         card.reduce(&wire.event, now);
+        crate::debug_log!(
+            "{} hook {} → {:?}",
+            card.id.short(),
+            wire.event.name,
+            card.state
+        );
         if card.state == State::NeedsYou && before != State::NeedsYou {
             let text = format!("{} needs you: {}", card.id.short(), card.name);
             self.alerts.push(Alert::NeedsYou(text));
@@ -731,19 +738,20 @@ impl Model {
         };
         let visible = self.visible();
         let quick = visible
-            .last()
+            .first()
             .is_some_and(|p| self.root() == Some(p.path.as_path()));
-        let numbered = visible.len() - usize::from(quick);
+        let offset = usize::from(quick);
+        let numbered = visible.len() - offset;
         if n == 0 {
-            if quick && previous.is_none_or(|(_, at)| self.now >= at + JUMP_WINDOW) {
-                self.selected = numbered;
+            if quick {
+                self.selected = 0;
                 self.card = 0;
             }
             return;
         }
         self.jump = Some((n, self.now));
         if n <= numbered {
-            self.selected = n - 1;
+            self.selected = n - 1 + offset;
             self.card = 0;
         }
     }
@@ -883,7 +891,8 @@ impl Model {
     }
 
     /// Enters the selected row of the sessions pane: takes over an outside
-    /// session, opens a quick session's popup, or enters INTERACT.
+    /// session, opens a quick session's popup (resuming it into the popup
+    /// when it has ended), or enters INTERACT.
     fn enter_session(&mut self) -> Option<Cmd> {
         if let Some(ext) = self.selected_external().cloned() {
             return self.take_over(ext);
@@ -891,6 +900,9 @@ impl Model {
         if let Some(card) = self.selected_card().map(|i| &self.cards[i])
             && self.is_quick(card)
         {
+            if !card.running() {
+                return self.resume();
+            }
             let id = card.id;
             self.open_popup(id);
             return None;
