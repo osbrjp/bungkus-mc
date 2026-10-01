@@ -269,6 +269,9 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
         Some(Overlay::Move(dialog)) => dialogs::draw_move(frame, area, dialog, model, theme),
         Some(Overlay::StopOutside(ext)) => dialogs::draw_stop_outside(frame, area, ext, theme),
         Some(Overlay::NewProject(dialog)) => dialogs::draw_new_project(frame, area, dialog, theme),
+        Some(Overlay::Switcher(switcher)) => {
+            dialogs::draw_switcher(frame, area, switcher, model, theme);
+        }
         Some(Overlay::TrashProject(projects)) => {
             dialogs::draw_trash_project(frame, area, projects, model, theme);
         }

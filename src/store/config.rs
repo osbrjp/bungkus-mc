@@ -41,6 +41,8 @@ pub(crate) struct Config {
     pub motion: bool,
     /// Outer widths of the projects and sessions panes.
     pub panes: crate::ui::Widths,
+    /// Saved workspaces for the `w` switcher, most recent first.
+    pub workspaces: Vec<String>,
 }
 
 /// The `cleanup` config block.
@@ -79,6 +81,7 @@ impl Default for Config {
             icons: crate::ui::icons::IconSet::default(),
             motion: true,
             panes: crate::ui::Widths::default(),
+            workspaces: Vec::new(),
         }
     }
 }
@@ -186,6 +189,23 @@ pub(crate) fn save(path: &Path, settings: &Settings) -> Result<(), ConfigError> 
 pub(crate) fn save_widths(path: &Path, widths: crate::ui::Widths) -> Result<(), ConfigError> {
     edit(path, |root| {
         root.insert("panes".into(), serde_json::to_value(widths)?);
+        Ok(())
+    })
+}
+
+/// Writes the `w` switcher's saved workspaces into `config.json` as
+/// `workspaces`, keeping every other key and the key order.
+///
+/// # Errors
+///
+/// As [`save`].
+pub(crate) fn save_workspaces(path: &Path, workspaces: &[PathBuf]) -> Result<(), ConfigError> {
+    edit(path, |root| {
+        let list: Vec<Value> = workspaces
+            .iter()
+            .map(|w| Value::from(w.to_string_lossy().into_owned()))
+            .collect();
+        root.insert("workspaces".into(), Value::Array(list));
         Ok(())
     })
 }

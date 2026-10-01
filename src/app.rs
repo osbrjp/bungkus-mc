@@ -16,6 +16,7 @@ pub(crate) mod quick;
 pub(crate) mod sessions;
 pub(crate) mod stop;
 mod takeover;
+pub(crate) mod workspaces;
 
 use std::ffi::OsStr;
 use std::io::{self, IsTerminal, Write};
@@ -317,6 +318,17 @@ fn run_cmd(
         Cmd::Apply(settings) => apply(model, env, settings),
         Cmd::Launch(request) => launch(model, env, hooks, request, tx),
         Cmd::WatchRollout(id, path) => watch_rollout(model, id, &path, tx),
+        Cmd::SwitchWorkspace(workspace, session) => {
+            if let Some(mut settings) = model.settings.clone() {
+                crate::debug_log!("switch workspace to {}", workspace.display());
+                settings.workspace = workspace;
+                apply(model, env, settings);
+                if let Some(id) = session {
+                    model.select_session(id);
+                }
+            }
+        }
+        Cmd::SaveWorkspaces => save_workspaces(model, env),
         Cmd::NewProject(path, agent_files) => new_project(model, &path, agent_files),
         Cmd::TrashProject(paths) => trash_projects(model, &paths),
         Cmd::RestoreProject(moved) => restore_projects(model, &moved),
@@ -411,6 +423,15 @@ fn save_state(model: &mut Model, env: &Env) {
     let _ = crate::store::state::save_limits(&crate::store::state::limits_file(path), &limits);
 }
 
+/// Writes the saved workspaces to `config.json`, keeping every other key.
+fn save_workspaces(model: &mut Model, env: &Env) {
+    if let Some(path) = &env.config_path
+        && let Err(e) = config::save_workspaces(path, &model.workspaces)
+    {
+        model.message = Some(format!("Workspaces not saved: {e}"));
+    }
+}
+
 /// Saves settings, rescans the workspace and recolours running sessions.
 fn apply(model: &mut Model, env: &Env, settings: config::Settings) {
     if let Some(path) = &env.config_path
@@ -419,6 +440,8 @@ fn apply(model: &mut Model, env: &Env, settings: config::Settings) {
         model.message = Some(format!("Settings not saved: {e}"));
     }
     let scan = workspace::scan(&settings.workspace);
+    model.remember_workspace(&settings.workspace);
+    save_workspaces(model, env);
     model.apply(settings, scan, &env.cwd);
     let colors = colors(model.theme);
     for pty in model.cards.iter_mut().filter_map(|c| c.pty.as_mut()) {

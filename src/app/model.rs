@@ -83,6 +83,8 @@ pub(crate) enum Overlay {
     StopOutside(External),
     /// The `a` new-project dialog.
     NewProject(crate::app::quick::NewProject),
+    /// The `w` workspace switcher.
+    Switcher(crate::app::workspaces::Switcher),
     /// "Move these projects' folders to the Trash?"
     TrashProject(Vec<Project>),
 }
@@ -130,6 +132,11 @@ pub(crate) enum Cmd {
     Scan,
     /// Write the dragged pane widths to `config.json`.
     SaveWidths(crate::ui::Widths),
+    /// Switch to this workspace (saved first in the list), then select this
+    /// session when given (`!` following a session into its workspace).
+    SwitchWorkspace(PathBuf, Option<SessionId>),
+    /// Write the saved workspaces to `config.json`.
+    SaveWorkspaces,
     /// Create this project folder: `git init`, plus `AGENTS.md` and a
     /// `CLAUDE.md` that imports it when the flag is set.
     NewProject(PathBuf, bool),
@@ -227,6 +234,8 @@ pub(crate) struct Model {
     /// Shows every key mc receives in the hint line (`BUNGKUS_MC_DEBUG_KEYS`),
     /// to find chords a terminal keeps for itself.
     pub debug_keys: bool,
+    /// Saved workspaces, most recently used first (`w`).
+    pub workspaces: Vec<PathBuf>,
     /// The projects last moved to the Trash this run, each `(folder, where
     /// it went)`, for `u`.
     pub last_trash: Vec<(PathBuf, PathBuf)>,
@@ -321,6 +330,7 @@ impl Model {
             poke: None,
             popup: None,
             last_trash: Vec::new(),
+            workspaces: Vec::new(),
             visual: None,
             popup_menu: false,
             debug_keys: false,
@@ -501,7 +511,7 @@ impl Model {
     }
 
     /// Opens the settings screen (or, before first run, the wizard).
-    fn open_form(&mut self, kind: FormKind, field: Field) {
+    pub(crate) fn open_form(&mut self, kind: FormKind, field: Field) {
         let current = self.settings.clone().unwrap_or_else(|| Settings {
             workspace: PathBuf::new(),
             theme: ThemeChoice::Auto,
@@ -677,7 +687,7 @@ impl Model {
 
     /// Jumps to the next session that needs you, across projects: selects
     /// its project and card and enters INTERACT (DESIGN §8.1).
-    fn next_needs_you(&mut self) {
+    fn next_needs_you(&mut self) -> Option<Cmd> {
         let current = self.selected_card().map(|i| self.cards[i].id);
         let projects: Vec<PathBuf> = self.visible().iter().map(|p| p.path.clone()).collect();
         let mut found = Vec::new();
@@ -693,12 +703,45 @@ impl Model {
             .position(|f| Some(f.2) == current)
             .map_or(0, |i| i + 1);
         let Some(&(p, c, _)) = found.get(after % found.len().max(1)) else {
+            let elsewhere = self
+                .cards
+                .iter()
+                .find(|card| card.state == State::NeedsYou)
+                .and_then(|card| Some((self.workspace_of(&card.project)?, card.id)));
+            if let Some((workspace, id)) = elsewhere {
+                return Some(Cmd::SwitchWorkspace(workspace, Some(id)));
+            }
             self.message = Some("nobody needs you right now".into());
-            return;
+            return None;
         };
         self.selected = p;
         self.card = c;
         self.focus = Focus::Output;
+        None
+    }
+
+    /// Selects session `id` (its project row and card) and focuses its
+    /// output, after a switch brought its workspace up.
+    pub(crate) fn select_session(&mut self, id: SessionId) {
+        let Some(project) = self
+            .cards
+            .iter()
+            .find(|c| c.id == id)
+            .map(|c| c.project.clone())
+        else {
+            return;
+        };
+        if let Some(row) = self.visible().iter().position(|p| p.path == project) {
+            self.selected = row;
+        }
+        if let Some(pos) = self
+            .project_cards()
+            .iter()
+            .position(|&i| self.cards[i].id == id)
+        {
+            self.card = pos;
+            self.focus = Focus::Output;
+        }
     }
 
     /// Sends SIGKILL to sessions still running after their stop grace.
@@ -870,6 +913,7 @@ impl Model {
                 None
             }
             Overlay::NewProject(dialog) => self.new_project_key(dialog, key),
+            Overlay::Switcher(switcher) => self.switcher_key(switcher, key),
             Overlay::TrashProject(projects) => (key.code == KeyCode::Char('y'))
                 .then(|| Cmd::TrashProject(projects.into_iter().map(|p| p.path).collect())),
             Overlay::Forget(id) => {
@@ -1277,8 +1321,8 @@ impl Model {
                     self.overlay = Some(Overlay::Forget(self.cards[i].id));
                 }
             }
-            Action::NextNeedsYou => self.next_needs_you(),
-            Action::Workspace => self.open_form(FormKind::Settings, Field::Workspace),
+            Action::NextNeedsYou => return self.next_needs_you(),
+            Action::Workspace => self.open_switcher(),
             Action::Settings => self.open_form(FormKind::Settings, Field::Agent),
             Action::Help => self.overlay = Some(Overlay::Help),
             Action::Redraw => return Some(Cmd::Redraw),
