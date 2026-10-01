@@ -6,12 +6,27 @@
 # authenticated gh CLI; plain curl is used only when gh is missing and the
 # repository is public. The binary is verified against the release's
 # checksums.txt before it is installed.
+#
+# Never requires sudo for a fresh install (like uv, rustup, bun, deno and
+# Claude Code). The folder is, in order:
+#   1. BUNGKUS_INSTALL_DIR, if set;
+#   2. the folder of the existing binary: BUNGKUS_CURRENT_BIN (passed by
+#      `bungkus-mc update`), else `command -v bungkus-mc`, symlinks resolved;
+#   3. ~/.local/bin.
+# If that folder is not writable and ~/.local/bin comes earlier on PATH, the
+# new copy goes to ~/.local/bin (it shadows the old one); otherwise sudo is
+# used in place. The folder logic lives here, so older clients get it on
+# their next update. BUNGKUS_INSTALL_DRY_RUN=1 prints the decision and
+# exits before any network call.
 set -euo pipefail
 
 REPO="osbrjp/bungkus-mc"
 BIN_NAME="bungkus-mc"
 SHORT_NAME="bkmc"
-INSTALL_DIR="${BUNGKUS_INSTALL_DIR:-/usr/local/bin}"
+LOCAL_BIN="${HOME}/.local/bin"
+INSTALL_DIR=""
+USE_SUDO=0
+SHADOWED=""
 
 err() { printf 'install: %s\n' "$*" >&2; exit 1; }
 log() { printf '==> %s\n' "$*"; }
@@ -68,14 +83,85 @@ download() {
   fi
 }
 
+# Prints $1 with every symlink in its last component resolved.
+resolve_link() {
+  local p="$1" t
+  while [ -L "$p" ]; do
+    t=$(readlink "$p")
+    case "$t" in
+      /*) p="$t" ;;
+      *) p="$(dirname "$p")/$t" ;;
+    esac
+  done
+  printf '%s\n' "$p"
+}
+
+# Prints the physical path of folder $1, or $1 itself when it does not exist.
+physical() {
+  (cd "$1" 2>/dev/null && pwd -P) || printf '%s\n' "$1"
+}
+
+# Succeeds when folder $1 is writable, or does not exist yet and its nearest
+# existing parent is writable.
+writable() {
+  local d="$1"
+  while [ ! -e "$d" ]; do
+    d=$(dirname "$d")
+  done
+  [ -d "$d" ] && [ -w "$d" ]
+}
+
+# Succeeds when ~/.local/bin comes before folder $1 on PATH.
+local_bin_first() {
+  local want there entry
+  want=$(physical "$LOCAL_BIN")
+  there=$(physical "$1")
+  local IFS=:
+  for entry in $PATH; do
+    [ -n "$entry" ] || continue
+    entry=$(physical "$entry")
+    [ "$entry" = "$want" ] && return 0
+    [ "$entry" = "$there" ] && return 1
+  done
+  return 1
+}
+
+# Sets INSTALL_DIR, USE_SUDO and SHADOWED (see the header).
+choose_dir() {
+  local current=""
+  if [ -n "${BUNGKUS_INSTALL_DIR:-}" ]; then
+    INSTALL_DIR="$BUNGKUS_INSTALL_DIR"
+  else
+    current="${BUNGKUS_CURRENT_BIN:-$(command -v "$BIN_NAME" 2>/dev/null || true)}"
+    if [ -n "$current" ] && [ -e "$current" ]; then
+      INSTALL_DIR=$(physical "$(dirname "$(resolve_link "$current")")")
+    else
+      INSTALL_DIR="$LOCAL_BIN"
+    fi
+  fi
+  writable "$INSTALL_DIR" && return
+  if [ -z "${BUNGKUS_INSTALL_DIR:-}" ] && local_bin_first "$INSTALL_DIR" && writable "$LOCAL_BIN"; then
+    SHADOWED="${INSTALL_DIR}/${BIN_NAME}"
+    INSTALL_DIR="$LOCAL_BIN"
+  else
+    USE_SUDO=1
+  fi
+}
+
+# Runs "$@" with sudo when the folder needs it.
+as_needed() {
+  if [ "$USE_SUDO" = 1 ]; then
+    sudo "$@"
+  else
+    "$@"
+  fi
+}
+
 install_file() {
   local src="$1" dest="$2"
-  if [ -w "$INSTALL_DIR" ] || { [ ! -e "$INSTALL_DIR" ] && mkdir -p "$INSTALL_DIR" 2>/dev/null; }; then
-    mv "$src" "$dest"
-  else
-    log "writing to ${INSTALL_DIR} requires sudo"
-    sudo mv "$src" "$dest"
-  fi
+  [ "$USE_SUDO" = 1 ] && log "writing to ${INSTALL_DIR} requires sudo"
+  as_needed mkdir -p "$INSTALL_DIR"
+  as_needed mv "$src" "$dest"
 }
 
 link_short_name() {
@@ -84,16 +170,31 @@ link_short_name() {
     log "${SHORT_NAME} already exists; add an alias instead: alias ${SHORT_NAME}=${BIN_NAME}"
     return
   fi
-  if [ -w "$INSTALL_DIR" ]; then
-    ln -s "$dest" "$link"
-  else
-    sudo ln -s "$dest" "$link"
-  fi
+  as_needed ln -s "$dest" "$link"
   log "short command: ${SHORT_NAME}"
+}
+
+# Prints how to put INSTALL_DIR on PATH when it is not there.
+path_hint() {
+  local entry want
+  want=$(physical "$INSTALL_DIR")
+  local IFS=:
+  for entry in $PATH; do
+    [ "$(physical "$entry")" = "$want" ] && return
+  done
+  log "${INSTALL_DIR} is not on your PATH; add it:"
+  printf '    fish: fish_add_path %s\n' "$INSTALL_DIR"
+  printf '    zsh:  echo '\''export PATH="%s:$PATH"'\'' >> ~/.zshrc\n' "$INSTALL_DIR"
+  printf '    bash: echo '\''export PATH="%s:$PATH"'\'' >> ~/.bashrc\n' "$INSTALL_DIR"
 }
 
 main() {
   command -v uname >/dev/null 2>&1 || err "required command not found: uname"
+  choose_dir
+  if [ -n "${BUNGKUS_INSTALL_DRY_RUN:-}" ]; then
+    printf 'dir=%s\nsudo=%s\nshadowed=%s\n' "$INSTALL_DIR" "$USE_SUDO" "$SHADOWED"
+    exit 0
+  fi
   have_gh || command -v curl >/dev/null 2>&1 || err "install gh (and run gh auth login) or curl"
 
   local os arch tag asset tmp expected actual dest
@@ -122,6 +223,10 @@ main() {
   install_file "${tmp}/${asset}" "$dest"
   link_short_name "$dest"
   log "installed ${BIN_NAME} ${tag} -> ${dest}"
+  if [ -n "$SHADOWED" ]; then
+    log "old copy at ${SHADOWED} is now shadowed — remove it with: sudo rm ${SHADOWED}"
+  fi
+  path_hint
 }
 
 main "$@"

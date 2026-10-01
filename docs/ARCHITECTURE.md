@@ -813,6 +813,20 @@ Go code any more:
   `gh release view --repo osbrjp/bungkus-mc --json tagName` (argv, 3 s
   timeout). If `gh` is missing or not logged in, the check is skipped
   silently.
+- **No sudo by default** (bungkus-cli v1.9.1 practice, like uv, rustup,
+  bun, deno and Claude Code). `install.sh` picks the folder in this order:
+  `BUNGKUS_INSTALL_DIR`; else the folder of the existing binary
+  (`BUNGKUS_CURRENT_BIN`, which `bungkus-mc update` sets to the running
+  binary's canonical path, else `command -v bungkus-mc`, symlinks
+  resolved); else `~/.local/bin`. If that folder is not writable and
+  `~/.local/bin` comes earlier on `PATH`, it installs there instead (the
+  new copy shadows the old one) and prints `sudo rm <old path>` to remove
+  the old copy; otherwise it uses sudo in place. A folder not on `PATH`
+  gets the one line to add for fish, zsh and bash. The logic lives in the
+  installer, so older clients get it on their next update.
+  `BUNGKUS_INSTALL_DRY_RUN=1` prints the decision and exits before any
+  network call; `tests/install.rs` covers the six cases with fake `PATH`
+  folders.
 - `install.sh` starts from bungkus-cli's script with `REPO=osbrjp/bungkus-mc`
   and `BIN_NAME=bungkus-mc`. It is attached to every release, and fetches
   the binary and `checksums.txt` with `gh release download` (SHA-256

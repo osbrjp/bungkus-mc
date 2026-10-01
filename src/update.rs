@@ -114,7 +114,9 @@ pub(crate) fn available(var: impl Fn(&str) -> Option<String>) -> Option<String> 
 /// `--check` prints whether a newer release exists. Otherwise the
 /// installer attached to the latest release is downloaded with `gh` and
 /// run with `bash` (the one documented shell use for updates, SECURITY.md);
-/// it verifies the binary against `checksums.txt` itself.
+/// it verifies the binary against `checksums.txt` itself. The running
+/// binary's real path goes along as `BUNGKUS_CURRENT_BIN`, so the copy
+/// that runs is the one updated (ARCHITECTURE §11).
 ///
 /// # Errors
 ///
@@ -150,11 +152,14 @@ pub(crate) fn run(check_only: bool) -> anyhow::Result<String> {
     if !got.success() {
         bail!("could not download install.sh for {latest}");
     }
-    let status = Command::new("bash")
+    let mut installer = Command::new("bash");
+    installer
         .arg(dir.join("install.sh"))
-        .env("BUNGKUS_MC_VERSION", &latest)
-        .status()
-        .context("running the installer")?;
+        .env("BUNGKUS_MC_VERSION", &latest);
+    if let Ok(exe) = std::env::current_exe().and_then(std::fs::canonicalize) {
+        installer.env("BUNGKUS_CURRENT_BIN", exe);
+    }
+    let status = installer.status().context("running the installer")?;
     // reason: a leftover temp dir is harmless.
     let _ = std::fs::remove_dir_all(&dir);
     if !status.success() {

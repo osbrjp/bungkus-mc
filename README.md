@@ -34,8 +34,10 @@ npm install -g @osbrjp/bungkus-mc
 ```
 
 The installer verifies the binary against the release's `checksums.txt`,
-installs to `/usr/local/bin` (`BUNGKUS_INSTALL_DIR` to change), and adds
-`bkmc` only when no command of that name exists. mc checks for a newer
+installs to `~/.local/bin` without sudo (`BUNGKUS_INSTALL_DIR` to
+change; it prints the line to put that folder on `PATH` if needed), updates
+an existing install where it is, and adds `bkmc` only when no command of
+that name exists. mc checks for a newer
 release once a day through `gh`; `BUNGKUS_NO_UPDATE_CHECK=1` turns that off.
 
 Needs `claude` and/or `codex` on `PATH`. Any monospace font works.

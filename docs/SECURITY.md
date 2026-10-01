@@ -111,7 +111,10 @@ agents already store.** No `tool_input` beyond a 200-char description, no
   resolved tag, piped to `bash`; the script downloads the asset and
   `checksums.txt` through `gh` and verifies SHA-256. The installer's
   `bkmc` symlink is created only when no `bkmc` exists on `PATH` or in
-  the install dir. It never replaces another program's command.
+  the install dir. It never replaces another program's command. It never
+  asks for sudo unless the existing install's folder is not writable and
+  `~/.local/bin` does not come first on `PATH` (ARCHITECTURE §11); the
+  shadowed old copy is reported, never removed by the script.
 - **Model routing (opt-in, off by default).** Host
   `https://api.typesafe.ai/v1/systemone` (hardcoded, HTTPS, POST). Trigger:
   only when `routing.enabled` is true in config, `consent.json` records
