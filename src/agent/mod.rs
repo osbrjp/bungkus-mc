@@ -86,6 +86,9 @@ pub(crate) struct Launch {
     pub hook_args: Vec<String>,
     /// The agent's own session id to resume; must be a UUID.
     pub resume: Option<String>,
+    /// Opens the agent's own list of past sessions (`claude --resume`,
+    /// `codex resume` without an id) instead of starting a new one.
+    pub pick: bool,
 }
 
 /// Builds the argument vector for a new session (ARCHITECTURE §5.1, §5.2).
@@ -107,32 +110,39 @@ pub(crate) fn argv(kind: Kind, program: &Path, args: &[String], launch: &Launch)
     if kind == Kind::Codex {
         out.extend(launch.hook_args.iter().map(OsString::from));
     }
-    let mut flag = |name: &str, value: &str| {
+    let flag = |out: &mut Vec<OsString>, name: &str, value: &str| {
         out.push(name.into());
         out.push(value.into());
     };
     match (kind, &launch.resume) {
         (Kind::Claude, resume) => {
             match resume {
-                Some(id) => flag("--resume", id),
-                None => flag("--session-id", &launch.id.0.hyphenated().to_string()),
+                Some(id) => flag(&mut out, "--resume", id),
+                None if launch.pick => out.push("--resume".into()),
+                None => flag(
+                    &mut out,
+                    "--session-id",
+                    &launch.id.0.hyphenated().to_string(),
+                ),
             }
             if let Some(settings) = &launch.settings {
-                flag("--settings", settings);
+                flag(&mut out, "--settings", settings);
             }
             if let Some(model) = &launch.model {
-                flag("--model", model);
+                flag(&mut out, "--model", model);
             }
-            if let (Some(name), None) = (&launch.name, resume) {
-                flag("--name", name);
+            if let (Some(name), None, false) = (&launch.name, resume, launch.pick) {
+                flag(&mut out, "--name", name);
             }
         }
         (Kind::Codex, resume) => {
             if let Some(model) = &launch.model {
-                flag("-m", model);
+                flag(&mut out, "-m", model);
             }
-            if let Some(id) = resume {
-                flag("resume", id);
+            match resume {
+                Some(id) => flag(&mut out, "resume", id),
+                None if launch.pick => out.push("resume".into()),
+                None => {}
             }
         }
     }
@@ -178,6 +188,7 @@ mod tests {
             settings: Some("{}".into()),
             hook_args: vec!["-c".into(), "hooks.Stop=[]".into()],
             resume: None,
+            pick: false,
         };
         let bare = Launch {
             id,
@@ -187,6 +198,7 @@ mod tests {
             settings: None,
             hook_args: Vec::new(),
             resume: None,
+            pick: false,
         };
         let s = |v: Vec<OsString>| {
             v.into_iter()
@@ -234,6 +246,34 @@ mod tests {
     }
 
     #[test]
+    fn builds_the_past_session_list_argv() {
+        let pick = Launch {
+            id: SessionId(uuid::Uuid::nil()),
+            model: None,
+            name: Some("past session".into()),
+            prompt: None,
+            settings: Some("{}".into()),
+            hook_args: vec!["-c".into(), "hooks.Stop=[]".into()],
+            resume: None,
+            pick: true,
+        };
+        let s = |v: Vec<OsString>| {
+            v.into_iter()
+                .map(|a| a.into_string().unwrap())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            s(argv(Kind::Claude, Path::new("/bin/claude"), &[], &pick)),
+            ["/bin/claude", "--resume", "--settings", "{}"],
+            "no session id, no name"
+        );
+        assert_eq!(
+            s(argv(Kind::Codex, Path::new("/bin/codex"), &[], &pick)),
+            ["/bin/codex", "-c", "hooks.Stop=[]", "resume"]
+        );
+    }
+
+    #[test]
     fn builds_resume_argv_without_new_session_flags() {
         let id = SessionId(uuid::Uuid::nil());
         let resume = Launch {
@@ -244,6 +284,7 @@ mod tests {
             settings: Some("{}".into()),
             hook_args: vec!["-c".into(), "hooks.Stop=[]".into()],
             resume: Some("5f1c0000-0000-0000-0000-000000000000".into()),
+            pick: false,
         };
         let s = |v: Vec<OsString>| {
             v.into_iter()

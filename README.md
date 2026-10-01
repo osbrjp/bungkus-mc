@@ -65,7 +65,8 @@ below it as a branch: `├ i746` under `nrha-timii`.
 | `!` · `ctrl-]` | jump to the next session that needs you, in any project |
 | `j` `k` · `↓` `↑` · `gg` `G` | move |
 | `x` | stop a session (lists what it started too) |
-| `r` · `d` | resume · forget a finished session |
+| `r` | resume the selected finished session; anywhere else, open the agent's own list of this project's past sessions (`claude --resume` / `codex resume`) to pick any of them |
+| `d` | forget a finished session |
 | `z` | zoom the output pane |
 | `/` | search projects (`↑` `↓` pick, `enter` open, `esc` clear) |
 | `1`–`9` | jump to project N; type the next digit quickly for two digits (`1` `6` → 16) |

@@ -1126,7 +1126,7 @@ highlighted project with the default agent and no prompt.
 | `enter` · `l` `→` `tab`  | focus the output pane on this session = **INTERACT** (hint: `ctrl-\ back`) |
 | `n`                      | new session in this project (picker: agent, model, name, prompt) |
 | `x`                      | stop (confirm; lists the session's tracked descendants too)   |
-| `r`                      | resume a stopped/wrapped/failed session                       |
+| `r`                      | resume a stopped/wrapped/failed session; on a running or outside row (and `r` in the projects pane) open the agent's own past-session list instead: `claude --resume` / `codex resume` with no id, asking which agent when both are installed. mc never reads that list itself |
 | `d`                      | forget a stopped/wrapped/failed session (confirm; list only)  |
 
 ### 8.4 Output pane

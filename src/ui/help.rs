@@ -10,7 +10,7 @@ use crate::ui::theme::{Theme, Token};
 use crate::ui::{centred, dialog};
 
 /// Width of a key label column.
-const LABEL: usize = 16;
+const LABEL: usize = 21;
 /// Width of a help text column.
 const HELP: usize = 16;
 
