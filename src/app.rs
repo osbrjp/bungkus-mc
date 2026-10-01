@@ -247,6 +247,9 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<bool> {
                     pty.flush_sync();
                 }
             }
+            if matches!(event, AppEvent::External(_)) {
+                rescan(&mut model);
+            }
             let Some(cmd) = model.update(event) else {
                 continue;
             };
@@ -425,6 +428,24 @@ fn run_cmd(
         }
     }
     Next::Continue
+}
+
+/// Lists the workspace again (every [`EXTERNAL_EVERY`]), so a folder made
+/// outside mc (a new git worktree, a clone) shows up in the projects pane;
+/// the selection stays on its project.
+fn rescan(model: &mut Model) {
+    let Some(Ok(projects)) = model.root().map(workspace::scan) else {
+        return;
+    };
+    if projects == model.projects {
+        return;
+    }
+    let selected = model.selected_project().map(|p| p.path.clone());
+    model.projects = projects;
+    if let Some(row) = selected.and_then(|path| model.visible().iter().position(|p| p.path == path))
+    {
+        model.selected = row;
+    }
 }
 
 /// Writes every card to `sessions.json`; a failure is shown once and
@@ -964,6 +985,26 @@ mod tests {
             let args = shared_note(&model, kind, project, replaces, Vec::new());
             assert_eq!(args.len(), want, "{kind:?} {project:?} {replaces:?}");
         }
+    }
+
+    #[test]
+    fn a_rescan_lists_a_new_folder_and_keeps_the_selected_project() {
+        let ws = std::env::temp_dir().join(format!("mc-rescan-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&ws);
+        for name in ["a", "c"] {
+            std::fs::create_dir_all(ws.join(name).join(".git")).unwrap();
+        }
+        let mut model = crate::app::model::tests::sample(&[]);
+        let mut settings = model.settings.clone().unwrap();
+        settings.workspace.clone_from(&ws);
+        model.apply(settings, workspace::scan(&ws), Path::new("/"));
+        model.selected = 1;
+        std::fs::create_dir_all(ws.join("b").join(".git")).unwrap();
+        rescan(&mut model);
+        let names: Vec<&str> = model.projects.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["a", "b", "c"]);
+        assert_eq!(model.selected_project().unwrap().name, "c");
+        std::fs::remove_dir_all(&ws).unwrap();
     }
 
     #[test]
