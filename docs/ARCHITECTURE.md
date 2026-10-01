@@ -58,7 +58,7 @@ reader for numbers, §6).
  │   • socket listener → Hook / Usage                                                       │
  │   • codex usage tail ×N → Usage (§6.3)                                                    │
  │   • proc scan       → Descendants (§3.3, every 2 s while any session runs)               │
- │   • update check    → UpdateAvailable (once a day)                                       │
+ │   • update check    → UpdateAvailable (once an hour)                                     │
  │   • route request   → Routed (§13, only for a routed `n` start)                          │
  │   • input reader    → Input (keys, mouse, paste, resize, focus) via ratatui::crossterm   │
  │  the loop: recv_timeout(deadline) → drain with try_recv → update model → one render     │
@@ -873,7 +873,7 @@ Go code any more:
 - **The repo is public** (owner decision, 2026-10-01; it was private
   before, when releases went through `gh`). As bungkus-cli: install with
   `curl -fsSL https://raw.githubusercontent.com/osbrjp/bungkus-mc/main/install.sh | bash`.
-- The updater (`src/update.rs`: latest-release lookup with a daily 0600
+- The updater (`src/update.rs`: latest-release lookup with an hourly 0600
   cache, semver compare, `update --check`, re-running the installer)
   follows bungkus-cli's `pkg/update.go`, with the same
   `BUNGKUS_NO_UPDATE_CHECK`. The lookup runs `curl -fsSL --max-time 3`

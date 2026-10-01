@@ -263,6 +263,9 @@ pub(crate) struct Model {
     pub known: std::collections::HashSet<SessionId>,
     /// Whether a `U` update is running.
     pub updating: bool,
+    /// The newer release the check found; stays in the header until mc is
+    /// updated.
+    pub newer: Option<String>,
     /// Whether mc starts again (the updated binary) once it has quit.
     pub restart: bool,
     /// Saved workspaces, most recently used first (`w`).
@@ -365,6 +368,7 @@ impl Model {
             last_trash: Vec::new(),
             workspaces: Vec::new(),
             updating: false,
+            newer: None,
             restart: false,
             known: std::collections::HashSet::new(),
             kitty: false,
@@ -651,6 +655,7 @@ impl Model {
             AppEvent::HostGone => return self.host_gone(),
             AppEvent::UpdateAvailable(tag) => {
                 self.message = Some(format!("bungkus-mc {tag} is out — U updates and restarts"));
+                self.newer = Some(tag);
             }
             AppEvent::Updated(result) => return self.updated(result),
             AppEvent::Pty(PtyEvent::Output(id, bytes)) => {
