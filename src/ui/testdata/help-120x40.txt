@@ -7,12 +7,12 @@
 ┃   4 teh-cli        ┃│                                    ││                                                          │
 ┃   5 warung-api     ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │
-┃                    ┃│                                    ││                                                          │
 ┃                    ╔ keys · projects pane ══════════════════════════════════════════════════════╗                    │
 ┃                    ║                                                                            ║                    │
 ┃                    ║  enter                its sessions    n                    new session     ║                    │
-┃                    ║  V                    select lines    u                    undo dd         ║                    │
-┃                    ║  dd                   to Trash        r                    past sessions   ║                    │
+┃                    ║  a                    new project     V                    select lines    ║                    │
+┃                    ║  u                    undo dd         dd                   to Trash        ║                    │
+┃                    ║  r                    past sessions                                        ║                    │
 ┃                    ║                                                                            ║                    │
 ┃                    ║  everywhere                                                                ║                    │
 ┃                    ║  h ← shift-tab ctrl-h pane left       l → tab ctrl-l       pane right      ║                    │
@@ -24,10 +24,10 @@
 ┃                    ║  N                    quick session   cmd/alt-1            projects pane   ║.                   │
 ┃                    ║  cmd/alt-2            sessions pane   cmd/alt-3            output pane     ║n                   │
 ┃                    ║  w                    workspace       ,                    settings        ║                    │
-┃                    ║  R                    redraw          ?                    this help       ║                    │
+┃                    ║  R                    redraw          ? space              this help       ║                    │
 ┃                    ║  q ctrl-c             quit                                                 ║                    │
 ┃                    ║                                                                            ║                    │
-┃                    ║                                                                 esc close  ║                    │
+┃                    ║                                         press a key to run it · esc close  ║                    │
 ┃                    ╚════════════════════════════════════════════════════════════════════════════╝                    │
 ┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │
@@ -37,5 +37,5 @@
 ┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │
 ┗━━━━━━━━━━━━━━━━━━━━┛└────────────────────────────────────┘└──────────────────────────────────────────────────────────┘
- NORMAL  enter → sessions · n new · r past · / search · N quick · ? help
+ NORMAL  enter → sessions · n new · ? keys
 cursor: hidden

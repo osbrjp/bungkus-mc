@@ -74,9 +74,63 @@ pub(crate) fn save(path: &Path, records: &[Record]) -> std::io::Result<()> {
     crate::store::write_atomic(path, &bytes)
 }
 
+/// The plan limits last reported, per vendor, kept across runs so the
+/// status bar is not empty until a session reports again.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub(crate) struct Limits {
+    /// Per vendor in `Kind::ALL` order: the windows and when they were
+    /// reported (unix seconds).
+    pub vendors: [(Vec<crate::agent::usage::Window>, u64); 2],
+}
+
+/// Returns `limits.json` next to `sessions.json`.
+#[must_use]
+pub(crate) fn limits_file(state: &Path) -> PathBuf {
+    state.with_file_name("limits.json")
+}
+
+/// Loads the stored limits; a missing or unreadable file is empty.
+#[must_use]
+pub(crate) fn load_limits(path: &Path) -> Limits {
+    std::fs::read(path)
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
+/// Saves the limits atomically with mode 0600.
+///
+/// # Errors
+///
+/// The I/O error of the write.
+pub(crate) fn save_limits(path: &Path, limits: &Limits) -> std::io::Result<()> {
+    let bytes = serde_json::to_vec(limits).map_err(std::io::Error::other)?;
+    crate::store::write_atomic(path, &bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn limits_round_trip() {
+        let dir = std::env::temp_dir().join(format!("mc-limits-{}", std::process::id()));
+        let path = limits_file(&dir.join("sessions.json"));
+        let mut limits = Limits::default();
+        limits.vendors[0] = (
+            vec![crate::agent::usage::Window {
+                label: "5h".into(),
+                used_pct: 8.0,
+                resets_at: Some(5),
+            }],
+            1_790_000_000,
+        );
+        save_limits(&path, &limits).unwrap();
+        assert_eq!(load_limits(&path), limits);
+        assert_eq!(load_limits(&dir.join("missing.json")), Limits::default());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn round_trips_and_tolerates_a_bad_file() {

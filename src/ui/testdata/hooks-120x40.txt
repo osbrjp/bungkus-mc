@@ -37,5 +37,5 @@
 │                    │┃                                    ┃│                                                          │
 │                    │┃                                    ┃│                                                          │
 └────────────────────┘┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛└──────────────────────────────────────────────────────────┘
- NORMAL  enter → agent · n new · x stop · r resume · / search · N quick · ? help           C 5h #---- 6% · 7d #---- 18%
+ NORMAL  enter → agent · n new · x stop · ? keys                                           C 5h #---- 6% · 7d #---- 18%
 cursor: hidden

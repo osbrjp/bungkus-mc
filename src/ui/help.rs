@@ -30,7 +30,13 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, scope: Scope, theme: Theme) {
     lines.push(Line::styled("  everywhere", theme.fg(Token::FgMuted)));
     lines.extend(pairs(&keymap::help_rows(Scope::Global), theme));
     lines.push(Line::from(""));
-    lines.push(Line::styled("esc close  ", theme.fg(Token::FgMuted)).alignment(Alignment::Right));
+    lines.push(
+        Line::styled(
+            "press a key to run it · esc close  ",
+            theme.fg(Token::FgMuted),
+        )
+        .alignment(Alignment::Right),
+    );
     let height = u16::try_from(lines.len() + 2).unwrap_or(u16::MAX);
     let width = u16::try_from(2 + 2 * (LABEL + HELP) + 2).unwrap_or(u16::MAX);
     let rect = centred(area, width, height);

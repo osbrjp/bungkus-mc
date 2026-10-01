@@ -207,14 +207,7 @@ fn main() -> Result<()> {
         debug_log!("bungkus-mc {} started", env!("CARGO_PKG_VERSION"));
     }
     if let Some(path) = &state_path {
-        let now = std::time::Instant::now();
-        let unix_now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs());
-        model.cards = store::state::load(path)
-            .iter()
-            .filter_map(|r| app::sessions::Card::from_record(r, now, unix_now))
-            .collect();
+        restore_state(&mut model, path);
     }
     let env = app::Env {
         config_path,
@@ -224,6 +217,27 @@ fn main() -> Result<()> {
         state_path,
     };
     app::run(model, &env).context("running the TUI")
+}
+
+/// Restores the remembered sessions and plan limits from the state folder
+/// (`sessions.json`, `limits.json`).
+fn restore_state(model: &mut app::model::Model, path: &std::path::Path) {
+    let now = std::time::Instant::now();
+    let unix_now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let stored = store::state::load_limits(&store::state::limits_file(path));
+    for (v, (windows, at)) in stored.vendors.into_iter().enumerate() {
+        if !windows.is_empty() {
+            model.limits[v] = windows;
+            model.limits_at[v] =
+                now.checked_sub(std::time::Duration::from_secs(unix_now.saturating_sub(at)));
+        }
+    }
+    model.cards = store::state::load(path)
+        .iter()
+        .filter_map(|r| app::sessions::Card::from_record(r, now, unix_now))
+        .collect();
 }
 
 /// Returns whether the locale is UTF-8 (DESIGN §3): the first set of

@@ -36,6 +36,18 @@ pub(crate) struct MoveDialog {
     pub error: Option<String>,
 }
 
+/// The `a` dialog: a new project folder in the workspace.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct NewProject {
+    /// The folder name typed so far.
+    pub name: String,
+    /// Whether to add `AGENTS.md` and a `CLAUDE.md` that imports it, besides
+    /// `git init`; otherwise the project is a fresh repository.
+    pub agent_files: bool,
+    /// Why the last `enter` could not be carried out.
+    pub error: Option<String>,
+}
+
 /// One row of the move dialog.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum MoveOption {
@@ -309,6 +321,48 @@ impl Model {
         None
     }
 
+    /// Opens the `a` new-project dialog.
+    pub(crate) fn start_new_project(&mut self) {
+        if self.root().is_some() {
+            self.overlay = Some(Overlay::NewProject(NewProject {
+                name: String::new(),
+                agent_files: true,
+                error: None,
+            }));
+        }
+    }
+
+    /// Applies a key to the new-project dialog: typing edits the name,
+    /// `tab`/`↑`/`↓`/`←`/`→` switch fresh / with agent files, `enter`
+    /// creates it, `esc` cancels.
+    pub(crate) fn new_project_key(&mut self, mut dialog: NewProject, key: KeyEvent) -> Option<Cmd> {
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        match key.code {
+            KeyCode::Esc => return None,
+            KeyCode::Enter => match self.new_project_path(&dialog.name) {
+                Ok(path) => return Some(Cmd::NewProject(path, dialog.agent_files)),
+                Err(e) => dialog.error = Some(e),
+            },
+            KeyCode::Tab
+            | KeyCode::BackTab
+            | KeyCode::Up
+            | KeyCode::Down
+            | KeyCode::Left
+            | KeyCode::Right => dialog.agent_files = !dialog.agent_files,
+            KeyCode::Backspace => {
+                dialog.name.pop();
+                dialog.error = None;
+            }
+            KeyCode::Char(ch) if !ctrl && dialog.name.chars().count() < NAME_MAX => {
+                dialog.name.push(ch);
+                dialog.error = None;
+            }
+            _ => {}
+        }
+        self.overlay = Some(Overlay::NewProject(dialog));
+        None
+    }
+
     /// Returns the folder for a new project called `name` in the
     /// workspace, or why it cannot be one: empty, a path, hidden, or taken.
     ///
@@ -325,7 +379,8 @@ impl Model {
         }
         let root = self.root().ok_or("No workspace yet.")?;
         let path = root.join(name);
-        if std::fs::symlink_metadata(&path).is_ok() {
+        if std::fs::symlink_metadata(&path).is_ok() || self.projects.iter().any(|p| p.name == name)
+        {
             return Err(format!("{name} already exists in the workspace."));
         }
         Ok(path)
@@ -595,6 +650,35 @@ mod tests {
             panic!("still open");
         };
         assert_eq!(d.selected, 1);
+    }
+
+    #[test]
+    fn a_names_a_new_project_and_picks_its_kind() {
+        let mut m = sample(&["app"]);
+        m.update(press(KeyCode::Char('a')));
+        for ch in "kedai".chars() {
+            m.update(press(KeyCode::Char(ch)));
+        }
+        m.update(press(KeyCode::Tab));
+        let Some(Cmd::NewProject(path, agent_files)) = m.update(press(KeyCode::Enter)) else {
+            panic!("enter creates");
+        };
+        assert_eq!(path, m.root().unwrap().join("kedai"));
+        assert!(!agent_files, "tab switched to a fresh repository");
+        m.update(press(KeyCode::Char('a')));
+        m.update(press(KeyCode::Char('a')));
+        m.update(press(KeyCode::Char('p')));
+        m.update(press(KeyCode::Char('p')));
+        assert!(m.update(press(KeyCode::Enter)).is_none(), "app exists");
+        let Some(Overlay::NewProject(d)) = &m.overlay else {
+            panic!("stays open with the reason");
+        };
+        assert!(
+            d.error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("already exists")
+        );
     }
 
     #[test]

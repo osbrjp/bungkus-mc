@@ -317,6 +317,7 @@ fn run_cmd(
         Cmd::Apply(settings) => apply(model, env, settings),
         Cmd::Launch(request) => launch(model, env, hooks, request, tx),
         Cmd::WatchRollout(id, path) => watch_rollout(model, id, &path, tx),
+        Cmd::NewProject(path, agent_files) => new_project(model, &path, agent_files),
         Cmd::TrashProject(paths) => trash_projects(model, &paths),
         Cmd::RestoreProject(moved) => restore_projects(model, &moved),
         Cmd::StopOutside(pid) => {
@@ -396,6 +397,18 @@ fn save_state(model: &mut Model, env: &Env) {
     if let Err(e) = crate::store::state::save(path, &records) {
         model.message = Some(format!("Sessions not saved: {e}"));
     }
+    let unix = |at: Option<std::time::Instant>| {
+        at.map_or(0, |at| {
+            model
+                .unix_now
+                .saturating_sub(model.now.saturating_duration_since(at).as_secs())
+        })
+    };
+    let limits = crate::store::state::Limits {
+        vendors: [0, 1].map(|v| (model.limits[v].clone(), unix(model.limits_at[v]))),
+    };
+    // reason: limits are a convenience; the next report brings them back.
+    let _ = crate::store::state::save_limits(&crate::store::state::limits_file(path), &limits);
 }
 
 /// Saves settings, rescans the workspace and recolours running sessions.
@@ -694,6 +707,46 @@ fn stop_outside(pid: i32, uid: u32) -> String {
     }
 }
 
+/// Creates project `path` (`a`): `git init`, plus `AGENTS.md` and a
+/// `CLAUDE.md` that imports it when `agent_files`; then rescans and selects
+/// it.
+fn new_project(model: &mut Model, path: &Path, agent_files: bool) {
+    let name = path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned();
+    let made = create_project(path).and_then(|()| {
+        if agent_files {
+            std::fs::write(
+                path.join("AGENTS.md"),
+                format!("# {name}\n\nInstructions for AI coding agents working in this project.\n"),
+            )?;
+            std::fs::write(path.join("CLAUDE.md"), "@AGENTS.md\n")?;
+        }
+        Ok(())
+    });
+    match made {
+        Ok(()) => {
+            crate::debug_log!(
+                "new project {} (agent files: {agent_files})",
+                path.display()
+            );
+            if let Some(root) = model.root().map(Path::to_path_buf)
+                && let Ok(projects) = workspace::scan(&root)
+            {
+                model.projects = projects;
+            }
+            if let Some(row) = model.visible().iter().position(|p| p.path == path) {
+                model.selected = row;
+            }
+            model.focus = crate::app::model::Focus::Projects;
+            model.message = Some(format!("Created {name} · n starts a session in it"));
+        }
+        Err(e) => model.message = Some(format!("Could not create {name}: {e}")),
+    }
+}
+
 /// Creates project folder `path` in the workspace and runs `git init` in
 /// it (fixed argv, no shell), so the workspace scan lists it.
 ///
@@ -786,6 +839,28 @@ mod tests {
         child.kill().unwrap();
         child.wait().unwrap();
         assert!(stop_outside(pid, uid).contains("already gone"));
+    }
+
+    #[test]
+    fn a_new_project_with_agent_files_gets_git_agents_and_claude() {
+        let ws = std::env::temp_dir().join(format!("mc-a-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&ws);
+        std::fs::create_dir_all(&ws).unwrap();
+        let mut model = crate::app::model::tests::sample(&["x"]);
+        new_project(&mut model, &ws.join("full"), true);
+        new_project(&mut model, &ws.join("bare"), false);
+        assert!(ws.join("full/.git").is_dir() && ws.join("bare/.git").is_dir());
+        assert_eq!(
+            std::fs::read_to_string(ws.join("full/CLAUDE.md")).unwrap(),
+            "@AGENTS.md\n"
+        );
+        assert!(
+            std::fs::read_to_string(ws.join("full/AGENTS.md"))
+                .unwrap()
+                .starts_with("# full")
+        );
+        assert!(!ws.join("bare/AGENTS.md").exists());
+        std::fs::remove_dir_all(&ws).unwrap();
     }
 
     #[test]
