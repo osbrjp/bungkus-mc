@@ -425,7 +425,7 @@ the same corner treatment.)
 ┌ output · C #e019 · migrate db ───────────────────────────┐  ┌ output · C #e019 · migrate db ──────────────────── /xx\ ─┐
 │                                                ▄▄        │  │                                                          │
 │  ● Bash(pnpm drizzle-kit migrate)            ▄████▄      │  │  ● Bash(pnpm drizzle-kit migrate --config drizzle.config…│
-│    └  error: relation "users" already       █xx██xx█     │  │    └  error: relation "users" already exists (42P07) at  │
+│    └  error: relation "users" already       █x████x█     │  │    └  error: relation "users" already exists (42P07) at  │
 │       exists (42P07)                      ▄██████████▄   │  │       migrations/0003_add_users.sql:1:14 in schema public│
 │                                         ▄██████████████▄ │  │                                                          │
 │  ● Migration failed. Stopping here.           █  █       │  │  ● Migration failed. Stopping here.                      │
@@ -765,7 +765,7 @@ idle              lookL             lookR (feet right)duck
 hop               stepL             stepR             died
       ▄██▄               ▄▄                ▄▄                ▄▄
     ▄██████▄           ▄████▄            ▄████▄            ▄████▄
-   ▄████████▄         ████████          ████████          █xx██xx█
+   ▄████████▄         ████████          ████████          █x████x█
  ▄████████████▄     ▄██████████▄      ▄██████████▄      ▄██████████▄
 ▀▀▀▀▀▀█▀▀█▀▀▀▀▀▀  ▄██████████████▄  ▄██████████████▄  ▄██████████████▄
       █  █             ▄█  █              █ ▄█              █  █
