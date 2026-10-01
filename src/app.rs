@@ -13,6 +13,7 @@ mod interact;
 pub(crate) mod model;
 pub(crate) mod picker;
 pub(crate) mod quick;
+pub(crate) mod repo;
 pub(crate) mod sessions;
 pub(crate) mod stop;
 mod takeover;
@@ -71,6 +72,8 @@ pub(crate) enum AppEvent {
     Procs(Vec<crate::proc::Proc>),
     /// Agent sessions running outside mc (every [`EXTERNAL_EVERY`]).
     External(Vec<crate::external::External>),
+    /// The git branch and status of the session folders in a repository.
+    Repos(Vec<(PathBuf, repo::Status)>),
     /// The host terminal went away (input closed).
     HostGone,
     /// A newer release exists (the daily check).
@@ -243,6 +246,7 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<bool> {
             }
             if matches!(event, AppEvent::External(_)) {
                 rescan(&mut model);
+                scan_repos(&mut model, &tx);
             }
             let Some(cmd) = model.update(event) else {
                 continue;
@@ -424,6 +428,32 @@ fn run_cmd(
         }
     }
     Next::Continue
+}
+
+/// Reads the git branch and status of every session folder on a
+/// background thread (every [`EXTERNAL_EVERY`], one read at a time) and
+/// reports them as [`AppEvent::Repos`].
+fn scan_repos(model: &mut Model, tx: &SyncSender<AppEvent>) {
+    if model.repo_scan {
+        return;
+    }
+    let mut folders: Vec<PathBuf> = model.cards.iter().map(Card::folder).collect();
+    folders.sort();
+    folders.dedup();
+    if folders.is_empty() {
+        return;
+    }
+    model.repo_scan = true;
+    let tx = tx.clone();
+    thread::spawn(move || {
+        let repos = folders
+            .into_iter()
+            .filter_map(|folder| Some((repo::Status::read(&folder)?, folder)))
+            .map(|(status, folder)| (folder, status))
+            .collect();
+        // reason: mc may have quit meanwhile.
+        let _ = tx.send(AppEvent::Repos(repos));
+    });
 }
 
 /// Lists the workspace again (every [`EXTERNAL_EVERY`]), so a folder made

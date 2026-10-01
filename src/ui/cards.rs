@@ -63,7 +63,9 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
                 (true, true) => Mark::Focused,
                 (true, false) => Mark::Shown,
             };
-            let mut lines = card_lines(&model.cards[i], mark, width, spin, model.now, theme);
+            let card = &model.cards[i];
+            let repo = model.repos.get(&card.folder());
+            let mut lines = card_lines(card, repo, mark, width, spin, model.now, theme);
             lines.push(Line::from(""));
             lines
         })
@@ -202,12 +204,14 @@ fn minutes(from: Instant, to: Instant) -> u64 {
 }
 
 /// Returns a card's lines (DESIGN §5.2): the title line, the state line,
-/// the compact usage line (`-` until M5), then one line per subagent.
+/// the git line when the session's folder is in a repository, the compact
+/// usage line (`-` until M5), then one line per subagent.
 ///
 /// Column 0 carries `mark`: the focus marker on the title line, or the
 /// same bar the projects pane uses for its selected row on every line.
 fn card_lines(
     card: &Card,
+    repo: Option<&crate::app::repo::Status>,
     mark: Mark,
     width: usize,
     spin: char,
@@ -273,6 +277,9 @@ fn card_lines(
         ])
     };
     let mut lines = vec![title, body(&detail(card, now), text)];
+    if let Some(repo) = repo {
+        lines.push(body(&repo.label(body_width), theme.fg(Token::FgMuted)));
+    }
     if mark == Mark::Focused {
         for row in expanded_usage(card) {
             lines.push(body(&row, text));
@@ -408,5 +415,36 @@ fn detail(card: &Card, now: Instant) -> String {
             let plural = if subs == 1 { "" } else { "s" };
             format!("{m}m · {} tools · {subs} subagent{plural}", card.tool_calls)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::theme::{Background, Profile, ThemeName};
+
+    #[test]
+    fn a_card_in_a_repository_gets_the_git_line_below_its_state() {
+        let theme = Theme::new(ThemeName::Dark, Profile::NoColor, Background::Paint);
+        let now = Instant::now();
+        let card = Card::new(
+            crate::term::SessionId::new(),
+            Kind::Claude,
+            "/p".into(),
+            Some("s"),
+            None,
+            now,
+        );
+        let repo = crate::app::repo::Status::parse("# branch.head main\n? x\n").unwrap();
+        let text = |repo| -> Vec<String> {
+            card_lines(&card, repo, Mark::None, 36, '*', now, theme)
+                .iter()
+                .map(ToString::to_string)
+                .collect()
+        };
+        assert_eq!(text(None).len(), 3);
+        let lines = text(Some(&repo));
+        assert_eq!(lines.len(), 4);
+        assert_eq!(lines[2].trim(), "main · 1 changed");
     }
 }
