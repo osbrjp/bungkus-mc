@@ -1,5 +1,5 @@
- bungkus-mc  ~/Works/OSBR › kedai-web                                       x 1 failed · | 1 working · v0.1.0    ▄██▄
-                                                                                                               ▄█x██x█▄
+                                                                                                                 ▄██▄
+ bungkus-mc  ~/Works/OSBR › kedai-web                                     x 1 failed · | 1 working · v0.1.0    ▄█x██x█▄
                                                                                                                  ▀  ▀
 ┌ projects ──────────┐┌ sessions · kedai-web ──────────────┐╔ output · C #a3f2 · flaky p… · INTERACT · ctrl-\ to leave ╗
 │ / search           ││ ┃x C #a3f1 checkout redesign failed│║> fix the flaky date test                                 ║

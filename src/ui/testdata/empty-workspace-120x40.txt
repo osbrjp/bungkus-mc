@@ -1,5 +1,5 @@
- bungkus-mc  ~/Works/OSBR                                                                              v0.1.0    ▄██▄
-                                                                                                               ▄██████▄
+                                                                                                                 ▄██▄
+ bungkus-mc  ~/Works/OSBR                                                                            v0.1.0    ▄██████▄
                                                                                                                  ▀  ▀
 ┏ projects ━━━━━━━━━━┓┌ sessions ──────────────────────────┐┌ output ──────────────────────────────────────────────────┐
 ┃ / search           ┃│ No projects in ~/Works/OSBR. A     ││                                                          │

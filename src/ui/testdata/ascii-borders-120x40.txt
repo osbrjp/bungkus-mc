@@ -1,5 +1,5 @@
- bungkus-mc  ~/Works/OSBR › kedai-web                                                                  v0.1.0     /oo\
-                                                                                                                 /_/\_\
+                                                                                                                  /oo\
+ bungkus-mc  ~/Works/OSBR › kedai-web                                                                v0.1.0      /_/\_\
                                                                                                                   _| _|
 + projects ----------+# sessions · kedai-web ==============#+ output · C #a3f1 · checkout redesign --------------------+
 | / search           ||▸ ✓ C #a3f1 checkout redesi… wrapped||                                                          |
