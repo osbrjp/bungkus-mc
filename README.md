@@ -72,6 +72,7 @@ below it as a branch: `├ i746` under `nrha-timii`.
 | `r` | resume the selected finished session; anywhere else, open the agent's own list of this project's past sessions (`claude --resume` / `codex resume`) to pick any of them |
 | `d` | forget a finished session |
 | `z` | zoom the output pane |
+| `dd` · `V` then `d` · `u` | move the project (or a `V` line selection of projects) to the Trash after a confirm · undo it |
 | `/` | search projects (`↑` `↓` pick, `enter` open, `esc` clear) |
 | `1`–`9` | jump to project N; type the next digit quickly for two digits (`1` `6` → 16) |
 | `,` · `w` | settings · workspace |

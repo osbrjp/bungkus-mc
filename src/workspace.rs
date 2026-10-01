@@ -121,6 +121,121 @@ pub(crate) fn is_project(path: &Path) -> bool {
             .any(|m| std::fs::metadata(path.join(m)).is_ok())
 }
 
+/// Moves project folder `path` into the Trash and returns where it went.
+///
+/// Only a direct child of `root` (symlinks resolved for the check; a
+/// symlinked project moves as the link) is accepted. macOS uses `~/.Trash`;
+/// elsewhere the freedesktop trash (`$XDG_DATA_HOME/Trash`, with its
+/// `.trashinfo` file). A name already in the Trash gets the time appended.
+/// The move is a `rename`, so nothing is copied or deleted.
+///
+/// # Errors
+///
+/// `InvalidInput` when `path` is not a direct child of `root`; the error
+/// of the rename (`CrossesDevices` when the Trash is on another disk) or
+/// of creating the Trash folders.
+pub(crate) fn trash(
+    path: &Path,
+    root: &Path,
+    home: &Path,
+    data_home: Option<&Path>,
+) -> std::io::Result<PathBuf> {
+    use std::io::{Error, ErrorKind};
+    let parent = path.parent().map(Path::canonicalize).transpose()?;
+    if parent.as_deref() != Some(root.canonicalize()?.as_path()) || path.file_name().is_none() {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "not a project folder of the workspace",
+        ));
+    }
+    let name = path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned();
+    let (files, info) = if cfg!(target_os = "macos") {
+        (home.join(".Trash"), None)
+    } else {
+        let base = data_home
+            .map_or_else(|| home.join(".local/share"), Path::to_path_buf)
+            .join("Trash");
+        (base.join("files"), Some(base.join("info")))
+    };
+    std::fs::create_dir_all(&files)?;
+    let unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let mut target = files.join(&name);
+    if std::fs::symlink_metadata(&target).is_ok() {
+        target = files.join(format!("{name} {unix}"));
+    }
+    if let Some(info) = info {
+        std::fs::create_dir_all(&info)?;
+        let stem = target
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        let entry = format!(
+            "[Trash Info]\nPath={}\nDeletionDate={}\n",
+            path.display(),
+            rfc3339_local(unix)
+        );
+        std::fs::write(info.join(format!("{stem}.trashinfo")), entry)?;
+    }
+    std::fs::rename(path, &target)?;
+    Ok(target)
+}
+
+/// Moves a trashed project (`trashed`, as [`trash`] returned it) back to
+/// `folder`, and drops its freedesktop `.trashinfo` when there is one.
+///
+/// # Errors
+///
+/// `AlreadyExists` when `folder` exists again; the rename's error.
+pub(crate) fn restore(trashed: &Path, folder: &Path) -> std::io::Result<()> {
+    if std::fs::symlink_metadata(folder).is_ok() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "a folder with that name exists again",
+        ));
+    }
+    std::fs::rename(trashed, folder)?;
+    if let (Some(files), Some(name)) = (trashed.parent(), trashed.file_name())
+        && let Some(base) = files.parent()
+    {
+        let info = base
+            .join("info")
+            .join(format!("{}.trashinfo", name.to_string_lossy()));
+        // reason: macOS has no info file, and a stale one is harmless.
+        let _ = std::fs::remove_file(info);
+    }
+    Ok(())
+}
+
+/// Formats unix seconds as `YYYY-MM-DDThh:mm:ss` (UTC; the trash spec asks
+/// for local time, which only affects the date the trash UI shows).
+fn rfc3339_local(unix: u64) -> String {
+    let days = unix / 86_400;
+    let secs = unix % 86_400;
+    // Civil-from-days (Howard Hinnant), valid for every date mc will see.
+    let z = i64::try_from(days).unwrap_or(0) + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}",
+        secs / 3600,
+        secs % 3600 / 60,
+        secs % 60
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -203,6 +318,52 @@ mod tests {
             ]
         );
         fs::remove_dir_all(&ws).unwrap();
+    }
+
+    #[test]
+    fn trashes_only_a_project_folder_of_the_workspace() {
+        let root = std::env::temp_dir().join(format!("mc-trash-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let ws = root.join("ws");
+        let home = root.join("home");
+        fs::create_dir_all(ws.join("old-app/.git")).unwrap();
+        fs::create_dir_all(ws.join("keep/inner")).unwrap();
+        fs::create_dir_all(&home).unwrap();
+        let data = root.join("data");
+        assert!(
+            trash(&ws.join("keep/inner"), &ws, &home, Some(&data)).is_err(),
+            "not a direct child"
+        );
+        assert!(
+            trash(&ws, &ws, &home, Some(&data)).is_err(),
+            "not the workspace itself"
+        );
+        let went = trash(&ws.join("old-app"), &ws, &home, Some(&data)).unwrap();
+        assert!(!ws.join("old-app").exists());
+        assert!(
+            went.join(".git").exists(),
+            "moved, not deleted: {}",
+            went.display()
+        );
+        fs::create_dir_all(ws.join("old-app")).unwrap();
+        let again = trash(&ws.join("old-app"), &ws, &home, Some(&data)).unwrap();
+        assert_ne!(
+            again, went,
+            "a second one with the same name does not clash"
+        );
+        restore(&again, &ws.join("old-app")).unwrap();
+        assert!(ws.join("old-app").exists(), "u puts it back");
+        assert!(
+            restore(&went, &ws.join("old-app")).is_err(),
+            "never over a folder"
+        );
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn formats_trash_dates() {
+        assert_eq!(rfc3339_local(0), "1970-01-01T00:00:00");
+        assert_eq!(rfc3339_local(1_790_823_759), "2026-10-01T03:02:39");
     }
 
     #[test]

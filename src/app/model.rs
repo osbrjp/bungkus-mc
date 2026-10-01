@@ -81,6 +81,8 @@ pub(crate) enum Overlay {
     Move(crate::app::quick::MoveDialog),
     /// "Stop this session started outside mc?"
     StopOutside(External),
+    /// "Move these projects' folders to the Trash?"
+    TrashProject(Vec<Project>),
 }
 
 /// A session the loop must start.
@@ -126,6 +128,10 @@ pub(crate) enum Cmd {
     Scan,
     /// Write the dragged pane widths to `config.json`.
     SaveWidths(crate::ui::Widths),
+    /// Move these project folders to the Trash (after the user confirmed).
+    TrashProject(Vec<PathBuf>),
+    /// Move trashed projects back: each `(folder, where it went)`.
+    RestoreProject(Vec<(PathBuf, PathBuf)>),
     /// Stop outside session `pid` (SIGTERM, after the user confirmed):
     /// still ours, still an agent, same process.
     StopOutside(i32),
@@ -216,6 +222,11 @@ pub(crate) struct Model {
     /// Shows every key mc receives in the hint line (`BUNGKUS_MC_DEBUG_KEYS`),
     /// to find chords a terminal keeps for itself.
     pub debug_keys: bool,
+    /// The projects last moved to the Trash this run, each `(folder, where
+    /// it went)`, for `u`.
+    pub last_trash: Vec<(PathBuf, PathBuf)>,
+    /// The other end of the projects pane's line selection (`V`), when on.
+    pub visual: Option<usize>,
     /// The quick session whose popup shows (keys go to it).
     pub popup: Option<SessionId>,
     /// Whether the popup's menu (`ctrl-\`: hide, move, new project) is open.
@@ -284,6 +295,8 @@ impl Model {
             external: Vec::new(),
             poke: None,
             popup: None,
+            last_trash: Vec::new(),
+            visual: None,
             popup_menu: false,
             debug_keys: false,
             quick_row: Project {
@@ -705,6 +718,23 @@ impl Model {
             self.filter_key(key);
             return None;
         }
+        if self.visual.is_some() && self.focus == Focus::Projects {
+            match key.code {
+                KeyCode::Esc => {
+                    self.visual = None;
+                    return None;
+                }
+                KeyCode::Char('d') if key.modifiers.is_empty() => {
+                    self.pending = None;
+                    self.ask_trash();
+                    return None;
+                }
+                _ => {}
+            }
+        }
+        if self.focus != Focus::Projects {
+            self.visual = None;
+        }
         let lookup = keymap::lookup(self.focus.scope(), key, self.pending.take());
         let jump = self.jump.take();
         match lookup {
@@ -804,6 +834,8 @@ impl Model {
                 }
                 None
             }
+            Overlay::TrashProject(projects) => (key.code == KeyCode::Char('y'))
+                .then(|| Cmd::TrashProject(projects.into_iter().map(|p| p.path).collect())),
             Overlay::Forget(id) => {
                 if key.code == KeyCode::Char('y') {
                     self.cards.retain(|c| c.id != id);
@@ -888,6 +920,58 @@ impl Model {
             pick = (pick + 1) % quotes;
         }
         self.poke = Some((self.now, pick));
+    }
+
+    /// Asks before moving the selected projects' folders to the Trash: the
+    /// `V` selection, else the highlighted one. The `quick` and `elsewhere`
+    /// rows are skipped; any project with running sessions refuses all.
+    fn ask_trash(&mut self) {
+        let visible = self.visible();
+        let (from, to) = match self.visual {
+            Some(anchor) => (anchor.min(self.selected), anchor.max(self.selected)),
+            None => (self.selected, self.selected),
+        };
+        let projects: Vec<Project> = visible
+            .iter()
+            .take(to + 1)
+            .skip(from)
+            .filter(|p| !p.path.as_os_str().is_empty() && self.root() != Some(p.path.as_path()))
+            .map(|p| (*p).clone())
+            .collect();
+        self.visual = None;
+        if projects.is_empty() {
+            return;
+        }
+        if let Some(busy) = projects.iter().find(|p| {
+            self.cards
+                .iter()
+                .any(|c| c.project == p.path && c.running())
+        }) {
+            self.message = Some(format!(
+                "{} has running sessions; stop them first (x).",
+                busy.name
+            ));
+            return;
+        }
+        self.overlay = Some(Overlay::TrashProject(projects));
+    }
+
+    /// Puts the projects last moved to the Trash back (`u`), or says there
+    /// is nothing to undo.
+    fn undo_trash(&mut self) -> Option<Cmd> {
+        if self.last_trash.is_empty() {
+            self.message = Some("Nothing to undo.".into());
+            return None;
+        }
+        Some(Cmd::RestoreProject(std::mem::take(&mut self.last_trash)))
+    }
+
+    /// Returns whether visible row `row` is inside the `V` selection.
+    #[must_use]
+    pub(crate) fn in_visual(&self, row: usize) -> bool {
+        self.visual.is_some_and(|anchor| {
+            (anchor.min(self.selected)..=anchor.max(self.selected)).contains(&row)
+        })
     }
 
     /// Enters the selected row of the sessions pane: takes over an outside
@@ -1134,6 +1218,9 @@ impl Model {
                 }
             }
             Action::Pane(n) => self.focus_pane(n),
+            Action::TrashProject => self.ask_trash(),
+            Action::UndoTrash => return self.undo_trash(),
+            Action::Visual => self.visual = self.visual.xor(Some(self.selected)),
             Action::QuickSession => return self.quick_session(),
             Action::MoveQuick => self.start_move(false),
             Action::MakeProject => self.start_move(true),
@@ -1415,6 +1502,38 @@ pub(crate) mod tests {
             m.update(press(KeyCode::Char('y'))),
             Some(Cmd::StopOutside(4242))
         );
+    }
+
+    #[test]
+    fn dd_and_a_v_selection_ask_before_trashing_projects() {
+        let mut m = sample(&["a", "b", "c", "d"]);
+        m.focus = Focus::Projects;
+        m.update(press(KeyCode::Char('d')));
+        m.update(press(KeyCode::Char('d')));
+        let Some(Overlay::TrashProject(one)) = &m.overlay else {
+            panic!("dd asks");
+        };
+        assert_eq!(one.len(), 1);
+        assert!(m.update(press(KeyCode::Char('n'))).is_none(), "n keeps it");
+        m.update(press(KeyCode::Char('V')));
+        m.update(press(KeyCode::Char('j')));
+        m.update(press(KeyCode::Char('j')));
+        assert!(m.in_visual(1) && !m.in_visual(3));
+        m.update(press(KeyCode::Char('d')));
+        let Some(Cmd::TrashProject(paths)) = m.update(press(KeyCode::Char('y'))) else {
+            panic!("y trashes the selection");
+        };
+        let names: Vec<_> = paths
+            .iter()
+            .map(|p| p.file_name().unwrap().to_owned())
+            .collect();
+        assert_eq!(names, ["a", "b", "c"]);
+        assert!(m.visual.is_none());
+        m.update(press(KeyCode::Char('V')));
+        m.update(press(KeyCode::Esc));
+        assert!(m.visual.is_none(), "esc ends the selection");
+        m.update(press(KeyCode::Char('u')));
+        assert_eq!(m.message.as_deref(), Some("Nothing to undo."));
     }
 
     #[test]
