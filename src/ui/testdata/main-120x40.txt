@@ -1,4 +1,6 @@
- bungkus-mc  ~/Works/OSBR › pasar-mobile                                                                         v0.1.0
+ bungkus-mc  ~/Works/OSBR › pasar-mobile                                                               v0.1.0    ▄██▄
+                                                                                                               ▄██████▄
+                                                                                                                 ▀  ▀
 ┏ projects ━━━━━━━━━━┓┌ sessions · pasar-mobile ───────────┐┌ output ──────────────────────────────────────────────────┐
 ┃ / search           ┃│ No sessions in pasar-mobile. n to  ││                                                          │
 ┃   1 kedai-web      ┃│ start one.                         ││                                                          │
@@ -13,16 +15,14 @@
 ┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │
-┃                    ┃│                                    ││                            ▄▄                            │
-┃                    ┃│                                    ││                          ▄████▄                          │
-┃                    ┃│                                    ││                         ████████                         │
-┃                    ┃│                                    ││                       ▄██████████▄                       │
-┃                    ┃│                                    ││                     ▄██████████████▄                     │
-┃                    ┃│                                    ││                           █  █                           │
-┃                    ┃│                                    ││                          ▀▀ ▀▀                           │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                   Nothing wrapped yet.                   │
 ┃                    ┃│                                    ││                   n to start a session                   │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │

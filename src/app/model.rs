@@ -196,6 +196,8 @@ pub(crate) struct Model {
     pub state_dirty: bool,
     /// Agent sessions running outside mc, read-only (ARCHITECTURE §3.4).
     pub external: Vec<External>,
+    /// When the band mascot was last clicked and which quote it says.
+    pub poke: Option<(Instant, usize)>,
     /// The "elsewhere" row that ends the projects list while an outside
     /// session runs in no project folder; its path is empty.
     pub elsewhere: Project,
@@ -252,6 +254,7 @@ impl Model {
             next_scan: None,
             state_dirty: false,
             external: Vec::new(),
+            poke: None,
             elsewhere: Project {
                 name: "elsewhere".into(),
                 path: PathBuf::new(),
@@ -369,6 +372,7 @@ impl Model {
         let empty_output = self.selected_card().is_none();
         self.theme.animated()
             && (empty_output
+                || self.poke.is_some()
                 || self
                     .project_cards()
                     .iter()
@@ -400,8 +404,10 @@ impl Model {
             .filter(|_| self.cards.iter().any(Card::running));
         let plans = self.plan_deadline();
         let takeover = self.take_over_deadline();
+        let poke = self.poke.map(|(at, _)| at + crate::ui::mascot::POKE);
         syncs
             .chain(takeover)
+            .chain(poke)
             .chain(stops)
             .chain(silent)
             .chain(tick)
@@ -445,6 +451,12 @@ impl Model {
         match event {
             AppEvent::Tick => {
                 self.frame = self.frame.wrapping_add(1);
+                if self
+                    .poke
+                    .is_some_and(|(at, _)| self.now >= at + crate::ui::mascot::POKE)
+                {
+                    self.poke = None;
+                }
                 if let Some(cmd) = self.take_over_due() {
                     return Some(cmd);
                 }
@@ -777,6 +789,20 @@ impl Model {
             launch,
             replaces: Some(card.id),
         }))
+    }
+
+    /// Starts the band mascot's click animation with a random quote (never
+    /// the one it just said).
+    pub(crate) fn poke(&mut self) {
+        let quotes = crate::ui::mascot::QUOTES.len();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.subsec_nanos());
+        let mut pick = usize::try_from(nanos).unwrap_or(0) % quotes;
+        if self.poke.is_some_and(|(_, last)| last == pick) {
+            pick = (pick + 1) % quotes;
+        }
+        self.poke = Some((self.now, pick));
     }
 
     /// Focuses pane `n`: 1 projects, 2 sessions, 3 output (INTERACT when

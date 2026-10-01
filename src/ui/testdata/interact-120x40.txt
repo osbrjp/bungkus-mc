@@ -1,8 +1,10 @@
- bungkus-mc  ~/Works/OSBR › kedai-web                                                 x 1 failed · | 1 working · v0.1.0
+ bungkus-mc  ~/Works/OSBR › kedai-web                                       x 1 failed · | 1 working · v0.1.0    ▄██▄
+                                                                                                               ▄█x██x█▄
+                                                                                                                 ▀  ▀
 ┌ projects ──────────┐┌ sessions · kedai-web ──────────────┐╔ output · C #a3f2 · flaky p… · INTERACT · ctrl-\ to leave ╗
-│ / search           ││ ┃x C #a3f1 checkout redesign failed│║> fix the flaky date test                          ▄██▄   ║
-│:| 1 kedai-web  x 1 ││ ┃  exit 1 · boom                   │║  run it twice                                   ▄██████▄ ║
-│   2 pasar-mobile   ││ ┃  - tok · - · ctx -               │║                                                   ▀  ▀   ║
+│ / search           ││ ┃x C #a3f1 checkout redesign failed│║> fix the flaky date test                                 ║
+│:| 1 kedai-web  x 1 ││ ┃  exit 1 · boom                   │║  run it twice                                            ║
+│   2 pasar-mobile   ││ ┃  - tok · - · ctx -               │║                                                          ║
 │   3 roti-docs      ││                                    │║                                                          ║
 │   4 teh-cli        ││  | C #a3f2 flaky payment test    0m│║                                                          ║
 │   5 warung-api     ││    output only · live tree unavail…│║                                                          ║
@@ -34,8 +36,6 @@
 │                    ││                                    │║                                                          ║
 │                    ││                                    │║                                                          ║
 │                    ││                                    │║                                                          ║
-│                    ││                                    │║                                                          ║
-│                    ││                                    │║                                                          ║
 └────────────────────┘└────────────────────────────────────┘╚══════════════════════════════════════════════════════════╝
  INTERACT  keys go to claude · ctrl-\ back to mc
-cursor: 75,3
+cursor: 75,5

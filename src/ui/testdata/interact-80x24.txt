@@ -1,8 +1,8 @@
  bungkus-mc  kedai-web › output               x 1 failed · | 1 working · v0.1.0
 ╔ output · C #a3f2 · flaky payment test · INTERACT · ctrl-\ to leave ══════════╗
-║> fix the flaky date test                                              ▄██▄   ║
-║  run it twice                                                       ▄██████▄ ║
-║                                                                       ▀  ▀   ║
+║> fix the flaky date test                                                     ║
+║  run it twice                                                                ║
+║                                                                              ║
 ║                                                                              ║
 ║                                                                              ║
 ║                                                                              ║

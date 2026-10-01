@@ -1,4 +1,6 @@
- bungkus-mc  ~/Works/OSBR › kedai-web                                                                            v0.1.0
+ bungkus-mc  ~/Works/OSBR › kedai-web                                                                  v0.1.0     /oo\
+                                                                                                                 /_/\_\
+                                                                                                                  _| _|
 + projects ----------+# sessions · kedai-web ==============#+ output · C #a3f1 · checkout redesign --------------------+
 | / search           ||▸ ✓ C #a3f1 checkout redesi… wrapped||                                                          |
 |▌  1 kedai-web      ||    0m · 0 tools · 0 subagents      ||                                                          |
@@ -17,9 +19,7 @@
 |                    ||                                    ||                                                          |
 |                    ||                                    ||                                                          |
 |                    ||                                    ||                                                          |
-|                    ||                                    ||                                                          |
 |                    ||                                    ||                   Warming up the wok…                    |
-|                    ||                                    ||                                                          |
 |                    ||                                    ||                                                          |
 |                    ||                                    ||                                                          |
 |                    ||                                    ||                                                          |
