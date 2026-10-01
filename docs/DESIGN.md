@@ -491,7 +491,9 @@ whether there is a header line.
 - Cards never collapse; when the pane is short, it scrolls (the selected
   card is kept in view). **The selected card is expanded (§6.3) only while
   the sessions pane is focused**; when focus is elsewhere every card is the
-  compact 3-line form, so the pane reads the same whichever card is selected.
+  compact 3-line form, and the selected card — the one the output pane
+  shows — carries the projects pane's unfocused-selection bar (`:` / `▌`,
+  `accent`) in column 0 of every line, with its name in `accent`.
 - Truncation: every line is cut to the inner width with a trailing `…`.
   Lines with a right-aligned field (elapsed, state word, subagent time) keep
   the right field and truncate the left text. The usage `limits` line drops

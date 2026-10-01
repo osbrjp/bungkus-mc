@@ -4,9 +4,9 @@
 │:| 1 kedai-web  x 1 ││ ┃  exit 1 · boom                   │║                                                 ▄██████▄ ║
 │   2 pasar-mobile   ││ ┃  - tok · - · ctx -               │║                                                   ▀  ▀   ║
 │   3 roti-docs      ││                                    │║> fix the flaky date test                                 ║
-│   4 teh-cli        ││  | C #a3f2 flaky payment test    0m│║  run it twice                                            ║
-│   5 warung-api     ││    output only · live tree unavail…│║                                                          ║
-│                    ││    - tok · - · ctx -               │║                                                          ║
+│   4 teh-cli        ││: | C #a3f2 flaky payment test    0m│║  run it twice                                            ║
+│   5 warung-api     ││:   output only · live tree unavail…│║                                                          ║
+│                    ││:   - tok · - · ctx -               │║                                                          ║
 │                    ││                                    │║                                                          ║
 │                    ││  + C #a3f3 bump deps        wrapped│║                                                          ║
 │                    ││    0m · 0 tools · 0 subagents      │║                                                          ║

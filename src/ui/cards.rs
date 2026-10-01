@@ -22,6 +22,19 @@ use crate::ui::{pane, workspace_label};
 /// Most subagent rows shown per card; the newest are kept.
 const SUBAGENT_ROWS: usize = 5;
 
+/// How a card stands out in the sessions pane.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mark {
+    /// Not the selected card.
+    None,
+    /// Selected while the sessions pane has focus: the focus marker on the
+    /// title line, usage expanded.
+    Focused,
+    /// Selected while focus is elsewhere: the card the output pane shows,
+    /// with a bar down its left edge and its name in `accent`.
+    Shown,
+}
+
 /// Draws the sessions pane.
 pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
     let project = model.selected_project();
@@ -45,21 +58,12 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
         .iter()
         .enumerate()
         .map(|(pos, &i)| {
-            let selected = pos == model.card && focused;
-            let marker = if selected {
-                theme.icons.icon(Icon::Marker).to_string()
-            } else {
-                " ".to_owned()
+            let mark = match (pos == model.card, focused) {
+                (false, _) => Mark::None,
+                (true, true) => Mark::Focused,
+                (true, false) => Mark::Shown,
             };
-            let mut lines = card_lines(
-                &model.cards[i],
-                &marker,
-                selected,
-                width,
-                spin,
-                model.now,
-                theme,
-            );
+            let mut lines = card_lines(&model.cards[i], mark, width, spin, model.now, theme);
             lines.push(Line::from(""));
             lines
         })
@@ -199,10 +203,12 @@ fn minutes(from: Instant, to: Instant) -> u64 {
 
 /// Returns a card's lines (DESIGN §5.2): the title line, the state line,
 /// the compact usage line (`-` until M5), then one line per subagent.
+///
+/// Column 0 carries `mark`: the focus marker on the title line, or the
+/// same bar the projects pane uses for its selected row on every line.
 fn card_lines(
     card: &Card,
-    marker: &str,
-    expanded: bool,
+    mark: Mark,
     width: usize,
     spin: char,
     now: Instant,
@@ -229,13 +235,24 @@ fn card_lines(
     let fixed = 2 + 2 + 2 + id.len() + 1;
     let name = truncate(&card.name, width.saturating_sub(fixed + right.len() + 1));
     let pad = width.saturating_sub(fixed + name.chars().count() + right.len());
-    let title_style = if muted {
-        text
-    } else {
-        text.add_modifier(Modifier::BOLD)
+    let title_style = match (mark, muted) {
+        (Mark::Shown, _) => theme.fg(Token::Accent).add_modifier(Modifier::BOLD),
+        (Mark::None | Mark::Focused, true) => text,
+        (Mark::None | Mark::Focused, false) => text.add_modifier(Modifier::BOLD),
+    };
+    let edge = match mark {
+        Mark::None | Mark::Focused => Span::raw(" "),
+        Mark::Shown if theme.icons == IconSet::Ascii => Span::styled(":", theme.fg(Token::Accent)),
+        Mark::Shown => Span::styled("▌", theme.fg(Token::Accent)),
     };
     let title = Line::from(vec![
-        Span::styled(marker.to_owned(), theme.fg(Token::Ok)),
+        match mark {
+            Mark::Focused => Span::styled(
+                theme.icons.icon(Icon::Marker).to_string(),
+                theme.fg(Token::Ok),
+            ),
+            Mark::None | Mark::Shown => edge.clone(),
+        },
         Span::styled(gutter, theme.fg(gutter_token)),
         Span::styled(glyph.to_string(), theme.fg(glyph_token)),
         Span::raw(" "),
@@ -250,20 +267,20 @@ fn card_lines(
     let body_width = width.saturating_sub(4);
     let body = |s: &str, style: Style| {
         Line::from(vec![
-            Span::raw(" "),
+            edge.clone(),
             Span::styled(gutter, theme.fg(gutter_token)),
             Span::styled(format!("  {}", truncate(s, body_width)), style),
         ])
     };
     let mut lines = vec![title, body(&detail(card, now), text)];
-    if expanded {
+    if mark == Mark::Focused {
         for row in expanded_usage(card) {
             lines.push(body(&row, text));
         }
     } else {
         let (usage, ctx, token) = compact_usage(card);
         lines.push(Line::from(vec![
-            Span::raw(" "),
+            edge.clone(),
             Span::styled(gutter, theme.fg(gutter_token)),
             Span::styled(format!("  {usage}"), text),
             Span::styled(ctx, theme.fg(token)),
@@ -281,7 +298,7 @@ fn card_lines(
         let desc = truncate(&sub.description, body_width.saturating_sub(right_len + 2));
         let pad = body_width.saturating_sub(desc.chars().count() + 2 + right_len);
         lines.push(Line::from(vec![
-            Span::raw(" "),
+            edge.clone(),
             Span::styled(gutter, theme.fg(gutter_token)),
             Span::styled(
                 format!("  {} ", theme.icons.icon(Icon::Subagent)),
