@@ -24,6 +24,7 @@ that has access (`gh auth login` first):
 gh release download --repo osbrjp/bungkus-mc --pattern install.sh -O - | bash
 bungkus-mc            # or the short command: bkmc
 bungkus-mc update     # later: install the newest release (--check only reports)
+                      # or press U inside mc: update, then restart on it
 ```
 
 Once published, also:
@@ -79,6 +80,7 @@ below it as a branch: `├ i746` under `nrha-timii`.
 | `,` | settings |
 | `w` | workspace switcher: saved workspaces (recent first, project counts), type to filter, `1`–`9`/enter switch, `+ add a folder…`, `ctrl-d` removes one from the list. Sessions keep running in the background; `!` follows one that needs you into its workspace |
 | `ctrl-j` `ctrl-k` · `ctrl-n` `ctrl-p` | down · up in every dialog, list and the `/` search (same as `↓` `↑`) |
+| `U` | update: install the newest release in the background, then restart mc on it (running sessions are asked about first, as on quit; `r` resumes them) |
 | `?` · `space` | key menu: every key for the pane; press one to run it |
 | `q` | quit (stops sessions and what they started, after a confirm) |
 

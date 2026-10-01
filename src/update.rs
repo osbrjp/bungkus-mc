@@ -112,9 +112,10 @@ pub(crate) fn available(var: impl Fn(&str) -> Option<String>) -> Option<String> 
 /// Why an update could not be installed.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum UpdateError {
-    /// `gh` is missing, not logged in, or did not answer in time.
+    /// No release came back: none published yet, or `gh` is missing, not
+    /// logged in, or did not answer in time.
     #[error(
-        "could not ask GitHub for the latest release; is gh installed and logged in (gh auth login)?"
+        "no release found (none published yet, or gh is missing or logged out: gh auth login)"
     )]
     NoRelease,
     /// `gh release download` failed.
