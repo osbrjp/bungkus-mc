@@ -76,7 +76,8 @@ below it as a branch: `├ i746` under `nrha-timii`.
 | `dd` · `V` then `d` · `u` | move the project (or a `V` line selection of projects) to the Trash after a confirm · undo it |
 | `/` | search projects (`↑` `↓` pick, `enter` open, `esc` clear) |
 | `1`–`9` | jump to project N; type the next digit quickly for two digits (`1` `6` → 16) |
-| `,` · `w` | settings · workspace |
+| `,` | settings |
+| `w` | workspace switcher: saved workspaces (recent first, project counts), type to filter, `1`–`9`/enter switch, `+ add a folder…`, `ctrl-d` removes one from the list. Sessions keep running in the background; `!` follows one that needs you into its workspace |
 | `ctrl-j` `ctrl-k` · `ctrl-n` `ctrl-p` | down · up in every dialog, list and the `/` search (same as `↓` `↑`) |
 | `?` · `space` | key menu: every key for the pane; press one to run it |
 | `q` | quit (stops sessions and what they started, after a confirm) |
@@ -135,6 +136,7 @@ writes `workspace`, `defaultAgent` and `theme`, a border drag writes
     "claude": { "command": "claude", "args": [] },
     "codex":  { "command": "codex",  "args": [] }
   },
+  "workspaces": ["/Users/me/Works", "/Users/me/code"],
   "cleanup": { "keep": ["postgres"] },
   "panes": { "projects": 22, "sessions": 38 }
 }

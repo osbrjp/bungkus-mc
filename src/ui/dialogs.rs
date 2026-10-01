@@ -599,3 +599,96 @@ pub(super) fn draw_new_project(
     draw_field(frame, field, &dialog.name, theme);
     frame.render_widget(Paragraph::new(lines), kinds);
 }
+
+/// Returns `text` cut to `max` characters from the front (`…/OSBR`), so
+/// the end of a long path, which tells workspaces apart, stays visible.
+fn keep_end(text: &str, max: usize) -> String {
+    let n = text.chars().count();
+    if n <= max {
+        return text.to_owned();
+    }
+    let tail: String = text.chars().skip(n - max.saturating_sub(1)).collect();
+    format!("…{tail}")
+}
+
+/// Draws the `w` workspace switcher: the bordered filter field, the saved
+/// workspaces (number, path, project count, `●` on the current one) and
+/// the add row.
+pub(super) fn draw_switcher(
+    frame: &mut Frame,
+    area: Rect,
+    switcher: &crate::app::workspaces::Switcher,
+    model: &Model,
+    theme: Theme,
+) {
+    use crate::app::workspaces::SwitcherRow;
+
+    let rows = model.switcher_rows(switcher);
+    let width: u16 = 64;
+    let path_room = usize::from(width).saturating_sub(26);
+    let lines: Vec<Line> = rows
+        .iter()
+        .enumerate()
+        .map(|(i, row)| {
+            let chosen = i == switcher.selected;
+            let style = if chosen {
+                bold_if(theme.fg(Token::Accent), true)
+            } else {
+                theme.fg(Token::Fg)
+            };
+            let marker = if chosen { "> " } else { "  " };
+            match row {
+                SwitcherRow::Workspace(path, n) => {
+                    let label = crate::store::config::tilde(path, model.home.as_deref());
+                    let current = if model.root() == Some(path.as_path()) {
+                        " ●"
+                    } else {
+                        ""
+                    };
+                    let number = if switcher.query.is_empty() && i < 9 {
+                        format!("{} ", i + 1)
+                    } else {
+                        "  ".to_owned()
+                    };
+                    Line::from(vec![
+                        Span::styled(format!("  {marker}"), style),
+                        Span::styled(number, theme.fg(Token::Ok)),
+                        Span::styled(
+                            format!("{:<path_room$}", keep_end(&label, path_room)),
+                            style,
+                        ),
+                        Span::styled(
+                            format!("{n:>3} projects{current}"),
+                            theme.fg(Token::FgMuted),
+                        ),
+                    ])
+                }
+                SwitcherRow::Add => Line::styled(format!("  {marker}+ add a folder…"), style),
+            }
+        })
+        .collect();
+    let list_rows = u16::try_from(lines.len()).unwrap_or(u16::MAX);
+    let rect = centred(area, width, list_rows + 8);
+    frame.render_widget(Clear, rect);
+    let block = dialog_block("workspaces", theme);
+    let inner = block.inner(rect);
+    frame.render_widget(block, rect);
+    let [_, field, list, _, hint] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(3),
+        Constraint::Length(list_rows),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .areas(inner);
+    draw_field(frame, field, &switcher.query, theme);
+    frame.render_widget(Paragraph::new(lines), list);
+    frame.render_widget(
+        Line::styled(
+            "1-9 or enter switch · ctrl-d remove from list · esc close  ",
+            theme.fg(Token::FgMuted),
+        )
+        .alignment(Alignment::Right),
+        hint,
+    );
+}

@@ -174,6 +174,11 @@ fn main() -> Result<()> {
     model.message = message;
     model.keep.clone_from(&config.cleanup.keep);
     model.widths = config.panes;
+    model.workspaces = config
+        .workspaces
+        .iter()
+        .filter_map(|w| config::expand(w, home.as_deref()))
+        .collect();
     model.debug_keys = var("BUNGKUS_MC_DEBUG_KEYS").is_some();
     if let Some(text) = &config.interact_exit {
         match term::keys::Chord::parse(text) {
@@ -273,6 +278,7 @@ fn apply(model: &mut Model, config: &Config, workspace: PathBuf, cwd: &Path) {
         theme: config.theme,
         default_agent: config.default_agent,
     };
+    model.remember_workspace(&settings.workspace);
     model.apply(settings, scan, cwd);
 }
 
