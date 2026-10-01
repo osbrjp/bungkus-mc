@@ -1086,6 +1086,29 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn ctrl_h_and_ctrl_l_switch_panes_even_in_interact() {
+        let ctrl = |ch| {
+            AppEvent::Input(Event::Key(KeyEvent::new(
+                KeyCode::Char(ch),
+                KeyModifiers::CONTROL,
+            )))
+        };
+        let mut m = sample(&["a"]);
+        let (_id, writes) = with_session(&mut m, "s");
+        assert_eq!(m.focus, Focus::Output);
+        m.update(ctrl('l'));
+        assert_eq!(m.focus, Focus::Output, "already rightmost");
+        m.update(ctrl('h'));
+        assert_eq!(m.focus, Focus::Sessions, "leaves INTERACT");
+        m.update(ctrl('h'));
+        assert_eq!(m.focus, Focus::Projects);
+        m.update(ctrl('l'));
+        m.update(ctrl('l'));
+        assert_eq!(m.focus, Focus::Output, "back into INTERACT");
+        assert!(writes.try_recv().is_err(), "nothing reached the agent");
+    }
+
+    #[test]
     fn filters_projects_and_clears_on_esc() {
         let mut m = sample(&["kedai-web", "pasar-mobile", "teh-cli"]);
         m.update(press(KeyCode::Char('/')));

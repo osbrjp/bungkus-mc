@@ -623,7 +623,7 @@ global set):
 ║                                                            ║
 ║  everywhere                                                ║
 ║  h l ← → tab     panes          !  ctrl-]  next needs you  ║
-║  z               zoom output    ctrl-l R  redraw           ║
+║  z               zoom output    R         redraw           ║
 ║  w               workspace      ?         this help        ║
 ║  q               quit                                      ║
 ║                                                            ║
@@ -1091,7 +1091,7 @@ the same frame.
 
 | Keys                                              | Action                                  |
 |---------------------------------------------------|-----------------------------------------|
-| `h` `l` · `←` `→` · `tab` `shift-tab`             | previous / next pane (moving onto the output pane enters INTERACT) |
+| `h` `l` · `←` `→` · `tab` `shift-tab` · `ctrl-h` `ctrl-l` | previous / next pane (moving onto the output pane enters INTERACT); `ctrl-h`/`ctrl-l` also work inside INTERACT |
 | `j` `k` · `↓` `↑`                                 | move / scroll                           |
 | `gg` `G` · `home` `end`                           | first / last                            |
 | `ctrl-d` `ctrl-u` · `pgdn` `pgup`                 | half page                               |
@@ -1102,7 +1102,7 @@ the same frame.
 | `w`                                               | settings, on the workspace field (§5.8) |
 | `,`                                               | settings: workspace, default agent, theme (§5.8) |
 | `?`                                               | help                                    |
-| `ctrl-l` · `R`                                    | redraw (`R` for tmux + vim-tmux-navigator users, whose `ctrl-l` never arrives) |
+| `R`                                               | redraw |
 | `q` · `ctrl-c`                                    | quit (confirm if anything is running)   |
 
 `gg` is the only two-key sequence (pending `g` shown in the getah bar,
@@ -1148,6 +1148,8 @@ acceptance and permission answers are typed. Exceptions:
 | Keys                 | Action                                                            |
 |----------------------|-------------------------------------------------------------------|
 | `ctrl-\` (default)   | leave INTERACT: NORMAL with the **sessions pane** focused. Configurable: `interactExit` in config, any single chord (suggested alternate: `ctrl-^`) |
+| `ctrl-h`             | leave INTERACT to the sessions pane, as everywhere (the agent never sees it) |
+| `ctrl-l`             | swallowed: the output pane is already the rightmost (the agent never sees it) |
 | `ctrl-z`             | swallowed (a suspended agent cannot be resumed from inside a pane)  |
 | mouse click on another pane | leaves INTERACT and focuses that pane                       |
 | mouse wheel          | scrolls mc's scrollback unless the agent enabled mouse reporting  |
