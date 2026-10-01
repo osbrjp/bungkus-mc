@@ -123,7 +123,10 @@ fn external_lines(
             ),
             Span::styled(glyph.to_string(), theme.fg(token)),
             Span::raw(" "),
-            Span::styled(ext.kind.badge().to_string(), theme.fg(Token::Accent)),
+            Span::styled(
+                theme.agent_mark(ext.kind).to_string(),
+                theme.agent_style(ext.kind),
+            ),
             Span::raw(" "),
             Span::styled(name, theme.fg(Token::Fg)),
             Span::raw(" ".repeat(pad)),
@@ -239,7 +242,10 @@ fn card_lines(
         Span::styled(gutter, theme.fg(gutter_token)),
         Span::styled(glyph.to_string(), theme.fg(glyph_token)),
         Span::raw(" "),
-        Span::styled(card.kind.badge().to_string(), theme.fg(Token::Accent)),
+        Span::styled(
+            theme.agent_mark(card.kind).to_string(),
+            theme.agent_style(card.kind),
+        ),
         Span::raw(" "),
         Span::styled(id, theme.fg(Token::Info)),
         Span::raw(" "),

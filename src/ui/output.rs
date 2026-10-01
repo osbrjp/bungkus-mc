@@ -29,15 +29,7 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
         return;
     }
     let interact = model.focus == Focus::Output;
-    let head = format!("[3] output · {} {} · ", card.kind.badge(), card.id.short());
-    let tail = if interact {
-        format!(" · INTERACT · {} to leave", model.exit_chord.label())
-    } else {
-        String::new()
-    };
-    let room =
-        usize::from(area.width).saturating_sub(head.chars().count() + tail.chars().count() + 4);
-    let title = format!("{head}{}{tail}", truncate(&card.name, room));
+    let title = output_title(card, model, theme, area.width);
     let title_width = title.chars().count() + 4;
     let block = if interact {
         super::bordered(super::Weight::Double, theme)
@@ -122,6 +114,24 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
     }
 }
 
+/// Returns the output pane's title: agent mark, short id, the session's
+/// name cut to fit `width`, and the INTERACT note when the pane has focus.
+fn output_title(card: &Card, model: &Model, theme: Theme, width: u16) -> String {
+    let interact = model.focus == Focus::Output;
+    let head = format!(
+        "[3] output · {} {} · ",
+        theme.agent_mark(card.kind),
+        card.id.short()
+    );
+    let tail = if interact {
+        format!(" · INTERACT · {} to leave", model.exit_chord.label())
+    } else {
+        String::new()
+    };
+    let room = usize::from(width).saturating_sub(head.chars().count() + tail.chars().count() + 4);
+    format!("{head}{}{tail}", truncate(&card.name, room))
+}
+
 /// Draws the quick-session popup (issue #46): a cleared, double-bordered
 /// window with the session's live screen and the cursor, over the panes.
 pub(super) fn draw_popup(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
@@ -136,7 +146,11 @@ pub(super) fn draw_popup(frame: &mut Frame, area: Rect, model: &Model, theme: Th
     } else {
         format!(" · ctrl-m move · {} menu", model.exit_chord.label())
     };
-    let head = format!("quick · {} {} · ", card.kind.badge(), card.id.short());
+    let head = format!(
+        "quick · {} {} · ",
+        theme.agent_mark(card.kind),
+        card.id.short()
+    );
     let room =
         usize::from(area.width).saturating_sub(head.chars().count() + tail.chars().count() + 4);
     let title = format!(" {head}{}{tail} ", truncate(&card.name, room));

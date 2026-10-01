@@ -663,7 +663,7 @@ fn limit_spans(model: &Model, theme: Theme, wide: bool) -> Vec<Span<'static>> {
         .iter()
         .map(|k| {
             (
-                k.badge(),
+                theme.agent_mark(*k),
                 &model.limits[*k as usize],
                 model.limits_at[*k as usize],
             )
@@ -998,11 +998,11 @@ pub(crate) mod tests {
         };
         assert_eq!(
             line(&model, true),
-            "C 5h ###-- 42% · 7d #####- 81% ".replace("#####-", "#####")
+            "✻ 5h ###-- 42% · 7d #####- 81% ".replace("#####-", "#####")
         );
         model.limits[1] = vec![w("5h", 10.0, 2_000), w("7d", 3.0, 500)];
-        assert_eq!(line(&model, true), "C 5h 42% · 7d 81% · X 5h 10% · 7d 3% ");
-        assert_eq!(line(&model, false), "C 42% · X 10% ");
+        assert_eq!(line(&model, true), "✻ 5h 42% · 7d 81% · ⬡ 5h 10% · 7d 3% ");
+        assert_eq!(line(&model, false), "✻ 42% · ⬡ 10% ");
         let theme = Theme::new(
             theme::ThemeName::Dark,
             theme::Profile::Ansi256,

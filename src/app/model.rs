@@ -241,6 +241,9 @@ pub(crate) struct Model {
     /// Whether mc runs in kitty (`KITTY_WINDOW_ID`): `ctrl-h/j/k/l` past
     /// mc's edges then move to kitty's neighbouring window.
     pub kitty: bool,
+    /// Every session id this mc loaded or started (forgotten ones too), so a
+    /// save replaces only its own records in the shared `sessions.json`.
+    pub known: std::collections::HashSet<SessionId>,
     /// Saved workspaces, most recently used first (`w`).
     pub workspaces: Vec<PathBuf>,
     /// The projects last moved to the Trash this run, each `(folder, where
@@ -338,6 +341,7 @@ impl Model {
             popup: None,
             last_trash: Vec::new(),
             workspaces: Vec::new(),
+            known: std::collections::HashSet::new(),
             kitty: false,
             visual: None,
             popup_menu: false,
@@ -1198,6 +1202,7 @@ impl Model {
         let quick = self.is_quick(&card);
         let id = card.id;
         let project = card.project.clone();
+        self.known.insert(id);
         self.cards.push(card);
         if let Some(row) = self.visible().iter().position(|p| p.path == project) {
             self.selected = row;

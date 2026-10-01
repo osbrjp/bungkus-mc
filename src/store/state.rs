@@ -84,6 +84,35 @@ pub(crate) struct Limits {
     pub vendors: [(Vec<crate::agent::usage::Window>, u64); 2],
 }
 
+/// Merges this mc's records into what is on disk, so several mc windows
+/// share one `sessions.json`: records of sessions this mc does not know
+/// (`known` holds every id it loaded or started, forgotten ones included)
+/// are kept, the rest come from `ours`.
+#[must_use]
+pub(crate) fn merge_records(
+    disk: Vec<Record>,
+    ours: Vec<Record>,
+    known: &std::collections::HashSet<String>,
+) -> Vec<Record> {
+    disk.into_iter()
+        .filter(|r| !known.contains(&r.id))
+        .chain(ours)
+        .collect()
+}
+
+/// Merges limits per vendor: the newer report wins, and an empty one never
+/// replaces figures (an mc that heard nothing must not erase them).
+#[must_use]
+pub(crate) fn merge_limits(disk: Limits, ours: Limits) -> Limits {
+    let mut out = disk;
+    for (slot, mine) in out.vendors.iter_mut().zip(ours.vendors) {
+        if !mine.0.is_empty() && (slot.0.is_empty() || mine.1 >= slot.1) {
+            *slot = mine;
+        }
+    }
+    out
+}
+
 /// Returns `limits.json` next to `sessions.json`.
 #[must_use]
 pub(crate) fn limits_file(state: &Path) -> PathBuf {
@@ -112,6 +141,58 @@ pub(crate) fn save_limits(path: &Path, limits: &Limits) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn merging_keeps_other_windows_sessions_and_never_erases_limits() {
+        let rec = |id: &str| Record {
+            id: id.into(),
+            ..Record::default()
+        };
+        let known: std::collections::HashSet<String> = ["mine", "forgotten"]
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect();
+        let merged = merge_records(
+            vec![rec("other"), rec("mine"), rec("forgotten")],
+            vec![rec("mine")],
+            &known,
+        );
+        let ids: Vec<&str> = merged.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            ["other", "mine"],
+            "another window's session stays; a forgotten one goes"
+        );
+
+        let w = |pct: f64| {
+            vec![crate::agent::usage::Window {
+                label: "5h".into(),
+                used_pct: pct,
+                resets_at: None,
+            }]
+        };
+        let disk = Limits {
+            vendors: [(w(8.0), 200), (Vec::new(), 0)],
+        };
+        let empty = Limits::default();
+        assert_eq!(
+            merge_limits(disk.clone(), empty),
+            disk,
+            "nothing heard erases nothing"
+        );
+        let older = Limits {
+            vendors: [(w(3.0), 100), (Vec::new(), 0)],
+        };
+        assert_eq!(
+            merge_limits(disk.clone(), older),
+            disk,
+            "an older report loses"
+        );
+        let newer = Limits {
+            vendors: [(w(9.0), 300), (Vec::new(), 0)],
+        };
+        assert_eq!(merge_limits(disk, newer.clone()), newer);
+    }
 
     #[test]
     fn limits_round_trip() {
