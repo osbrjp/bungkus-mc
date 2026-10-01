@@ -1,5 +1,5 @@
- bungkus-mc  ~/Works/OSBR › kedai-web                                                  ! 1 needs you · v0.1.0    ▄██▄
-                                                                                                               ▄██████▄
+                                                                                                                 ▄██▄
+ bungkus-mc  ~/Works/OSBR › kedai-web                                                ! 1 needs you · v0.1.0    ▄██████▄
                                                                                                                  ▀  ▀
 ┌ projects ──────────┐┏ sessions · kedai-web ━━━━━━━━━━━━━━┓┌ output · C #a3f1 · sl-test ──────────────────────────────┐
 │ / search           │┃>┃! C #a3f1 sl-test               0m┃│                                                          │

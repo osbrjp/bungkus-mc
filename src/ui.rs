@@ -301,8 +301,12 @@ pub(crate) fn band_mascot(area: Rect) -> Option<Rect> {
     })
 }
 
+/// Columns between the header line and the mascot (or its bubble).
+const BAND_GAP: u16 = 3;
+
 /// Draws the band's mascot and, after a click, its speech bubble; returns
-/// the one-row area left for the header line.
+/// the one-row area left for the header line: the band's middle row, level
+/// with the mascot's body, [`BAND_GAP`] columns short of it.
 ///
 /// The mascot's mood follows every session (needs you, failed, working,
 /// your turn, else idle); a click plays [`mascot::poke_pose`] and shows a
@@ -338,7 +342,7 @@ fn draw_band(frame: &mut Frame, band: Rect, model: &Model, theme: Theme) -> Rect
         },
         spot,
     );
-    let mut room = spot.x.saturating_sub(band.x + 1);
+    let mut room = spot.x.saturating_sub(band.x + BAND_GAP);
     if let Some((_, quote)) = clicked {
         let text = mascot::QUOTES[quote % mascot::QUOTES.len()];
         let width = u16::try_from(text.chars().count() + 4).unwrap_or(u16::MAX);
@@ -354,10 +358,14 @@ fn draw_band(frame: &mut Frame, band: Rect, model: &Model, theme: Theme) -> Rect
                 Line::styled(tail, theme.fg(Token::Ok)),
                 Rect::new(bubble.right(), band.y + 1, 1, 1),
             );
-            room = bubble.x.saturating_sub(band.x + 1);
+            room = bubble.x.saturating_sub(band.x + BAND_GAP);
         }
     }
-    Rect { width: room, ..row }
+    Rect {
+        y: band.y + 1,
+        width: room,
+        ..row
+    }
 }
 
 /// Draws the centred "too small" notice (DESIGN §11).
