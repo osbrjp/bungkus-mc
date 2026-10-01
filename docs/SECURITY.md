@@ -187,7 +187,12 @@ Same policy as bungkus-cli (which uses `govulncheck`), with the Rust tools:
   agents --json` (fixed argv, stdin closed, 1 MiB cap, killed after 3 s);
   Codex from the own-uid process snapshot plus `lsof -a -d cwd` for its
   folder. Names and statuses go through `sanitise()`; these sessions are
-  never signalled, typed into, persisted or read beyond that. Take-over
+  never typed into, persisted or read beyond that. They are signalled in
+  one case only, by owner decision: `x` on such a row, confirmed with `y`
+  in a "Stop …?" dialog, sends one SIGTERM — after a fresh snapshot of this
+  user's processes still shows the pid as `claude`, `codex` or `node`, and
+  with that start time re-checked right before the signal (the same
+  identity rule as descendants). Never by port, never without the confirm. Take-over
   only probes the pid with signal 0 (`test_kill_process`, no signal is
   delivered) and resumes the session id `claude agents` reported, checked
   to be a UUID, as one `--resume` argument.

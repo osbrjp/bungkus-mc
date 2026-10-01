@@ -317,6 +317,7 @@ fn run_cmd(
         Cmd::Apply(settings) => apply(model, env, settings),
         Cmd::Launch(request) => launch(model, env, hooks, request, tx),
         Cmd::WatchRollout(id, path) => watch_rollout(model, id, &path, tx),
+        Cmd::StopOutside(pid) => model.message = Some(stop_outside(pid, uid)),
         Cmd::CreateProject(id, path) => match create_project(&path) {
             Ok(()) => {
                 if let Some(root) = model.root().map(Path::to_path_buf)
@@ -579,6 +580,29 @@ fn resize_sessions(model: &mut Model) {
     }
 }
 
+/// Sends SIGTERM to outside session `pid` after the user confirmed it
+/// (SECURITY.md "Sessions outside mc"): only when a fresh snapshot of this
+/// user's processes still shows it as `claude`, `codex` or `node`, and with
+/// that snapshot's start time checked again right before the signal.
+/// Returns the line to show.
+fn stop_outside(pid: i32, uid: u32) -> String {
+    let snapshot = crate::proc::snapshot(uid);
+    let Some(proc) = snapshot.iter().find(|p| p.pid == pid) else {
+        return format!("pid {pid} has already gone.");
+    };
+    if !matches!(proc.name().as_str(), "claude" | "codex" | "node") {
+        return format!(
+            "pid {pid} is no longer an agent ({}); left alone.",
+            proc.name()
+        );
+    }
+    match crate::proc::kill::signal(proc, rustix::process::Signal::TERM) {
+        Ok(()) => format!("Stopping pid {pid}."),
+        Err(crate::proc::kill::KillError::Gone) => format!("pid {pid} has already gone."),
+        Err(crate::proc::kill::KillError::Denied) => format!("Could not stop pid {pid}."),
+    }
+}
+
 /// Creates project folder `path` in the workspace and runs `git init` in
 /// it (fixed argv, no shell), so the workspace scan lists it.
 ///
@@ -655,6 +679,23 @@ pub(crate) fn absolute(path: &str, cwd: &Path, home: Option<&Path>) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stops_an_outside_session_only_while_it_is_still_an_agent() {
+        let uid = rustix::process::getuid().as_raw();
+        let mut child = std::process::Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .unwrap();
+        let pid = i32::try_from(child.id()).unwrap();
+        assert!(
+            stop_outside(pid, uid).contains("no longer an agent"),
+            "sleep is left alone"
+        );
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert!(stop_outside(pid, uid).contains("already gone"));
+    }
 
     #[test]
     fn creates_a_project_folder_the_scan_lists() {

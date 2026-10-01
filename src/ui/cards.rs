@@ -74,7 +74,7 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
     let mut lines: Vec<Line> = cards.into_iter().skip(start).flatten().collect();
     if !external.is_empty() {
         lines.push(Line::styled(
-            " outside mc · enter to take over",
+            " outside · enter take over · x stop",
             theme.fg(Token::FgMuted),
         ));
         for (pos, ext) in external.into_iter().enumerate() {

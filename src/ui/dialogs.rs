@@ -390,3 +390,32 @@ pub(super) fn draw_move(
     frame.render_widget(block, rect);
     frame.render_widget(Paragraph::new(lines), inner);
 }
+
+/// Draws "stop this outside session?": `x` on a session started outside
+/// mc, which gets SIGTERM only after `y`.
+pub(super) fn draw_stop_outside(
+    frame: &mut Frame,
+    area: Rect,
+    ext: &crate::external::External,
+    theme: Theme,
+) {
+    let lines = vec![
+        Line::from(""),
+        Line::styled(
+            format!("  Stop {} (pid {})?", truncate(&ext.name, 36), ext.pid),
+            theme.fg(Token::Fg),
+        ),
+        Line::styled(
+            "  It was started outside mc; its terminal will show it ended.",
+            theme.fg(Token::FgMuted),
+        ),
+        Line::from(""),
+        Line::styled("y stop · n keep  ", theme.fg(Token::FgMuted)).alignment(Alignment::Right),
+    ];
+    let rect = centred(area, 64, 7);
+    frame.render_widget(Clear, rect);
+    let block = dialog_block("stop?", theme);
+    let inner = block.inner(rect);
+    frame.render_widget(block, rect);
+    frame.render_widget(Paragraph::new(lines), inner);
+}

@@ -218,7 +218,10 @@ A thread lists them every 5 s (`src/external.rs`) and sends
   that ends the projects list while there is one, with its folder; its state feeds the projects-pane spinner and
   badge. Sessions mc started are left out by pid, tracked descendant pid,
   or session id.
-- Read-only while they run: no output, no INTERACT, never signalled,
+- `x` on one asks "Stop … (pid N)?"; `y` sends SIGTERM if a fresh
+  snapshot still shows that pid as this user's `claude`/`codex`/`node`
+  (pid + start time re-checked), nothing else.
+- Otherwise read-only while they run: no output, no INTERACT, never signalled,
   never written to `sessions.json`, no transcript read.
 - **Quick sessions** (`src/app/quick.rs`, issue #46): a session whose
   folder is the workspace root is quick (nothing extra stored). It runs in
