@@ -1,4 +1,4 @@
- bungkus-mc  ~/Works/OSBR › kedai-web                                          x 1 failed · | 1 working · v0.1.0-beta.3
+ bungkus-mc  ~/Works/OSBR › kedai-web                                          x 1 failed · | 1 working · v0.1.0-beta.4
 ┌ [1] projects ──────┐┏ [2] sessions · kedai-web ━━━━━━━━━━┓┌ [3] output · C #a3f2 · flaky payment test ───────────────┐
 │ / search           │┃ ┃x C #a3f1 checkout redesign failed┃│                                                   ▄██▄   │
 │:| 1 kedai-web  x 1 │┃ ┃  exit 1 · boom                   ┃│                                                 ▄██████▄ │
