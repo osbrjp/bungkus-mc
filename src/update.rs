@@ -114,9 +114,7 @@ pub(crate) fn available(var: impl Fn(&str) -> Option<String>) -> Option<String> 
 pub(crate) enum UpdateError {
     /// No release came back: none published yet, or `gh` is missing, not
     /// logged in, or did not answer in time.
-    #[error(
-        "no release found (none published yet, or gh is missing or logged out: gh auth login)"
-    )]
+    #[error("no release found (none published yet, or gh is missing or logged out: gh auth login)")]
     NoRelease,
     /// `gh release download` failed.
     #[error("could not download install.sh for {0}")]
