@@ -140,7 +140,7 @@ pub(crate) struct Env {
     pub cwd: PathBuf,
     /// Workspace field prefill for the wizard, when it runs.
     pub wizard_prefill: Option<String>,
-    /// Whether to start a quick session popup at once (`bungkus-mc quick`).
+    /// Whether to start a quick session popup at once (`-q`).
     pub quick: bool,
     /// The config as loaded (agent commands, mouse, notify).
     pub config: Config,
