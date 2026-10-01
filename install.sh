@@ -96,9 +96,10 @@ resolve_link() {
   printf '%s\n' "$p"
 }
 
-# Prints the physical path of folder $1, or $1 itself when it does not exist.
+# Prints the physical path of folder $1, or $1 without a trailing slash
+# when it does not exist (so ~/.local/bin/ on PATH still matches).
 physical() {
-  (cd "$1" 2>/dev/null && pwd -P) || printf '%s\n' "$1"
+  (cd "$1" 2>/dev/null && pwd -P) || printf '%s\n' "${1%/}"
 }
 
 # Succeeds when folder $1 is writable, or does not exist yet and its nearest

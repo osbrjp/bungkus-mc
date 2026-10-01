@@ -79,6 +79,8 @@ pub(crate) enum Overlay {
     ResumeAgent(Kind),
     /// Moving a quick session into a project, or a new one.
     Move(crate::app::quick::MoveDialog),
+    /// "Stop this session started outside mc?"
+    StopOutside(External),
 }
 
 /// A session the loop must start.
@@ -124,6 +126,9 @@ pub(crate) enum Cmd {
     Scan,
     /// Write the dragged pane widths to `config.json`.
     SaveWidths(crate::ui::Widths),
+    /// Stop outside session `pid` (SIGTERM, after the user confirmed):
+    /// still ours, still an agent, same process.
+    StopOutside(i32),
     /// Create this project folder (`git init`), then move quick session
     /// `SessionId` into it.
     CreateProject(SessionId, PathBuf),
@@ -735,6 +740,9 @@ impl Model {
             },
             Overlay::Stop(dialog) => self.stop_key(dialog, key),
             Overlay::Move(dialog) => self.move_key(dialog, key),
+            Overlay::StopOutside(ext) => {
+                (key.code == KeyCode::Char('y')).then_some(Cmd::StopOutside(ext.pid))
+            }
             Overlay::ResumeAgent(kind) => match key.code {
                 KeyCode::Enter => self.pick_past(kind),
                 KeyCode::Esc => None,
@@ -1074,6 +1082,10 @@ impl Model {
                 self.open_picker();
             }
             Action::Stop => {
+                if let Some(ext) = self.selected_external().cloned() {
+                    self.overlay = Some(Overlay::StopOutside(ext));
+                    return None;
+                }
                 if let Some(i) = self.selected_card().filter(|&i| self.cards[i].running()) {
                     return Some(Cmd::OpenStop(StopKind::Session(self.cards[i].id)));
                 }
@@ -1333,6 +1345,32 @@ pub(crate) mod tests {
         assert_eq!(
             m.selected, 0,
             "plain digits still jump projects, chords do not"
+        );
+    }
+
+    #[test]
+    fn x_on_an_outside_session_asks_before_stopping_it() {
+        let mut m = sample(&["a"]);
+        let project = m.selected_project().unwrap().path.clone();
+        let ext = External {
+            kind: Kind::Claude,
+            pid: 4242,
+            cwd: project,
+            name: "outside".into(),
+            status: Some("idle".into()),
+            session_id: None,
+            started_ms: None,
+        };
+        m.update(AppEvent::External(vec![ext]));
+        m.focus = Focus::Sessions;
+        assert!(m.update(press(KeyCode::Char('x'))).is_none());
+        assert!(matches!(m.overlay, Some(Overlay::StopOutside(_))));
+        assert!(m.update(press(KeyCode::Char('n'))).is_none(), "n keeps it");
+        assert!(m.overlay.is_none());
+        m.update(press(KeyCode::Char('x')));
+        assert_eq!(
+            m.update(press(KeyCode::Char('y'))),
+            Some(Cmd::StopOutside(4242))
         );
     }
 

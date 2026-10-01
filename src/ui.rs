@@ -268,6 +268,7 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
         Some(Overlay::TakeOver(ext, _)) => dialogs::draw_take_over(frame, area, ext, theme),
         Some(Overlay::ResumeAgent(kind)) => dialogs::draw_resume_agent(frame, area, *kind, theme),
         Some(Overlay::Move(dialog)) => dialogs::draw_move(frame, area, dialog, model, theme),
+        Some(Overlay::StopOutside(ext)) => dialogs::draw_stop_outside(frame, area, ext, theme),
         None => {}
     }
 }
@@ -1043,7 +1044,7 @@ pub(crate) mod tests {
         ];
         let screen = render(&mut model, 120, 40);
         assert!(
-            screen.contains("outside mc · enter to take over"),
+            screen.contains("outside · enter take over · x stop"),
             "{screen}"
         );
         assert!(screen.contains("from another tab"), "{screen}");

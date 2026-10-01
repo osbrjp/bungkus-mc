@@ -141,7 +141,8 @@ Sessions are remembered in `~/.local/state/bungkus/mc/sessions.json`.
   they run in no project folder) with their state and pid, from `claude agents
   --json` and running `codex` processes. `enter` on a Claude one takes it
   over: quit it in its own terminal (`/exit`) and mc resumes it with its
-  history (`claude --resume`) in the output pane.
+  history (`claude --resume`) in the output pane. `x` stops one after a
+  confirm.
 
 ## Quitting and cleanup
 

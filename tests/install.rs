@@ -105,6 +105,19 @@ fn chooses_the_install_folder_without_sudo_where_it_can() {
         "~/.local/bin not on PATH: sudo in place"
     );
 
+    let fresh_home = root.join("fresh-home");
+    fs::create_dir_all(&fresh_home).unwrap();
+    let fresh_local = fresh_home.join(".local/bin");
+    assert_eq!(
+        decide(
+            &fresh_home,
+            &format!("{}/:{}", s(&fresh_local), s(&locked)),
+            &[]
+        ),
+        (fresh_local, false, s(&old)),
+        "a trailing slash on PATH still matches a ~/.local/bin that does not exist yet"
+    );
+
     let real = root.join("real");
     with_binary(&real);
     let links = root.join("links");
