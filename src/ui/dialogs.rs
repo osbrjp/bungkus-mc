@@ -279,3 +279,43 @@ pub(super) fn draw_take_over(
     frame.render_widget(block, rect);
     frame.render_widget(Paragraph::new(lines), inner);
 }
+
+/// Draws the `r` agent choice: whose list of past sessions to open.
+pub(super) fn draw_resume_agent(frame: &mut Frame, area: Rect, kind: Kind, theme: Theme) {
+    let choice = |k: Kind| {
+        let (text, style) = if k == kind {
+            (
+                format!("> {}", k.command()),
+                bold_if(theme.fg(Token::Accent), true),
+            )
+        } else {
+            (format!("  {}", k.command()), theme.fg(Token::Fg))
+        };
+        Span::styled(format!("{text:<10}"), style)
+    };
+    let lines = vec![
+        Line::from(""),
+        Line::styled("  Resume a past session with", theme.fg(Token::Fg)),
+        Line::from(vec![
+            Span::raw("  "),
+            choice(Kind::Claude),
+            choice(Kind::Codex),
+        ]),
+        Line::styled(
+            "  Its own list of this project's sessions opens.",
+            theme.fg(Token::FgMuted),
+        ),
+        Line::from(""),
+        Line::styled(
+            "← → agent · enter open · esc cancel  ",
+            theme.fg(Token::FgMuted),
+        )
+        .alignment(Alignment::Right),
+    ];
+    let rect = centred(area, 54, 8);
+    frame.render_widget(Clear, rect);
+    let block = dialog_block("resume", theme);
+    let inner = block.inner(rect);
+    frame.render_widget(block, rect);
+    frame.render_widget(Paragraph::new(lines), inner);
+}

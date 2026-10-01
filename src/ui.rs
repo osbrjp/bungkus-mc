@@ -238,6 +238,7 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
         Some(Overlay::Stop(d)) => dialogs::draw_stop(frame, area, d, model, theme),
         Some(Overlay::Forget(id)) => dialogs::draw_forget(frame, area, *id, model, theme),
         Some(Overlay::TakeOver(ext, _)) => dialogs::draw_take_over(frame, area, ext, theme),
+        Some(Overlay::ResumeAgent(kind)) => dialogs::draw_resume_agent(frame, area, *kind, theme),
         None => {}
     }
 }

@@ -157,9 +157,17 @@ pub(crate) const BINDINGS: &[Binding] = &[
         keys: &[c('r')],
         label: "r",
         action: Action::Resume,
-        help: "resume",
+        help: "resume · past",
         hint: None,
         scope: Scope::Sessions,
+    },
+    Binding {
+        keys: &[c('r')],
+        label: "r",
+        action: Action::Resume,
+        help: "past sessions",
+        hint: None,
+        scope: Scope::Projects,
     },
     Binding {
         keys: &[c('d')],

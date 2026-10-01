@@ -75,6 +75,8 @@ pub(crate) enum Overlay {
     /// Waiting for an outside session (since the instant) to close so mc
     /// can resume it.
     TakeOver(External, Instant),
+    /// Which agent's list of past sessions `r` opens.
+    ResumeAgent(Kind),
 }
 
 /// A session the loop must start.
@@ -685,6 +687,22 @@ impl Model {
                 picker::Outcome::Start => self.launch(&p),
             },
             Overlay::Stop(dialog) => self.stop_key(dialog, key),
+            Overlay::ResumeAgent(kind) => match key.code {
+                KeyCode::Enter => self.pick_past(kind),
+                KeyCode::Esc => None,
+                KeyCode::Left | KeyCode::Right | KeyCode::Char('h' | 'l') | KeyCode::Tab => {
+                    let other = match kind {
+                        Kind::Claude => Kind::Codex,
+                        Kind::Codex => Kind::Claude,
+                    };
+                    self.overlay = Some(Overlay::ResumeAgent(other));
+                    None
+                }
+                _ => {
+                    self.overlay = Some(Overlay::ResumeAgent(kind));
+                    None
+                }
+            },
             Overlay::TakeOver(ext, since) => {
                 if key.code != KeyCode::Esc {
                     self.overlay = Some(Overlay::TakeOver(ext, since));
@@ -721,6 +739,7 @@ impl Model {
             settings: None,
             hook_args: Vec::new(),
             resume: None,
+            pick: false,
         };
         Some(Cmd::Launch(LaunchRequest {
             project,
@@ -750,12 +769,62 @@ impl Model {
             settings: None,
             hook_args: Vec::new(),
             resume: Some(id),
+            pick: false,
         };
         Some(Cmd::Launch(LaunchRequest {
             project: card.project.clone(),
             kind: card.kind,
             launch,
             replaces: Some(card.id),
+        }))
+    }
+
+    /// Opens a past session of the selected project that mc did not start:
+    /// asks which agent when both are installed, then launches that agent's
+    /// own list of past sessions (`claude --resume`, `codex resume`) in the
+    /// output pane, where the user picks one.
+    fn resume_pick(&mut self) -> Option<Cmd> {
+        if self
+            .selected_project()
+            .is_none_or(|p| p.path.as_os_str().is_empty())
+        {
+            return None;
+        }
+        let default = self
+            .settings
+            .as_ref()
+            .map_or(Kind::Claude, |s| s.default_agent);
+        match self.installed() {
+            [true, true] => {
+                self.overlay = Some(Overlay::ResumeAgent(default));
+                None
+            }
+            [true, false] => self.pick_past(Kind::Claude),
+            [false, true] => self.pick_past(Kind::Codex),
+            [false, false] => {
+                self.message = Some("Neither claude nor codex is on PATH.".into());
+                None
+            }
+        }
+    }
+
+    /// Launches `kind`'s own list of past sessions in the selected project.
+    fn pick_past(&mut self, kind: Kind) -> Option<Cmd> {
+        let project = self.selected_project()?.path.clone();
+        Some(Cmd::Launch(LaunchRequest {
+            project,
+            kind,
+            launch: Launch {
+                id: SessionId::new(),
+                model: None,
+                name: Some("past session".into()),
+                prompt: None,
+                settings: None,
+                hook_args: Vec::new(),
+                resume: None,
+                pick: true,
+            },
+            replaces: None,
         }))
     }
 
@@ -903,7 +972,16 @@ impl Model {
                 }
             }
             Action::Zoom => self.zoom = !self.zoom,
-            Action::Resume => return self.resume(),
+            Action::Resume => {
+                if self
+                    .selected_card()
+                    .is_some_and(|i| !self.cards[i].running())
+                    && self.focus == Focus::Sessions
+                {
+                    return self.resume();
+                }
+                return self.resume_pick();
+            }
             Action::Forget => {
                 if let Some(i) = self.selected_card().filter(|&i| !self.cards[i].running()) {
                     self.overlay = Some(Overlay::Forget(self.cards[i].id));
@@ -1106,6 +1184,25 @@ pub(crate) mod tests {
         m.update(ctrl('l'));
         assert_eq!(m.focus, Focus::Output, "back into INTERACT");
         assert!(writes.try_recv().is_err(), "nothing reached the agent");
+    }
+
+    #[test]
+    fn r_opens_an_agents_list_of_past_sessions() {
+        let mut m = sample(&["a"]);
+        let Some(Cmd::Launch(req)) = m.update(press(KeyCode::Char('r'))) else {
+            panic!("only claude is installed: launch at once");
+        };
+        assert!(req.launch.pick && req.launch.resume.is_none());
+        assert_eq!(req.kind, Kind::Claude);
+        m.found[1] = Some("/bin/codex".into());
+        assert!(m.update(press(KeyCode::Char('r'))).is_none());
+        assert_eq!(m.overlay, Some(Overlay::ResumeAgent(Kind::Claude)));
+        m.update(press(KeyCode::Right));
+        let Some(Cmd::Launch(req)) = m.update(press(KeyCode::Enter)) else {
+            panic!("enter opens the chosen agent's list");
+        };
+        assert_eq!(req.kind, Kind::Codex);
+        assert!(m.overlay.is_none());
     }
 
     #[test]

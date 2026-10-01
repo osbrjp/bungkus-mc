@@ -9,24 +9,24 @@
 ┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │
-┃                    ┃│                                    ││                                                          │
-┃                    ┃│   ╔ keys · projects pane ════════════════════════════════════════════╗                         │
-┃                    ┃│   ║                                                                  ║                         │
-┃                    ┃│   ║  enter           its sessions    n               new session     ║                         │
-┃                    ┃│   ║                                                                  ║                         │
-┃                    ┃│   ║  everywhere                                                      ║                         │
-┃                    ┃│   ║  h ← shift-tab ctrl-hpane left       l → tab ctrl-l  pane right  ║                         │
-┃                    ┃│   ║  j ↓             down            k ↑             up              ║█▄                       │
-┃                    ┃│   ║  gg home         first           G end           last            ║███▄                     │
-┃                    ┃│   ║  ctrl-d pgdn     half page down  ctrl-u pgup     half page up    ║                         │
-┃                    ┃│   ║  ! ctrl-]        next needs you  z               zoom output     ║                         │
-┃                    ┃│   ║  /               search projects 1-9             jump to project ║                         │
-┃                    ┃│   ║  w               workspace       ,               settings        ║d yet.                   │
-┃                    ┃│   ║  R               redraw          ?               this help       ║ession                   │
-┃                    ┃│   ║  q ctrl-c        quit                                            ║                         │
-┃                    ┃│   ║                                                                  ║                         │
-┃                    ┃│   ║                                                       esc close  ║                         │
-┃                    ┃│   ╚══════════════════════════════════════════════════════════════════╝                         │
+┃                    ╔ keys · projects pane ══════════════════════════════════════════════════════╗                    │
+┃                    ║                                                                            ║                    │
+┃                    ║  enter                its sessions    n                    new session     ║                    │
+┃                    ║  r                    past sessions                                        ║                    │
+┃                    ║                                                                            ║                    │
+┃                    ║  everywhere                                                                ║                    │
+┃                    ║  h ← shift-tab ctrl-h pane left       l → tab ctrl-l       pane right      ║                    │
+┃                    ║  j ↓                  down            k ↑                  up              ║                    │
+┃                    ║  gg home              first           G end                last            ║                    │
+┃                    ║  ctrl-d pgdn          half page down  ctrl-u pgup          half page up    ║                    │
+┃                    ║  ! ctrl-]             next needs you  z                    zoom output     ║                    │
+┃                    ║  /                    search projects 1-9                  jump to project ║                    │
+┃                    ║  w                    workspace       ,                    settings        ║.                   │
+┃                    ║  R                    redraw          ?                    this help       ║n                   │
+┃                    ║  q ctrl-c             quit                                                 ║                    │
+┃                    ║                                                                            ║                    │
+┃                    ║                                                                 esc close  ║                    │
+┃                    ╚════════════════════════════════════════════════════════════════════════════╝                    │
 ┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │
