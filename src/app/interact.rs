@@ -91,13 +91,17 @@ impl Model {
             return None;
         }
         let at = Position::new(event.column, event.row);
+        let panes = ui::panes(self.screen, self.focus, self.zoom, self.widths);
         if matches!(event.kind, MouseEventKind::Down(MouseButton::Left))
-            && ui::band_mascot(self.screen).is_some_and(|r| r.contains(at))
+            && self.selected_card().is_some()
+            && panes
+                .output
+                .and_then(|o| ui::strip_mascot(o, self.screen))
+                .is_some_and(|r| r.contains(at))
         {
             self.poke();
             return None;
         }
-        let panes = ui::panes(self.screen, self.focus, self.zoom, self.widths);
         if let ControlFlow::Break(cmd) = self.drag_border(event, &panes) {
             return cmd;
         }

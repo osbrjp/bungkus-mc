@@ -651,15 +651,16 @@ of truth: Figma file `HwlCHEFqRm9hfOfUbtuL4h`, node `17:3`
 (the frame generator with the geometry exported from Figma). Preview page:
 https://claude.ai/artifact/EGZhX83Qvh42tgeVLYxqvK.
 
-**Band (screens ≥ 120×36).** The header becomes a three-row band and the
-mini mascot (8×3, ASCII 3 rows) always sits at its top right, above the
-panes, so it never covers agent output; the in-pane corner mascot and the
-empty-state mascot are then left out. Its mood follows every session
-(needs you > failed > working > your turn > the empty sequence). A click
-on it plays duck–hop–duck–hop–duck–look–blink (one pose per 350 ms tick;
-a single hop without motion) and shows a speech bubble with a random line
-from `QUOTES` (never the same twice in a row) for 4 s. Smaller screens
-keep the one-line header and the in-pane mascot below.
+**Strip (screens ≥ 120×36).** With a session selected, the output pane
+gives its top three rows to a strip with the mini mascot (8×3, ASCII 3
+rows) at the right, so it never covers agent output (the PTY is three rows
+shorter); its mood follows the selected session. A click on it plays
+duck–hop–duck–hop–duck–look–blink (one pose per 350 ms tick; a single hop
+without motion) and shows a speech bubble with a random line from
+`QUOTES` (never the same twice in a row) for 4 s. With no session the
+pane shows the big centred empty-state mascot as before. Smaller screens
+keep the corner mascot below. Pane titles carry their `cmd`/`alt`/`ctrl`
+digit: `[1] projects`, `[2] sessions`, `[3] output`.
 
 Parts and fixed brand colours (exempt from theme tokens — they are the same
 in dark, light and painted/terminal modes):

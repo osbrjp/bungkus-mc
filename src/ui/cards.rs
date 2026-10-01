@@ -26,8 +26,8 @@ const SUBAGENT_ROWS: usize = 5;
 pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
     let project = model.selected_project();
     let title = project.map_or_else(
-        || "sessions".to_owned(),
-        |p| format!("sessions · {}", p.name),
+        || "[2] sessions".to_owned(),
+        |p| format!("[2] sessions · {}", p.name),
     );
     let focused = model.focus == Focus::Sessions;
     let block = pane(&title, focused, theme);
