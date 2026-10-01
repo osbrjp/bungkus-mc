@@ -8,8 +8,8 @@
 </p>
 
 <p align="center">
-  <a href="docs/assets/promo.mp4"><img src="docs/assets/promo-poster.jpg" width="720" alt="bungkus-mc showing three panes: projects, agent sessions with usage, and the selected agent's live screen"></a><br>
-  <a href="docs/assets/promo.mp4">▶ Watch the 45-second tour</a>
+  <img src="docs/assets/promo.gif" width="720" alt="A 45-second tour of bungkus-mc: projects, agent sessions with usage, and the selected agent's live screen on one screen"><br>
+  <a href="docs/assets/promo.mp4">Download the tour with sound (mp4)</a>
 </p>
 
 ---
