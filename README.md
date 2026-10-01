@@ -74,6 +74,7 @@ below it as a branch: `├ i746` under `nrha-timii`.
 | `z` | zoom the output pane |
 | `a` | new project in the workspace: a name, then fresh (`.git`) or with agent files (`.git` + `AGENTS.md` + a `CLAUDE.md` that imports it with `@AGENTS.md`) |
 | `dd` · `V` then `d` · `u` | move the project (or a `V` line selection of projects) to the Trash after a confirm · undo it |
+| `c` | projects pane: remove the project's unused git worktrees after a confirm — never one a session runs in or can resume into, never one with uncommitted files; branches stay |
 | `/` | search projects (`↑` `↓` pick, `enter` open, `esc` clear) |
 | `1`–`9` | jump to project N; type the next digit quickly for two digits (`1` `6` → 16) |
 | `,` | settings |
@@ -147,9 +148,18 @@ writes `workspace`, `defaultAgent` and `theme`, a border drag writes
   },
   "workspaces": ["/Users/me/Works", "/Users/me/code"],
   "cleanup": { "keep": ["postgres"] },
+  "worktrees": true,
   "panes": { "projects": 22, "sessions": 38 }
 }
 ```
+
+`worktrees` (default `true`): a Claude session started in a project where
+another mc session already runs gets its own git worktree
+(`claude --worktree <name>`, under the project's `.claude/worktrees/`), so
+the two do not edit the same checkout. The first session stays in the main
+checkout; resuming goes back into the same worktree. Forgetting the session
+(`d`) removes the worktree unless it has uncommitted files; its branch
+(`worktree-<name>`) stays. Codex sessions are not affected.
 
 - `background: "terminal"` keeps your terminal's own background (mc paints
   its green only on TrueColor terminals anyway).

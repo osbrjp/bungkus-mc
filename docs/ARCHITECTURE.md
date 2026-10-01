@@ -522,6 +522,19 @@ No capability flags, no registry.
 ### 5.1 Claude (`claude.rs`)
 
 - **New:** `claude --session-id <uuid> --settings <json> [--model <id>] [--name <name>] -- <prompt?>`
+- **Worktree (issue #106):** a fresh Claude session started in a project
+  where another mc session already runs gets `--worktree <slug>-<short id>`
+  (config `worktrees`, default on; only in a repository with a commit,
+  never at the workspace root, never for a resume or the past-session
+  picker). Claude makes it under `<project>/.claude/worktrees/<name>` on
+  branch `worktree-<name>` and locks it. The name is kept on the card and
+  in `sessions.json` (`worktree`), and a resume passes the same
+  `--worktree <name>` so it continues there, not in the main checkout.
+  Forgetting the card, and `c` on a project, run `git worktree unlock` then
+  `git worktree remove` without force (fixed argv): git refuses a worktree
+  with modified or untracked files, and the branch stays. `c` skips any
+  worktree a card runs in or can resume into, or an outside agent session
+  runs in.
 - **Resume:** `claude --resume <id> --settings <json> [--model <id>]` in the
   stored `cwd` (never together with `--session-id`; unit test covers both).
   `--name` is not repeated on resume. `--fork-session` follows the id
@@ -714,6 +727,7 @@ command unchanged.
   "mouse": true,
   "notify": "bell",
   "interactExit": "ctrl-\\",
+  "worktrees": true,
   "agents": {
     "claude": { "command": "claude", "args": [] },
     "codex":  { "command": "codex",  "args": [] }

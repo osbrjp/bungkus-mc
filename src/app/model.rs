@@ -87,6 +87,8 @@ pub(crate) enum Overlay {
     Switcher(crate::app::workspaces::Switcher),
     /// "Move these projects' folders to the Trash?"
     TrashProject(Vec<Project>),
+    /// "Remove this project's unused worktrees?"
+    CleanWorktrees(Project),
 }
 
 /// A session the loop must start.
@@ -156,6 +158,11 @@ pub(crate) enum Cmd {
     /// Create this project folder (`git init`), then move quick session
     /// `SessionId` into it.
     CreateProject(SessionId, PathBuf),
+    /// Remove the worktree with this name of this project, left by a
+    /// forgotten session, unless it has uncommitted files.
+    RemoveWorktree(PathBuf, String),
+    /// Remove this project's unused worktrees (after the user confirmed).
+    CleanWorktrees(PathBuf),
 }
 
 /// Everything the screen shows.
@@ -975,13 +982,22 @@ impl Model {
             Overlay::Switcher(switcher) => self.switcher_key(switcher, key),
             Overlay::TrashProject(projects) => (key.code == KeyCode::Char('y'))
                 .then(|| Cmd::TrashProject(projects.into_iter().map(|p| p.path).collect())),
+            Overlay::CleanWorktrees(project) => {
+                (key.code == KeyCode::Char('y')).then_some(Cmd::CleanWorktrees(project.path))
+            }
             Overlay::Forget(id) => {
-                if key.code == KeyCode::Char('y') {
-                    self.cards.retain(|c| c.id != id);
-                    self.card = self.card.min(self.project_cards().len().saturating_sub(1));
-                    self.state_dirty = true;
+                if key.code != KeyCode::Char('y') {
+                    return None;
                 }
-                None
+                let worktree = self
+                    .cards
+                    .iter()
+                    .find(|c| c.id == id)
+                    .and_then(|c| Some((c.project.clone(), c.worktree.clone()?)));
+                self.cards.retain(|c| c.id != id);
+                self.card = self.card.min(self.project_cards().len().saturating_sub(1));
+                self.state_dirty = true;
+                worktree.map(|(project, name)| Cmd::RemoveWorktree(project, name))
             }
         }
     }
@@ -1420,6 +1436,7 @@ impl Model {
             Action::Pane(n) => self.focus_pane(n),
             Action::TrashProject => self.ask_trash(),
             Action::NewProject => self.start_new_project(),
+            Action::CleanWorktrees => self.ask_clean_worktrees(),
             Action::UndoTrash => return self.undo_trash(),
             Action::Visual => self.visual = self.visual.xor(Some(self.selected)),
             Action::QuickSession => return self.quick_session(),
@@ -1458,6 +1475,17 @@ impl Model {
             | Action::HalfUp => {}
         }
         None
+    }
+
+    /// Asks whether to remove the selected project's unused worktrees
+    /// (`c`); not for the `quick` or elsewhere rows.
+    fn ask_clean_worktrees(&mut self) {
+        if let Some(project) = self
+            .selected_project()
+            .filter(|p| !p.path.as_os_str().is_empty() && self.root() != Some(&p.path))
+        {
+            self.overlay = Some(Overlay::CleanWorktrees(project.clone()));
+        }
     }
 
     /// Enters INTERACT on the selected session when it is running.
@@ -1621,6 +1649,29 @@ pub(crate) mod tests {
         );
         m.update(press(KeyCode::Char('y')));
         assert!(writes.try_recv().is_ok(), "keys still reach that session");
+    }
+
+    #[test]
+    fn c_asks_before_cleaning_and_forgetting_names_the_worktree() {
+        let mut m = sample(&["a"]);
+        let path = m.projects[0].path.clone();
+        m.update(press(KeyCode::Char('c')));
+        assert!(matches!(m.overlay, Some(Overlay::CleanWorktrees(_))));
+        assert_eq!(m.update(press(KeyCode::Char('n'))), None);
+        m.update(press(KeyCode::Char('c')));
+        assert_eq!(
+            m.update(press(KeyCode::Char('y'))),
+            Some(Cmd::CleanWorktrees(path.clone()))
+        );
+        let (id, _writes) = with_session(&mut m, "s");
+        m.cards[0].worktree = Some("s-a3f1".into());
+        m.update(AppEvent::Pty(PtyEvent::Exited(id, Some(0))));
+        m.focus = Focus::Sessions;
+        m.update(press(KeyCode::Char('d')));
+        assert_eq!(
+            m.update(press(KeyCode::Char('y'))),
+            Some(Cmd::RemoveWorktree(path, "s-a3f1".into()))
+        );
     }
 
     #[test]
