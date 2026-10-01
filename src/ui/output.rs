@@ -131,7 +131,11 @@ pub(super) fn draw_popup(frame: &mut Frame, area: Rect, model: &Model, theme: Th
     else {
         return;
     };
-    let tail = format!(" · {} hide", model.exit_chord.label());
+    let tail = if model.popup_menu {
+        " · h hide · m move · p new project".to_owned()
+    } else {
+        format!(" · {} menu", model.exit_chord.label())
+    };
     let head = format!("quick · {} {} · ", card.kind.badge(), card.id.short());
     let room =
         usize::from(area.width).saturating_sub(head.chars().count() + tail.chars().count() + 4);
