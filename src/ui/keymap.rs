@@ -50,6 +50,8 @@ pub(crate) enum Action {
     UndoTrash,
     /// Start or end a line selection of projects (`V`), for `d`/`dd`.
     Visual,
+    /// Remove the selected project's unused git worktrees (with a confirm).
+    CleanWorktrees,
     /// Install a newer release and restart mc on it (`U`).
     Update,
     /// Start a quick session at the workspace root (a popup).
@@ -202,6 +204,14 @@ pub(crate) const BINDINGS: &[Binding] = &[
         label: "dd",
         action: Action::TrashProject,
         help: "to Trash",
+        hint: None,
+        scope: Scope::Projects,
+    },
+    Binding {
+        keys: &[c('c')],
+        label: "c",
+        action: Action::CleanWorktrees,
+        help: "clean worktrees",
         hint: None,
         scope: Scope::Projects,
     },
@@ -573,9 +583,11 @@ impl Action {
             | Self::QuickSession
             | Self::MoveQuick
             | Self::MakeProject => Group::Sessions,
-            Self::NewProject | Self::TrashProject | Self::UndoTrash | Self::Visual => {
-                Group::Projects
-            }
+            Self::NewProject
+            | Self::TrashProject
+            | Self::UndoTrash
+            | Self::Visual
+            | Self::CleanWorktrees => Group::Projects,
             Self::Workspace
             | Self::Settings
             | Self::Help
