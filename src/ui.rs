@@ -268,6 +268,9 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
         Some(Overlay::ResumeAgent(kind)) => dialogs::draw_resume_agent(frame, area, *kind, theme),
         Some(Overlay::Move(dialog)) => dialogs::draw_move(frame, area, dialog, model, theme),
         Some(Overlay::StopOutside(ext)) => dialogs::draw_stop_outside(frame, area, ext, theme),
+        Some(Overlay::TrashProject(projects)) => {
+            dialogs::draw_trash_project(frame, area, projects, model, theme);
+        }
         None => {}
     }
 }
@@ -474,10 +477,10 @@ fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
                 (true, false) => '▌',
                 (false, _) => ' ',
             };
-            let name = if selected {
-                theme.fg(Token::Accent)
-            } else {
-                theme.fg(Token::Fg)
+            let name = match (selected, model.in_visual(i)) {
+                (_, true) => theme.fg(Token::Accent).add_modifier(Modifier::REVERSED),
+                (true, false) => theme.fg(Token::Accent),
+                (false, false) => theme.fg(Token::Fg),
             };
             let states: Vec<State> = sessions::order(&model.cards, &project.path)
                 .into_iter()
@@ -590,6 +593,8 @@ fn draw_getah(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
         (" INTERACT ", Token::Warn)
     } else if model.filtering {
         (" FILTER ", Token::Info)
+    } else if model.visual.is_some() {
+        (" VISUAL ", Token::Info)
     } else {
         (" NORMAL ", Token::FgMuted)
     };
@@ -617,6 +622,8 @@ fn draw_getah(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
             "keys go to {agent} · {} back to mc",
             model.exit_chord.label()
         )
+    } else if model.visual.is_some() {
+        "j/k extend · d move to Trash · esc cancel".to_owned()
     } else if model.filtering {
         "type to search · ↑↓ pick · enter open · esc clear".to_owned()
     } else if let Some(ch) = model.pending {

@@ -317,6 +317,8 @@ fn run_cmd(
         Cmd::Apply(settings) => apply(model, env, settings),
         Cmd::Launch(request) => launch(model, env, hooks, request, tx),
         Cmd::WatchRollout(id, path) => watch_rollout(model, id, &path, tx),
+        Cmd::TrashProject(paths) => trash_projects(model, &paths),
+        Cmd::RestoreProject(moved) => restore_projects(model, &moved),
         Cmd::StopOutside(pid) => {
             let text = stop_outside(pid, uid);
             crate::debug_log!("stop outside {pid}: {text}");
@@ -594,6 +596,79 @@ fn resize_sessions(model: &mut Model) {
             pty.resize(want);
         }
     }
+}
+
+/// Moves project folders `paths` to the Trash (`dd`, confirmed), rescans,
+/// and remembers what went where for `u`; stops at the first failure.
+fn trash_projects(model: &mut Model, paths: &[PathBuf]) {
+    let root = model.root().map(Path::to_path_buf).unwrap_or_default();
+    let home = model.home.clone().unwrap_or_default();
+    let data = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute());
+    let name = |p: &Path| {
+        p.file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned()
+    };
+    let mut moved = Vec::new();
+    let mut failure = None;
+    for path in paths {
+        match workspace::trash(path, &root, &home, data.as_deref()) {
+            Ok(went) => {
+                crate::debug_log!("trashed {} to {}", path.display(), went.display());
+                moved.push((path.clone(), went));
+            }
+            Err(e) => {
+                failure = Some(format!("Could not move {} to the Trash: {e}", name(path)));
+                break;
+            }
+        }
+    }
+    if let Ok(projects) = workspace::scan(&root) {
+        model.projects = projects;
+    }
+    model.selected = model.selected.min(model.visible().len().saturating_sub(1));
+    model.card = 0;
+    model.message = failure.or_else(|| {
+        Some(match moved.as_slice() {
+            [(one, _)] => format!("Moved {} to the Trash · u undoes it", name(one)),
+            many => format!("Moved {} projects to the Trash · u undoes it", many.len()),
+        })
+    });
+    model.last_trash = moved;
+}
+
+/// Puts the projects last moved to the Trash back (`u`) and selects the
+/// first.
+fn restore_projects(model: &mut Model, moved: &[(PathBuf, PathBuf)]) {
+    let mut failure = None;
+    for (folder, trashed) in moved {
+        match workspace::restore(trashed, folder) {
+            Ok(()) => crate::debug_log!("restored {} from {}", folder.display(), trashed.display()),
+            Err(e) => {
+                let name = folder
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned();
+                failure = Some(format!("Could not put {name} back: {e}"));
+            }
+        }
+    }
+    if let Some(root) = model.root().map(Path::to_path_buf)
+        && let Ok(projects) = workspace::scan(&root)
+    {
+        model.projects = projects;
+    }
+    if let Some(row) = moved
+        .first()
+        .and_then(|(folder, _)| model.visible().iter().position(|p| p.path == *folder))
+    {
+        model.selected = row;
+    }
+    model.message = failure.or_else(|| Some("Put back.".to_owned()));
 }
 
 /// Sends SIGTERM to outside session `pid` after the user confirmed it

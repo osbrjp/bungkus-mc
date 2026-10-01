@@ -42,6 +42,12 @@ pub(crate) enum Action {
     /// Jump to a project by its number (digits; two when there are more
     /// than nine projects).
     Jump,
+    /// Move the selected project's folder to the Trash (with a confirm).
+    TrashProject,
+    /// Put the project last moved to the Trash back.
+    UndoTrash,
+    /// Start or end a line selection of projects (`V`), for `d`/`dd`.
+    Visual,
     /// Start a quick session at the workspace root (a popup).
     QuickSession,
     /// Move the selected quick session into a project.
@@ -162,6 +168,30 @@ pub(crate) const BINDINGS: &[Binding] = &[
         help: "new session",
         hint: Some("n new"),
         scope: Scope::Sessions,
+    },
+    Binding {
+        keys: &[Key::Press(KeyCode::Char('V'), KeyModifiers::SHIFT), c('V')],
+        label: "V",
+        action: Action::Visual,
+        help: "select lines",
+        hint: None,
+        scope: Scope::Projects,
+    },
+    Binding {
+        keys: &[c('u')],
+        label: "u",
+        action: Action::UndoTrash,
+        help: "undo dd",
+        hint: None,
+        scope: Scope::Projects,
+    },
+    Binding {
+        keys: &[Key::Twice('d')],
+        label: "dd",
+        action: Action::TrashProject,
+        help: "to Trash",
+        hint: None,
+        scope: Scope::Projects,
     },
     Binding {
         keys: &[c('m')],

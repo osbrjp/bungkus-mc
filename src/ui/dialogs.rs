@@ -496,3 +496,47 @@ pub(super) fn draw_stop_outside(
     frame.render_widget(block, rect);
     frame.render_widget(Paragraph::new(lines), inner);
 }
+
+/// Draws "move this project to the Trash?" (`dd` in the projects pane).
+pub(super) fn draw_trash_project(
+    frame: &mut Frame,
+    area: Rect,
+    projects: &[crate::workspace::Project],
+    model: &Model,
+    theme: Theme,
+) {
+    let (question, detail) = match projects {
+        [one] => (
+            format!("  Move {} to the Trash?", truncate(&one.name, 40)),
+            crate::store::config::tilde(&one.path, model.home.as_deref()),
+        ),
+        many => (
+            format!("  Move {} projects to the Trash?", many.len()),
+            many.iter()
+                .map(|p| p.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", "),
+        ),
+    };
+    let lines = vec![
+        Line::from(""),
+        Line::styled(question, theme.fg(Token::Fg)),
+        Line::styled(
+            format!("  {}", truncate(&detail, 56)),
+            theme.fg(Token::FgMuted),
+        ),
+        Line::styled(
+            "  Whole folders go; u puts them back, or use the Trash.",
+            theme.fg(Token::FgMuted),
+        ),
+        Line::from(""),
+        Line::styled("y move to Trash · n keep  ", theme.fg(Token::FgMuted))
+            .alignment(Alignment::Right),
+    ];
+    let rect = centred(area, 64, 8);
+    frame.render_widget(Clear, rect);
+    let block = dialog_block("delete project?", theme);
+    let inner = block.inner(rect);
+    frame.render_widget(block, rect);
+    frame.render_widget(Paragraph::new(lines), inner);
+}
