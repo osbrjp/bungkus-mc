@@ -60,11 +60,12 @@ cursor files, updated only with `UPDATE_GOLDEN=1`. Every branch that
 decides state or security has a test; view cosmetics have goldens; glue
 has none. Coverage is not a target.
 
-- **Adapters** (`agent`): `testdata/claude/*.json` are the real hook
+- **Agents** (`agent`, `ipc`, `app/sessions.rs`):
+  `agent/testdata/claude/session.jsonl` holds the real hook
   payloads recorded in the review round (PreToolUse(Agent), SubagentStart,
   Pre/PostToolUse with `agent_id`, SubagentStop with `background_tasks`,
-  Stop), scrubbed; `testdata/codex/` is recorded in M6. Tests: parse every
-  file; `reduce` over the recorded sequence asserting the decided states;
+  Stop), scrubbed, one per line; `agent/testdata/codex/` is recorded in M6.
+  Tests: `ipc::trim` every line; `Card::reduce` over the recorded sequence asserting the decided states;
   synthetic sequences for needs-you, ignored `idle_prompt`, foreign
   `session_id` (ignored), unknown events (no-op); every event name in the
   generated hook config has a fixture.
