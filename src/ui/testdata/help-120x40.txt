@@ -8,7 +8,6 @@
 ┃   3 roti-docs      ┃│                                    ││                                                          │
 ┃   4 teh-cli        ┃│                                    ││                                                          │
 ┃   5 warung-api     ┃│                                    ││                                                          │
-┃                    ┃│                                    ││                                                          │
 ┃                    ╔ keys · projects pane ══════════════════════════════════════════════════════╗                    │
 ┃                    ║                                                                            ║                    │
 ┃                    ║  enter                its sessions    n                    new session     ║                    │
@@ -18,13 +17,14 @@
 ┃                    ║  h ← shift-tab ctrl-h pane left       l → tab ctrl-l       pane right      ║                    │
 ┃                    ║  j ↓                  down            k ↑                  up              ║                    │
 ┃                    ║  gg home              first           G end                last            ║                    │
-┃                    ║  ctrl-d pgdn          half page down  ctrl-u pgup          half page up    ║.                   │
-┃                    ║  ! ctrl-]             next needs you  z                    zoom output     ║n                   │
-┃                    ║  /                    search projects 1-9                  jump to project ║                    │
-┃                    ║  cmd/alt-1            projects pane   cmd/alt-2            sessions pane   ║                    │
-┃                    ║  cmd/alt-3            output pane     w                    workspace       ║                    │
-┃                    ║  ,                    settings        R                    redraw          ║                    │
-┃                    ║  ?                    this help       q ctrl-c             quit            ║                    │
+┃                    ║  ctrl-d pgdn          half page down  ctrl-u pgup          half page up    ║                    │
+┃                    ║  ! ctrl-]             next needs you  z                    zoom output     ║.                   │
+┃                    ║  /                    search projects 1-9                  jump to project ║n                   │
+┃                    ║  N                    quick session   cmd/alt-1            projects pane   ║                    │
+┃                    ║  cmd/alt-2            sessions pane   cmd/alt-3            output pane     ║                    │
+┃                    ║  w                    workspace       ,                    settings        ║                    │
+┃                    ║  R                    redraw          ?                    this help       ║                    │
+┃                    ║  q ctrl-c             quit                                                 ║                    │
 ┃                    ║                                                                            ║                    │
 ┃                    ║                                                                 esc close  ║                    │
 ┃                    ╚════════════════════════════════════════════════════════════════════════════╝                    │

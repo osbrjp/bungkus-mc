@@ -89,6 +89,9 @@ pub(crate) struct Launch {
     /// Opens the agent's own list of past sessions (`claude --resume`,
     /// `codex resume` without an id) instead of starting a new one.
     pub pick: bool,
+    /// With `resume`, continues as a new Claude session saved under the
+    /// launch folder (`--fork-session`), leaving the original untouched.
+    pub fork: bool,
 }
 
 /// Builds the argument vector for a new session (ARCHITECTURE §5.1, §5.2).
@@ -117,7 +120,12 @@ pub(crate) fn argv(kind: Kind, program: &Path, args: &[String], launch: &Launch)
     match (kind, &launch.resume) {
         (Kind::Claude, resume) => {
             match resume {
-                Some(id) => flag(&mut out, "--resume", id),
+                Some(id) => {
+                    flag(&mut out, "--resume", id);
+                    if launch.fork {
+                        out.push("--fork-session".into());
+                    }
+                }
                 None if launch.pick => out.push("--resume".into()),
                 None => flag(
                     &mut out,
@@ -189,6 +197,7 @@ mod tests {
             hook_args: vec!["-c".into(), "hooks.Stop=[]".into()],
             resume: None,
             pick: false,
+            fork: false,
         };
         let bare = Launch {
             id,
@@ -199,6 +208,7 @@ mod tests {
             hook_args: Vec::new(),
             resume: None,
             pick: false,
+            fork: false,
         };
         let s = |v: Vec<OsString>| {
             v.into_iter()
@@ -256,6 +266,7 @@ mod tests {
             hook_args: vec!["-c".into(), "hooks.Stop=[]".into()],
             resume: None,
             pick: true,
+            fork: false,
         };
         let s = |v: Vec<OsString>| {
             v.into_iter()
@@ -285,6 +296,7 @@ mod tests {
             hook_args: vec!["-c".into(), "hooks.Stop=[]".into()],
             resume: Some("5f1c0000-0000-0000-0000-000000000000".into()),
             pick: false,
+            fork: false,
         };
         let s = |v: Vec<OsString>| {
             v.into_iter()

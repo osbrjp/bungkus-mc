@@ -146,6 +146,8 @@ pub(crate) struct Card {
     pub plan_termed: Option<Instant>,
     /// Subagents counted in an earlier run (restored from `sessions.json`).
     pub restored_subagents: u32,
+    /// Where a quick session moves once it has exited (issue #46).
+    pub move_to: Option<PathBuf>,
 }
 
 impl Card {
@@ -198,6 +200,7 @@ impl Card {
             stop_plan: Vec::new(),
             plan_termed: None,
             restored_subagents: 0,
+            move_to: None,
         }
     }
 

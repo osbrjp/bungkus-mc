@@ -220,6 +220,15 @@ A thread lists them every 5 s (`src/external.rs`) and sends
   or session id.
 - Read-only while they run: no output, no INTERACT, never signalled,
   never written to `sessions.json`, no transcript read.
+- **Quick sessions** (`src/app/quick.rs`, issue #46): a session whose
+  folder is the workspace root is quick (nothing extra stored). It runs in
+  a popup whose PTY is sized to the popup, not the output pane. Moving it
+  stops it (SIGTERM to its group, as `x`), then launches the resume in the
+  project with `replaces`, so the card is replaced: Claude `--resume <id>
+  --fork-session` (verified: the session continues in the new folder with
+  its conversation and is saved under that project as a new id), Codex
+  `resume <id>` (same session, runs in the new folder). A new project is
+  `create_dir` + `git init` (fixed argv) and a rescan.
 - **Take over** (`src/app/takeover.rs`): `enter` on a Claude row (its cwd
   must be the project folder and its session id a UUID) opens a dialog
   that waits for the user to quit it in its own terminal. mc checks the

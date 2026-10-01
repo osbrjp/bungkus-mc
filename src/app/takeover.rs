@@ -104,6 +104,7 @@ fn resume(ext: &External, project: std::path::PathBuf) -> Cmd {
             hook_args: Vec::new(),
             resume: ext.session_id.clone(),
             pick: false,
+            fork: false,
         },
         replaces: None,
     })

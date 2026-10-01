@@ -12,6 +12,7 @@ pub(crate) mod form;
 mod interact;
 pub(crate) mod model;
 pub(crate) mod picker;
+pub(crate) mod quick;
 pub(crate) mod sessions;
 pub(crate) mod stop;
 mod takeover;
@@ -316,6 +317,21 @@ fn run_cmd(
         Cmd::Apply(settings) => apply(model, env, settings),
         Cmd::Launch(request) => launch(model, env, hooks, request, tx),
         Cmd::WatchRollout(id, path) => watch_rollout(model, id, &path, tx),
+        Cmd::CreateProject(id, path) => match create_project(&path) {
+            Ok(()) => {
+                if let Some(root) = model.root().map(Path::to_path_buf)
+                    && let Ok(projects) = workspace::scan(&root)
+                {
+                    model.projects = projects;
+                }
+                if let Some(cmd) = model.move_quick(id, path) {
+                    return run_cmd(model, env, hooks, tx, uid, cmd);
+                }
+            }
+            Err(e) => {
+                model.message = Some(format!("Could not create {}: {e}", path.display()));
+            }
+        },
         Cmd::SaveWidths(widths) => {
             if let Some(path) = &env.config_path
                 && let Err(e) = config::save_widths(path, widths)
@@ -460,7 +476,11 @@ fn launch(
     if let Some(old) = replaces {
         model.cards.retain(|c| c.id != old);
     }
-    let size = ui::output_size(model.screen, model.zoom, model.widths);
+    let size = if model.root() == Some(project.as_path()) {
+        ui::popup_size(model.screen)
+    } else {
+        ui::output_size(model.screen, model.zoom, model.widths)
+    };
     match Session::spawn(
         launch.id,
         &argv,
@@ -541,16 +561,41 @@ fn watch_rollout(model: &mut Model, id: SessionId, path: &Path, tx: &SyncSender<
     }
 }
 
-/// Keeps every session's emulator and PTY at the output pane's size.
+/// Keeps every session's emulator and PTY at its pane's size: the output
+/// pane, or the popup for quick sessions.
 fn resize_sessions(model: &mut Model) {
     let size = ui::output_size(model.screen, model.zoom, model.widths);
-    for pty in model
-        .cards
-        .iter_mut()
-        .filter(|c| c.running())
-        .filter_map(|c| c.pty.as_mut())
-    {
-        pty.resize(size);
+    let quick = ui::popup_size(model.screen);
+    let root = model.root().map(Path::to_path_buf);
+    for card in model.cards.iter_mut().filter(|c| c.running()) {
+        let want = if root.as_deref() == Some(card.project.as_path()) {
+            quick
+        } else {
+            size
+        };
+        if let Some(pty) = card.pty.as_mut() {
+            pty.resize(want);
+        }
+    }
+}
+
+/// Creates project folder `path` in the workspace and runs `git init` in
+/// it (fixed argv, no shell), so the workspace scan lists it.
+///
+/// # Errors
+///
+/// The folder exists or cannot be made, or `git init` failed or is missing.
+fn create_project(path: &Path) -> io::Result<()> {
+    std::fs::create_dir(path)?;
+    let status = std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(path)
+        .stdin(std::process::Stdio::null())
+        .status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(io::Error::other("git init failed"))
     }
 }
 
@@ -610,6 +655,25 @@ pub(crate) fn absolute(path: &str, cwd: &Path, home: Option<&Path>) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn creates_a_project_folder_the_scan_lists() {
+        let ws = std::env::temp_dir().join(format!("mc-newproj-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&ws);
+        std::fs::create_dir_all(&ws).unwrap();
+        create_project(&ws.join("fresh")).unwrap();
+        let names: Vec<String> = workspace::scan(&ws)
+            .unwrap()
+            .into_iter()
+            .map(|p| p.name)
+            .collect();
+        assert_eq!(names, ["fresh"]);
+        assert!(
+            create_project(&ws.join("fresh")).is_err(),
+            "an existing folder is refused"
+        );
+        std::fs::remove_dir_all(&ws).unwrap();
+    }
 
     #[test]
     fn picks_the_desktop_notification_per_terminal() {

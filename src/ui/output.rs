@@ -25,6 +25,23 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
         draw_empty(frame, area, theme, model.frame, band);
         return;
     };
+    if model.is_quick(card) {
+        let block = pane("output", false, theme);
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+        let [row] = Layout::vertical([Constraint::Length(1)])
+            .flex(Flex::Center)
+            .areas(inner);
+        frame.render_widget(
+            Line::styled(
+                "Quick session: enter opens it · m move · p new project",
+                theme.fg(Token::FgMuted),
+            )
+            .alignment(Alignment::Center),
+            row,
+        );
+        return;
+    }
     let interact = model.focus == Focus::Output;
     let head = format!("output · {} {} · ", card.kind.badge(), card.id.short());
     let tail = if interact {
@@ -100,6 +117,42 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
             }
         }
         _ => draw_message(frame, inner, card, theme),
+    }
+}
+
+/// Draws the quick-session popup (issue #46): a cleared, double-bordered
+/// window with the session's live screen and the cursor, over the panes.
+pub(super) fn draw_popup(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
+    let Some(card) = model
+        .popup
+        .and_then(|id| model.cards.iter().find(|c| c.id == id))
+    else {
+        return;
+    };
+    let tail = format!(" · {} hide", model.exit_chord.label());
+    let head = format!("quick · {} {} · ", card.kind.badge(), card.id.short());
+    let room =
+        usize::from(area.width).saturating_sub(head.chars().count() + tail.chars().count() + 4);
+    let title = format!(" {head}{}{tail} ", truncate(&card.name, room));
+    frame.render_widget(ratatui::widgets::Clear, area);
+    let block = super::bordered(super::Weight::Double, theme)
+        .border_style(theme.fg(Token::Warn))
+        .title(Span::styled(title, theme.fg(Token::Warn)));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let Some(pty) = &card.pty else {
+        return;
+    };
+    let (fg, bg) = default_colors(theme);
+    let screen = Screen {
+        term: pty.term(),
+        fg,
+        bg,
+    };
+    let cursor = screen.cursor(inner);
+    frame.render_widget(screen, inner);
+    if let Some(position) = cursor {
+        frame.set_cursor_position(position);
     }
 }
 

@@ -73,13 +73,12 @@ impl Model {
 
     /// Sends pasted text to the agent while in INTERACT.
     pub(super) fn paste(&self, text: &str) {
-        if self.focus != Focus::Output {
-            return;
-        }
-        if let Some(pty) = self
-            .selected_card()
-            .and_then(|i| self.cards[i].pty.as_ref())
-        {
+        let target = match self.popup {
+            Some(id) => self.cards.iter().find(|c| c.id == id),
+            None if self.focus == Focus::Output => self.selected_card().map(|i| &self.cards[i]),
+            None => None,
+        };
+        if let Some(pty) = target.and_then(|c| c.pty.as_ref()) {
             pty.send(keys::paste(text, pty.mode()));
         }
     }
@@ -88,7 +87,7 @@ impl Model {
     /// (saved on release), clicks focus panes, the wheel scrolls, and
     /// events inside the output pane go to an agent that asked for them.
     pub(super) fn mouse(&mut self, event: MouseEvent) -> Option<Cmd> {
-        if self.overlay.is_some() {
+        if self.overlay.is_some() || self.popup.is_some() {
             return None;
         }
         let at = Position::new(event.column, event.row);
