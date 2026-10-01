@@ -22,26 +22,39 @@ use crate::term::keys;
 /// Longest new project name accepted.
 const NAME_MAX: usize = 64;
 
-/// What a quick session is being moved into.
+/// The move dialog: one field that both finds a project to move into and
+/// names a new one (issue #46).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum MoveDialog {
-    /// Picking one of the workspace's projects (index into `projects`).
-    Pick {
-        /// The quick session.
-        id: SessionId,
-        /// Highlighted project.
-        selected: usize,
-    },
-    /// Typing the name of a new project folder.
-    Create {
-        /// The quick session.
-        id: SessionId,
-        /// The name typed so far.
-        name: String,
-        /// Why the name cannot be used, after `enter`.
-        error: Option<String>,
-    },
+pub(crate) struct MoveDialog {
+    /// The quick session.
+    pub id: SessionId,
+    /// What the user typed.
+    pub query: String,
+    /// Highlighted row of [`Model::move_options`].
+    pub selected: usize,
+    /// Why the last `enter` could not be carried out.
+    pub error: Option<String>,
 }
+
+/// One row of the move dialog.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum MoveOption {
+    /// Move into this existing project.
+    Project {
+        /// Its display name.
+        name: String,
+        /// Its folder.
+        path: PathBuf,
+    },
+    /// Create a project with this name and move into it.
+    Create(String),
+}
+
+/// Most rows the move dialog lists.
+const OPTIONS_MAX: usize = 8;
+
+/// Projects listed while the field is empty: the most recently used.
+const RECENT: usize = 3;
 
 impl Model {
     /// Returns the workspace root, once settings are applied.
@@ -134,7 +147,14 @@ impl Model {
         self.popup = None;
         self.popup_menu = false;
         self.focus = crate::app::model::Focus::Sessions;
-        self.selected = 0;
+        let root = self.root().map(Path::to_path_buf);
+        if let Some(row) = self
+            .visible()
+            .iter()
+            .position(|p| Some(&p.path) == root.as_ref())
+        {
+            self.selected = row;
+        }
         if let Some(pos) = self
             .project_cards()
             .iter()
@@ -158,75 +178,105 @@ impl Model {
         self.start_move_of(id, create);
     }
 
-    /// Opens the move or new-project dialog for quick session `id`.
-    fn start_move_of(&mut self, id: SessionId, create: bool) {
-        self.overlay = Some(Overlay::Move(if create {
-            MoveDialog::Create {
-                id,
-                name: String::new(),
-                error: None,
-            }
-        } else {
-            MoveDialog::Pick { id, selected: 0 }
+    /// Opens the move dialog for quick session `id`.
+    fn start_move_of(&mut self, id: SessionId, _create: bool) {
+        self.overlay = Some(Overlay::Move(MoveDialog {
+            id,
+            query: String::new(),
+            selected: 0,
+            error: None,
         }));
     }
 
-    /// Applies a key to the move dialog.
-    pub(crate) fn move_key(&mut self, dialog: MoveDialog, key: KeyEvent) -> Option<Cmd> {
-        match (dialog, key.code) {
-            (_, KeyCode::Esc) => None,
-            (MoveDialog::Pick { id, selected }, KeyCode::Enter) => {
-                let dest = self.projects.get(selected)?.path.clone();
-                self.move_quick(id, dest)
-            }
-            (MoveDialog::Pick { id, selected }, KeyCode::Up | KeyCode::Char('k')) => {
-                let selected = selected.saturating_sub(1);
-                self.overlay = Some(Overlay::Move(MoveDialog::Pick { id, selected }));
-                None
-            }
-            (MoveDialog::Pick { id, selected }, KeyCode::Down | KeyCode::Char('j')) => {
-                let selected = (selected + 1).min(self.projects.len().saturating_sub(1));
-                self.overlay = Some(Overlay::Move(MoveDialog::Pick { id, selected }));
-                None
-            }
-            (MoveDialog::Create { id, name, .. }, KeyCode::Enter) => {
-                match self.new_project_path(&name) {
-                    Ok(path) => Some(Cmd::CreateProject(id, path)),
-                    Err(e) => {
-                        self.overlay = Some(Overlay::Move(MoveDialog::Create {
-                            id,
-                            name,
-                            error: Some(e),
-                        }));
-                        None
-                    }
-                }
-            }
-            (MoveDialog::Create { id, mut name, .. }, code) => {
-                match code {
-                    KeyCode::Backspace => {
-                        name.pop();
-                    }
-                    KeyCode::Char(ch)
-                        if !key.modifiers.contains(KeyModifiers::CONTROL)
-                            && name.chars().count() < NAME_MAX =>
-                    {
-                        name.push(ch);
-                    }
-                    _ => {}
-                }
-                self.overlay = Some(Overlay::Move(MoveDialog::Create {
-                    id,
-                    name,
-                    error: None,
-                }));
-                None
-            }
-            (dialog @ MoveDialog::Pick { .. }, _) => {
-                self.overlay = Some(Overlay::Move(dialog));
-                None
-            }
+    /// Returns the move dialog's rows for `query`: with nothing typed, the
+    /// [`RECENT`] most recently used projects; otherwise the projects whose
+    /// name contains it, then "create" unless one matches it exactly.
+    #[must_use]
+    pub(crate) fn move_options(&self, query: &str) -> Vec<MoveOption> {
+        let query = query.trim();
+        let project = |p: &crate::workspace::Project| MoveOption::Project {
+            name: p.name.clone(),
+            path: p.path.clone(),
+        };
+        if query.is_empty() {
+            let mut recent: Vec<(&crate::workspace::Project, Option<std::time::Instant>)> = self
+                .projects
+                .iter()
+                .map(|p| {
+                    let last = self
+                        .cards
+                        .iter()
+                        .filter(|c| c.project == p.path)
+                        .map(|c| c.started)
+                        .max();
+                    (p, last)
+                })
+                .collect();
+            recent.sort_by_key(|(_, last)| std::cmp::Reverse(*last));
+            return recent
+                .into_iter()
+                .take(RECENT)
+                .map(|(p, _)| project(p))
+                .collect();
         }
+        let needle = query.to_lowercase();
+        let mut rows: Vec<MoveOption> = self
+            .projects
+            .iter()
+            .filter(|p| p.name.to_lowercase().contains(&needle))
+            .take(OPTIONS_MAX)
+            .map(project)
+            .collect();
+        if !self.projects.iter().any(|p| p.name == query) {
+            rows.push(MoveOption::Create(query.to_owned()));
+        }
+        rows
+    }
+
+    /// Applies a key to the move dialog: typing edits the field, `↑`/`↓`
+    /// or `ctrl-k`/`ctrl-j` move the highlight, `enter` moves into the
+    /// highlighted project or creates the new one, `esc` cancels.
+    pub(crate) fn move_key(&mut self, mut dialog: MoveDialog, key: KeyEvent) -> Option<Cmd> {
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let rows = self.move_options(&dialog.query).len();
+        match key.code {
+            KeyCode::Esc => return None,
+            KeyCode::Enter => {
+                match self
+                    .move_options(&dialog.query)
+                    .get(dialog.selected)
+                    .cloned()
+                {
+                    Some(MoveOption::Project { path, .. }) => {
+                        return self.move_quick(dialog.id, path);
+                    }
+                    Some(MoveOption::Create(name)) => match self.new_project_path(&name) {
+                        Ok(path) => return Some(Cmd::CreateProject(dialog.id, path)),
+                        Err(e) => dialog.error = Some(e),
+                    },
+                    None => dialog.error = Some("Type a project name.".into()),
+                }
+            }
+            KeyCode::Up => dialog.selected = dialog.selected.saturating_sub(1),
+            KeyCode::Char('k') if ctrl => dialog.selected = dialog.selected.saturating_sub(1),
+            KeyCode::Down => dialog.selected = (dialog.selected + 1).min(rows.saturating_sub(1)),
+            KeyCode::Char('j') if ctrl => {
+                dialog.selected = (dialog.selected + 1).min(rows.saturating_sub(1));
+            }
+            KeyCode::Backspace => {
+                dialog.query.pop();
+                dialog.selected = 0;
+                dialog.error = None;
+            }
+            KeyCode::Char(ch) if !ctrl && dialog.query.chars().count() < NAME_MAX => {
+                dialog.query.push(ch);
+                dialog.selected = 0;
+                dialog.error = None;
+            }
+            _ => {}
+        }
+        self.overlay = Some(Overlay::Move(dialog));
+        None
     }
 
     /// Returns the folder for a new project called `name` in the
@@ -338,17 +388,19 @@ mod tests {
         m.update(menu());
         assert!(m.popup_menu, "the exit chord opens the popup menu");
         m.update(press(KeyCode::Char('m')));
-        assert!(matches!(
-            m.overlay,
-            Some(Overlay::Move(MoveDialog::Pick { .. }))
-        ));
+        assert!(matches!(m.overlay, Some(Overlay::Move(_))));
         m.update(press(KeyCode::Esc));
         m.update(menu());
         m.update(press(KeyCode::Char('h')));
         assert_eq!(m.popup, None, "menu h hides it");
 
-        assert_eq!(m.visible()[0].name, "quick", "a quick row leads the list");
-        m.selected = 0;
+        assert_eq!(
+            m.visible().last().unwrap().name,
+            "quick",
+            "a quick row ends the list"
+        );
+        m.update(press(KeyCode::Char('0')));
+        assert_eq!(m.selected, m.visible().len() - 1, "0 jumps to it");
         m.focus = crate::app::model::Focus::Sessions;
         m.card = 0;
         m.update(press(KeyCode::Char('m')));
@@ -366,6 +418,53 @@ mod tests {
         assert_eq!(req.replaces, Some(id));
         assert!(req.launch.fork, "claude forks into the project");
         assert_eq!(req.launch.resume, Some(id.0.hyphenated().to_string()));
+    }
+
+    #[test]
+    fn the_move_field_finds_projects_or_offers_to_create_one() {
+        let m = sample(&["kedai-web", "pasar-mobile", "roti-docs", "teh-cli"]);
+        let names = |q: &str| -> Vec<String> {
+            m.move_options(q)
+                .into_iter()
+                .map(|o| match o {
+                    MoveOption::Project { name, .. } => name,
+                    MoveOption::Create(name) => format!("+{name}"),
+                })
+                .collect()
+        };
+        assert_eq!(names("").len(), 3, "recent projects while empty");
+        assert_eq!(names("e"), ["kedai-web", "pasar-mobile", "teh-cli", "+e"]);
+        assert_eq!(
+            names("teh-cli"),
+            ["teh-cli"],
+            "an exact name moves, no create"
+        );
+        assert_eq!(names("fresh"), ["+fresh"]);
+    }
+
+    #[test]
+    fn typing_and_ctrl_j_pick_then_enter_creates() {
+        let mut m = sample(&["app", "web"]);
+        let root = m.root().unwrap().to_path_buf();
+        let (id, _w) = with_session(&mut m, "quick");
+        m.cards[0].project.clone_from(&root);
+        m.popup = None;
+        m.overlay = Some(Overlay::Move(MoveDialog {
+            id,
+            query: String::new(),
+            selected: 0,
+            error: None,
+        }));
+        for ch in "ap".chars() {
+            m.update(press(KeyCode::Char(ch)));
+        }
+        m.update(AppEvent::Input(ratatui::crossterm::event::Event::Key(
+            KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL),
+        )));
+        let Some(Cmd::CreateProject(got, path)) = m.update(press(KeyCode::Enter)) else {
+            panic!("the create row comes after the match");
+        };
+        assert_eq!((got, path), (id, root.join("ap")));
     }
 
     #[test]

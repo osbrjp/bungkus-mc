@@ -68,7 +68,7 @@ below it as a branch: `├ i746` under `nrha-timii`.
 | `!` · `ctrl-]` | jump to the next session that needs you, in any project |
 | `j` `k` · `↓` `↑` · `gg` `G` | move |
 | `x` | stop a session (lists what it started too) |
-| `N` | quick session at the workspace root, in a popup. Every key goes to the agent; `ctrl-\` opens the popup menu: `h` hide · `m` move it into a project · `p` make a new project for it (folder + `git init`). The conversation comes along. A hidden one waits under the `quick` row (`enter` reopens; `m`/`p` there too) |
+| `N` | quick session at the workspace root, in a popup. Every key goes to the agent; `ctrl-\` opens the popup menu: `h` hide · `m` move. The move dialog takes a name: it lists the 3 most recent projects, then matches as you type (`↑`/`↓` or `ctrl-j`/`ctrl-k` pick); a name that matches no project creates it (folder + `git init`). The conversation comes along. A hidden one waits under the `quick` row, number `0` at the bottom of the list |
 | `r` | resume the selected finished session; anywhere else, open the agent's own list of this project's past sessions (`claude --resume` / `codex resume`) to pick any of them |
 | `d` | forget a finished session |
 | `z` | zoom the output pane |

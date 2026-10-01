@@ -132,7 +132,7 @@ pub(super) fn draw_popup(frame: &mut Frame, area: Rect, model: &Model, theme: Th
         return;
     };
     let tail = if model.popup_menu {
-        " · h hide · m move · p new project".to_owned()
+        " · h hide · m move".to_owned()
     } else {
         format!(" · {} menu", model.exit_chord.label())
     };
@@ -173,7 +173,7 @@ fn draw_quick_note(frame: &mut Frame, area: Rect, theme: Theme) {
         .areas(inner);
     frame.render_widget(
         Line::styled(
-            "Quick session: enter opens it · m move · p new project",
+            "Quick session: enter opens it · m moves it to a project",
             theme.fg(Token::FgMuted),
         )
         .alignment(Alignment::Center),
