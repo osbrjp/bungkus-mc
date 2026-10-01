@@ -243,6 +243,40 @@ pub(super) fn draw_forget(
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
+/// Draws the "remove unused worktrees?" confirm: only worktrees no session
+/// runs in or can resume into, never one with uncommitted files, and the
+/// branches stay.
+pub(super) fn draw_clean_worktrees(
+    frame: &mut Frame,
+    area: Rect,
+    project: &crate::workspace::Project,
+    theme: Theme,
+) {
+    let lines = vec![
+        Line::from(""),
+        Line::styled(
+            format!(
+                "  Remove unused worktrees of {}?",
+                truncate(&project.name, 20)
+            ),
+            theme.fg(Token::Fg),
+        ),
+        Line::styled(
+            "  Ones with uncommitted files stay.",
+            theme.fg(Token::FgMuted),
+        ),
+        Line::styled("  Branches are kept.", theme.fg(Token::FgMuted)),
+        Line::from(""),
+        Line::styled("y remove · n keep  ", theme.fg(Token::FgMuted)).alignment(Alignment::Right),
+    ];
+    let rect = centred(area, 54, 8);
+    frame.render_widget(Clear, rect);
+    let block = dialog_block("clean worktrees?", theme);
+    let inner = block.inner(rect);
+    frame.render_widget(block, rect);
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
 /// Draws the take-over dialog: what happens, and what the user must do
 /// in the other terminal (DESIGN §5.9).
 pub(super) fn draw_take_over(

@@ -87,6 +87,8 @@ pub(crate) enum Overlay {
     Switcher(crate::app::workspaces::Switcher),
     /// "Move these projects' folders to the Trash?"
     TrashProject(Vec<Project>),
+    /// "Remove this project's unused worktrees?"
+    CleanWorktrees(Project),
 }
 
 /// A session the loop must start.
@@ -156,6 +158,11 @@ pub(crate) enum Cmd {
     /// Create this project folder (`git init`), then move quick session
     /// `SessionId` into it.
     CreateProject(SessionId, PathBuf),
+    /// Remove the worktree with this name of this project, left by a
+    /// forgotten session, unless it has uncommitted files.
+    RemoveWorktree(PathBuf, String),
+    /// Remove this project's unused worktrees (after the user confirmed).
+    CleanWorktrees(PathBuf),
 }
 
 /// Everything the screen shows.
@@ -237,9 +244,17 @@ pub(crate) struct Model {
     pub state_dirty: bool,
     /// Agent sessions running outside mc, read-only (ARCHITECTURE §3.4).
     pub external: Vec<External>,
+    /// The git branch and status of each session folder that is in a
+    /// repository, as last read.
+    pub repos: std::collections::HashMap<PathBuf, crate::app::repo::Status>,
+    /// Whether a background read of [`Model::repos`] is under way.
+    pub repo_scan: bool,
     /// Shows every key mc receives in the hint line (`BUNGKUS_MC_DEBUG_KEYS`),
     /// to find chords a terminal keeps for itself.
     pub debug_keys: bool,
+    /// Project asked for with `-p`, selected by the next [`Model::apply`]
+    /// whose workspace has it; that apply clears it either way.
+    pub want_project: Option<String>,
     /// Whether mc runs in kitty (`KITTY_WINDOW_ID`): `ctrl-h/j/k/l` past
     /// mc's edges then move to kitty's neighbouring window.
     pub kitty: bool,
@@ -343,6 +358,8 @@ impl Model {
             next_scan: None,
             state_dirty: false,
             external: Vec::new(),
+            repos: std::collections::HashMap::new(),
+            repo_scan: false,
             poke: None,
             popup: None,
             last_trash: Vec::new(),
@@ -354,6 +371,7 @@ impl Model {
             visual: None,
             popup_menu: false,
             debug_keys: false,
+            want_project: None,
             quick_row: Project {
                 name: "quick".into(),
                 path: PathBuf::new(),
@@ -558,10 +576,42 @@ impl Model {
 
     /// Handles one event from the loop's channel.
     ///
+    /// The selection is a row and a position, and events other than input
+    /// reorder both (cards sort by state, the `quick` and elsewhere rows
+    /// come and go), so after one the selection is put back on the project
+    /// and session it was on: the output pane and INTERACT never switch to
+    /// another session by themselves.
+    ///
     /// # Returns
     ///
     /// The command the loop must run, if any.
     pub(crate) fn update(&mut self, event: AppEvent) -> Option<Cmd> {
+        let pinned = (!matches!(event, AppEvent::Input(_))).then(|| {
+            (
+                self.selected_project().map(|p| p.path.clone()),
+                self.selected_card().map(|i| self.cards[i].id),
+            )
+        });
+        let cmd = self.handle(event);
+        if let Some((project, card)) = pinned {
+            if let Some(row) =
+                project.and_then(|path| self.visible().iter().position(|p| p.path == path))
+            {
+                self.selected = row;
+            }
+            if let Some(pos) = card.and_then(|id| {
+                self.project_cards()
+                    .iter()
+                    .position(|&i| self.cards[i].id == id)
+            }) {
+                self.card = pos;
+            }
+        }
+        cmd
+    }
+
+    /// Applies one event; [`Model::update`] keeps the selection in place.
+    fn handle(&mut self, event: AppEvent) -> Option<Cmd> {
         match event {
             AppEvent::Tick => {
                 self.frame = self.frame.wrapping_add(1);
@@ -589,6 +639,10 @@ impl Model {
                 }
             }
             AppEvent::Procs(snapshot) => self.track(&snapshot),
+            AppEvent::Repos(repos) => {
+                self.repos = repos.into_iter().collect();
+                self.repo_scan = false;
+            }
             AppEvent::External(list) => {
                 self.external = list;
                 self.selected = self.selected.min(self.visible().len().saturating_sub(1));
@@ -614,6 +668,7 @@ impl Model {
                 crate::debug_log!("{} exited: {code:?}", id.short());
                 let now = self.now;
                 self.state_dirty = true;
+                let selected = self.selected_card().map(|i| self.cards[i].id) == Some(id);
                 if let Some(card) = self.card_mut(id) {
                     card.exited(code, now);
                     if let State::Failed(reason) = &card.state {
@@ -630,9 +685,7 @@ impl Model {
                 if let Some(cmd) = self.plan_after_exit(id) {
                     return Some(cmd);
                 }
-                if self.focus == Focus::Output
-                    && self.selected_card().map(|i| self.cards[i].id) == Some(id)
-                {
+                if self.focus == Focus::Output && selected {
                     self.focus = Focus::Sessions;
                 }
             }
@@ -940,13 +993,22 @@ impl Model {
             Overlay::Switcher(switcher) => self.switcher_key(switcher, key),
             Overlay::TrashProject(projects) => (key.code == KeyCode::Char('y'))
                 .then(|| Cmd::TrashProject(projects.into_iter().map(|p| p.path).collect())),
+            Overlay::CleanWorktrees(project) => {
+                (key.code == KeyCode::Char('y')).then_some(Cmd::CleanWorktrees(project.path))
+            }
             Overlay::Forget(id) => {
-                if key.code == KeyCode::Char('y') {
-                    self.cards.retain(|c| c.id != id);
-                    self.card = self.card.min(self.project_cards().len().saturating_sub(1));
-                    self.state_dirty = true;
+                if key.code != KeyCode::Char('y') {
+                    return None;
                 }
-                None
+                let worktree = self
+                    .cards
+                    .iter()
+                    .find(|c| c.id == id)
+                    .and_then(|c| Some((c.project.clone(), c.worktree.clone()?)));
+                self.cards.retain(|c| c.id != id);
+                self.card = self.card.min(self.project_cards().len().saturating_sub(1));
+                self.state_dirty = true;
+                worktree.map(|(project, name)| Cmd::RemoveWorktree(project, name))
             }
         }
     }
@@ -1385,6 +1447,7 @@ impl Model {
             Action::Pane(n) => self.focus_pane(n),
             Action::TrashProject => self.ask_trash(),
             Action::NewProject => self.start_new_project(),
+            Action::CleanWorktrees => self.ask_clean_worktrees(),
             Action::UndoTrash => return self.undo_trash(),
             Action::Visual => self.visual = self.visual.xor(Some(self.selected)),
             Action::QuickSession => return self.quick_session(),
@@ -1425,6 +1488,17 @@ impl Model {
         None
     }
 
+    /// Asks whether to remove the selected project's unused worktrees
+    /// (`c`); not for the `quick` or elsewhere rows.
+    fn ask_clean_worktrees(&mut self) {
+        if let Some(project) = self
+            .selected_project()
+            .filter(|p| !p.path.as_os_str().is_empty() && self.root() != Some(&p.path))
+        {
+            self.overlay = Some(Overlay::CleanWorktrees(project.clone()));
+        }
+    }
+
     /// Enters INTERACT on the selected session when it is running.
     pub(crate) fn interact(&mut self) {
         if self
@@ -1442,7 +1516,7 @@ impl Model {
     /// * `settings` - The settings now in effect.
     /// * `scan`     - The projects, or why the folder could not be listed.
     /// * `cwd`      - mc's working directory; a project containing it is
-    ///   preselected.
+    ///   preselected, unless [`Model::want_project`] names one here.
     pub(crate) fn apply(
         &mut self,
         settings: Settings,
@@ -1459,10 +1533,12 @@ impl Model {
         self.projects = projects;
         self.scan_error = error;
         self.filter.clear();
+        let wanted = self.want_project.take();
         self.selected = self
             .projects
             .iter()
-            .position(|p| cwd.starts_with(&p.path))
+            .position(|p| Some(&p.name) == wanted.as_ref())
+            .or_else(|| self.projects.iter().position(|p| cwd.starts_with(&p.path)))
             .unwrap_or(0);
         self.card = 0;
         self.quick_row.path.clone_from(&settings.workspace);
@@ -1529,6 +1605,84 @@ pub(crate) mod tests {
 
     pub(crate) fn press(code: KeyCode) -> AppEvent {
         AppEvent::Input(Event::Key(KeyEvent::new(code, KeyModifiers::NONE)))
+    }
+
+    #[test]
+    fn apply_selects_the_wanted_project_once() {
+        let mut m = sample(&["a", "b", "c"]);
+        let settings = m.settings.clone().unwrap();
+        let projects = m.projects.clone();
+        let scan = || Ok(projects.clone());
+        m.want_project = Some("c".into());
+        m.apply(settings.clone(), scan(), Path::new("/"));
+        assert_eq!(m.selected_project().map(|p| p.name.as_str()), Some("c"));
+        assert_eq!(m.want_project, None);
+        m.want_project = Some("nope".into());
+        m.apply(settings, scan(), Path::new("/"));
+        assert_eq!(m.selected, 0);
+        assert_eq!(m.want_project, None, "a miss is not retried for ever");
+    }
+
+    #[test]
+    fn enter_in_interact_keeps_the_output_on_the_session_typed_into() {
+        let mut m = sample(&["a"]);
+        let (done, _done_writes) = with_session(&mut m, "done");
+        let (typing, writes) = with_session(&mut m, "typing");
+        for id in [done, typing] {
+            m.update(hook_line(id, r#"{"hook_event_name":"Stop"}"#));
+        }
+        m.select_session(typing);
+        m.update(press(KeyCode::Enter));
+        assert!(writes.try_recv().is_ok(), "enter goes to the agent");
+        m.update(hook_line(
+            typing,
+            r#"{"hook_event_name":"UserPromptSubmit"}"#,
+        ));
+        assert_eq!(m.card_mut(typing).unwrap().state, State::Working);
+        assert_eq!(
+            m.selected_card().map(|i| m.cards[i].id),
+            Some(typing),
+            "working sorts above your turn; the output pane does not move"
+        );
+    }
+
+    #[test]
+    fn the_selection_follows_its_session_when_cards_reorder() {
+        let mut m = sample(&["a"]);
+        let (first, _first_writes) = with_session(&mut m, "first");
+        let (second, writes) = with_session(&mut m, "second");
+        assert_eq!(m.selected_card().map(|i| m.cards[i].id), Some(second));
+        m.update(AppEvent::Pty(PtyEvent::Exited(first, Some(0))));
+        assert_eq!(
+            m.selected_card().map(|i| m.cards[i].id),
+            Some(second),
+            "the wrapped card sorts below; the output pane stays on its session"
+        );
+        m.update(press(KeyCode::Char('y')));
+        assert!(writes.try_recv().is_ok(), "keys still reach that session");
+    }
+
+    #[test]
+    fn c_asks_before_cleaning_and_forgetting_names_the_worktree() {
+        let mut m = sample(&["a"]);
+        let path = m.projects[0].path.clone();
+        m.update(press(KeyCode::Char('c')));
+        assert!(matches!(m.overlay, Some(Overlay::CleanWorktrees(_))));
+        assert_eq!(m.update(press(KeyCode::Char('n'))), None);
+        m.update(press(KeyCode::Char('c')));
+        assert_eq!(
+            m.update(press(KeyCode::Char('y'))),
+            Some(Cmd::CleanWorktrees(path.clone()))
+        );
+        let (id, _writes) = with_session(&mut m, "s");
+        m.cards[0].worktree = Some("s-a3f1".into());
+        m.update(AppEvent::Pty(PtyEvent::Exited(id, Some(0))));
+        m.focus = Focus::Sessions;
+        m.update(press(KeyCode::Char('d')));
+        assert_eq!(
+            m.update(press(KeyCode::Char('y'))),
+            Some(Cmd::RemoveWorktree(path, "s-a3f1".into()))
+        );
     }
 
     #[test]

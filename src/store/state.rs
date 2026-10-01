@@ -41,6 +41,8 @@ pub(crate) struct Record {
     pub subagents: u32,
     /// Last usage figures (no limits: those are per account).
     pub usage: Option<Usage>,
+    /// The git worktree it ran in (`claude --worktree <name>`), if any.
+    pub worktree: Option<String>,
 }
 
 /// Returns `$XDG_STATE_HOME/bungkus/mc/sessions.json`, or the same under

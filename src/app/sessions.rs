@@ -155,9 +155,22 @@ pub(crate) struct Card {
     /// Whether the conversation has a prompt (so the agent saved it and it
     /// can be resumed); restored and resumed sessions count as prompted.
     pub prompted: bool,
+    /// The git worktree it runs in (`claude --worktree <name>`, under the
+    /// project's `.claude/worktrees/`); a resume goes back into it.
+    pub worktree: Option<String>,
 }
 
 impl Card {
+    /// Returns the folder the session works in: its worktree under the
+    /// project's `.claude/worktrees/` when it has one, else the project.
+    #[must_use]
+    pub(crate) fn folder(&self) -> PathBuf {
+        self.worktree.as_ref().map_or_else(
+            || self.project.clone(),
+            |name| self.project.join(".claude/worktrees").join(name),
+        )
+    }
+
     /// Creates a card for a new session.
     ///
     /// The name falls back to the prompt's first line, then `untitled`
@@ -209,6 +222,7 @@ impl Card {
             restored_subagents: 0,
             move_to: None,
             prompted: false,
+            worktree: None,
         }
     }
 
@@ -243,6 +257,7 @@ impl Card {
             subagents: u32::try_from(self.subagents.len()).unwrap_or(u32::MAX)
                 + self.restored_subagents,
             usage,
+            worktree: self.worktree.clone(),
         }
     }
 
@@ -274,6 +289,7 @@ impl Card {
         card.restored_subagents = record.subagents;
         card.usage.clone_from(&record.usage);
         card.prompted = true;
+        card.worktree.clone_from(&record.worktree);
         Some(card)
     }
 

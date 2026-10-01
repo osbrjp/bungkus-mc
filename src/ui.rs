@@ -272,6 +272,9 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
         Some(Overlay::Switcher(switcher)) => {
             dialogs::draw_switcher(frame, area, switcher, model, theme);
         }
+        Some(Overlay::CleanWorktrees(project)) => {
+            dialogs::draw_clean_worktrees(frame, area, project, theme);
+        }
         Some(Overlay::TrashProject(projects)) => {
             dialogs::draw_trash_project(frame, area, projects, model, theme);
         }

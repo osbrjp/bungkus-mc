@@ -13,6 +13,7 @@ mod interact;
 pub(crate) mod model;
 pub(crate) mod picker;
 pub(crate) mod quick;
+pub(crate) mod repo;
 pub(crate) mod sessions;
 pub(crate) mod stop;
 mod takeover;
@@ -71,6 +72,8 @@ pub(crate) enum AppEvent {
     Procs(Vec<crate::proc::Proc>),
     /// Agent sessions running outside mc (every [`EXTERNAL_EVERY`]).
     External(Vec<crate::external::External>),
+    /// The git branch and status of the session folders in a repository.
+    Repos(Vec<(PathBuf, repo::Status)>),
     /// The host terminal went away (input closed).
     HostGone,
     /// A newer release exists (the daily check).
@@ -134,6 +137,8 @@ pub(crate) struct Env {
     pub cwd: PathBuf,
     /// Workspace field prefill for the wizard, when it runs.
     pub wizard_prefill: Option<String>,
+    /// Whether to start a quick session popup at once (`-q`).
+    pub quick: bool,
     /// The config as loaded (agent commands, mouse, notify).
     pub config: Config,
     /// Where `sessions.json` lives; `None` when no home directory is known.
@@ -190,6 +195,11 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<bool> {
     let (tx, rx) = mpsc::sync_channel::<AppEvent>(CHANNEL_CAPACITY);
     let uid = rustix::process::getuid().as_raw();
     let (hooks, _listener) = start_background(&mut model, &tx, uid);
+    if env.quick
+        && let Some(cmd) = model.quick_session()
+    {
+        run_cmd(&mut model, env, hooks.as_ref(), &tx, uid, cmd);
+    }
     let mut title = String::new();
     let input = tx.clone();
     thread::spawn(move || {
@@ -233,6 +243,10 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<bool> {
                 if let Some(pty) = card.pty.as_mut() {
                     pty.flush_sync();
                 }
+            }
+            if matches!(event, AppEvent::External(_)) {
+                rescan(&mut model);
+                scan_repos(&mut model, &tx);
             }
             let Some(cmd) = model.update(event) else {
                 continue;
@@ -370,6 +384,8 @@ fn run_cmd(
                 model.message = Some(format!("Could not create {}: {e}", path.display()));
             }
         },
+        Cmd::RemoveWorktree(project, name) => forget_worktree(model, &project, &name),
+        Cmd::CleanWorktrees(project) => clean_worktrees(model, &project),
         Cmd::SaveWidths(widths) => {
             if let Some(path) = &env.config_path
                 && let Err(e) = config::save_widths(path, widths)
@@ -412,6 +428,50 @@ fn run_cmd(
         }
     }
     Next::Continue
+}
+
+/// Reads the git branch and status of every session folder on a
+/// background thread (every [`EXTERNAL_EVERY`], one read at a time) and
+/// reports them as [`AppEvent::Repos`].
+fn scan_repos(model: &mut Model, tx: &SyncSender<AppEvent>) {
+    if model.repo_scan {
+        return;
+    }
+    let mut folders: Vec<PathBuf> = model.cards.iter().map(Card::folder).collect();
+    folders.sort();
+    folders.dedup();
+    if folders.is_empty() {
+        return;
+    }
+    model.repo_scan = true;
+    let tx = tx.clone();
+    thread::spawn(move || {
+        let repos = folders
+            .into_iter()
+            .filter_map(|folder| Some((repo::Status::read(&folder)?, folder)))
+            .map(|(status, folder)| (folder, status))
+            .collect();
+        // reason: mc may have quit meanwhile.
+        let _ = tx.send(AppEvent::Repos(repos));
+    });
+}
+
+/// Lists the workspace again (every [`EXTERNAL_EVERY`]), so a folder made
+/// outside mc (a new git worktree, a clone) shows up in the projects pane;
+/// the selection stays on its project.
+fn rescan(model: &mut Model) {
+    let Some(Ok(projects)) = model.root().map(workspace::scan) else {
+        return;
+    };
+    if projects == model.projects {
+        return;
+    }
+    let selected = model.selected_project().map(|p| p.path.clone());
+    model.projects = projects;
+    if let Some(row) = selected.and_then(|path| model.visible().iter().position(|p| p.path == path))
+    {
+        model.selected = row;
+    }
 }
 
 /// Writes every card to `sessions.json`; a failure is shown once and
@@ -519,6 +579,7 @@ fn launch(
     request: LaunchRequest,
     tx: &SyncSender<AppEvent>,
 ) {
+    let worktree = worktree_for(model, env, &request, has_commit);
     let LaunchRequest {
         project,
         kind,
@@ -563,7 +624,9 @@ fn launch(
         ));
         return;
     };
-    let argv = agent::argv(kind, &program, &agent.args, &launch);
+    let extra_args = worktree_args(&agent.args, worktree.as_deref());
+    card.worktree = worktree;
+    let argv = agent::argv(kind, &program, &extra_args, &launch);
     let id = launch.id.0.hyphenated().to_string();
     let mut extra = vec![("BUNGKUS_MC_SESSION", OsStr::new(&id))];
     if let Some(hooks) = hooks {
@@ -616,6 +679,171 @@ fn launch(
         }
     }
     model.add_card(card);
+}
+
+/// Returns the git worktree a Claude session runs in, if any: the one of
+/// the card it resumes, or a new one when another session already runs in
+/// the project (`replaces` aside), so the two do not edit one checkout.
+///
+/// A new one needs `worktrees` on in the config, a fresh session (not a
+/// resume, not the picker of past sessions), a project other than the
+/// workspace root, and a repository with a commit to branch from.
+fn worktree_for(
+    model: &Model,
+    env: &Env,
+    request: &LaunchRequest,
+    has_commit: impl Fn(&Path) -> bool,
+) -> Option<String> {
+    if request.kind != Kind::Claude {
+        return None;
+    }
+    let project = request.project.as_path();
+    let resumed = request
+        .replaces
+        .and_then(|id| model.cards.iter().find(|c| c.id == id))
+        .filter(|c| c.project == project)
+        .and_then(|c| c.worktree.clone());
+    if resumed.is_some() {
+        return resumed;
+    }
+    let shared = model.root() != Some(project)
+        && model
+            .cards
+            .iter()
+            .any(|c| c.running() && c.project == project && Some(c.id) != request.replaces);
+    let fresh = request.launch.resume.is_none() && !request.launch.pick;
+    (env.config.worktrees && shared && fresh && has_commit(project)).then(|| {
+        let name = request.launch.name.as_deref().unwrap_or_default();
+        worktree_name(name, request.launch.id)
+    })
+}
+
+/// Returns the agent's extra arguments plus `--worktree <name>`, if any.
+fn worktree_args(args: &[String], worktree: Option<&str>) -> Vec<String> {
+    let flag = worktree.map(|name| ["--worktree".to_owned(), name.to_owned()]);
+    args.iter()
+        .cloned()
+        .chain(flag.into_iter().flatten())
+        .collect()
+}
+
+/// Returns a worktree (and branch) name for a session: its name in
+/// lowercase ASCII letters, digits and `-` (24 at most), then its short id.
+fn worktree_name(name: &str, id: SessionId) -> String {
+    let slug: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                ' '
+            }
+        })
+        .collect();
+    let slug: String = slug
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join("-")
+        .chars()
+        .take(24)
+        .collect();
+    let short = id.short();
+    format!("{slug}-{}", short.trim_start_matches('#'))
+        .trim_matches('-')
+        .to_owned()
+}
+
+/// Runs `git` in `dir` with fixed arguments (no shell) and returns what it
+/// printed, or `None` when it failed or is missing.
+fn git(dir: &Path, args: &[&OsStr]) -> Option<String> {
+    let output = std::process::Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// Returns whether `project` is a git repository with a commit, which a
+/// new worktree needs as its starting point.
+fn has_commit(project: &Path) -> bool {
+    let args = ["rev-parse", "-q", "--verify", "HEAD"].map(OsStr::new);
+    git(project, &args).is_some()
+}
+
+/// Removes worktree `path` of repository `repo` and returns whether it
+/// went: unlocked first (Claude locks the ones it makes), then
+/// `git worktree remove` without force, which refuses a worktree holding
+/// modified or untracked files. Its branch stays.
+fn remove_worktree(repo: &Path, path: &Path) -> bool {
+    let args = |verb| [OsStr::new("worktree"), OsStr::new(verb), path.as_os_str()];
+    // reason: an unlocked worktree makes this fail, which changes nothing.
+    let _ = git(repo, &args("unlock"));
+    git(repo, &args("remove")).is_some()
+}
+
+/// Removes the worktree a forgotten session ran in, and says what happened.
+fn forget_worktree(model: &mut Model, project: &Path, name: &str) {
+    let path = project.join(".claude/worktrees").join(name);
+    if !path.exists() {
+        return;
+    }
+    model.message = Some(if remove_worktree(project, &path) {
+        format!("Removed worktree {name} (its branch stays).")
+    } else {
+        format!("Worktree {name} has uncommitted files; kept.")
+    });
+    rescan(model);
+}
+
+/// Removes the unused worktrees of `project` (`c`, confirmed): every
+/// linked worktree git lists, except one a session of mc runs in or can
+/// resume into, one an outside agent session runs in, and (git refuses)
+/// one holding modified or untracked files. Branches stay.
+fn clean_worktrees(model: &mut Model, project: &Path) {
+    // reason: pruning only drops records of folders that are gone.
+    let _ = git(project, &["worktree", "prune"].map(OsStr::new));
+    let args = ["worktree", "list", "--porcelain"].map(OsStr::new);
+    let Some(list) = git(project, &args) else {
+        model.message = Some("Not a git repository; no worktrees to clean.".into());
+        return;
+    };
+    let used = |path: &Path| {
+        model.cards.iter().any(|c| {
+            (c.running() && workspace::same_dir(&c.project, path))
+                || c.worktree.as_ref().is_some_and(|name| {
+                    workspace::same_dir(&c.project.join(".claude/worktrees").join(name), path)
+                })
+        }) || model.external.iter().any(|e| {
+            let cwd = e.cwd.canonicalize().unwrap_or_else(|_| e.cwd.clone());
+            cwd.starts_with(path.canonicalize().unwrap_or_else(|_| path.to_path_buf()))
+        })
+    };
+    // The first entry is the main checkout.
+    let unused: Vec<PathBuf> = list
+        .lines()
+        .filter_map(|line| line.strip_prefix("worktree "))
+        .skip(1)
+        .map(PathBuf::from)
+        .filter(|path| !used(path))
+        .collect();
+    // ponytail: removed on the UI thread; move to a thread if large
+    // worktrees make this freeze noticeably.
+    let removed = unused
+        .iter()
+        .filter(|path| remove_worktree(project, path))
+        .count();
+    let kept = unused.len() - removed;
+    model.message = Some(match (removed, kept) {
+        (0, 0) => "No unused worktrees.".to_owned(),
+        (n, 0) => format!("Removed {n} unused worktrees (branches stay)."),
+        (n, k) => format!("Removed {n} unused worktrees · kept {k} with uncommitted files."),
+    });
+    rescan(model);
 }
 
 /// Sends pending alerts and keeps the terminal title on the tally
@@ -907,6 +1135,149 @@ pub(crate) fn absolute(path: &str, cwd: &Path, home: Option<&Path>) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_fresh_claude_session_joining_a_busy_repository_gets_a_worktree() {
+        use crate::app::model::tests::{sample, with_session};
+        let mut model = sample(&["a", "b"]);
+        let (id, _writes) = with_session(&mut model, "first");
+        let (a, b) = (
+            model.projects[0].path.clone(),
+            model.projects[1].path.clone(),
+        );
+        let env = |worktrees| Env {
+            config_path: None,
+            cwd: PathBuf::new(),
+            wizard_prefill: None,
+            quick: false,
+            config: Config {
+                worktrees,
+                ..Config::default()
+            },
+            state_path: None,
+        };
+        let request = |kind, project: &Path, replaces, resume: Option<&str>| LaunchRequest {
+            project: project.to_path_buf(),
+            kind,
+            launch: agent::Launch {
+                id: SessionId(uuid::Uuid::from_u128(0xbeef << 112)),
+                model: None,
+                name: Some("Fix: the login!".into()),
+                prompt: None,
+                settings: None,
+                hook_args: Vec::new(),
+                resume: resume.map(str::to_owned),
+                pick: false,
+                fork: false,
+            },
+            replaces,
+        };
+        let name = Some("fix-the-login-beef".to_owned());
+        let cases = [
+            (Kind::Claude, &a, None, None, true, true, name.clone()),
+            (Kind::Codex, &a, None, None, true, true, None),
+            (Kind::Claude, &b, None, None, true, true, None),
+            (Kind::Claude, &a, Some(id), None, true, true, None),
+            (Kind::Claude, &a, None, Some("x"), true, true, None),
+            (Kind::Claude, &a, None, None, false, true, None),
+            (Kind::Claude, &a, None, None, true, false, None),
+        ];
+        for (kind, project, replaces, resume, on, commit, want) in cases {
+            let got = worktree_for(
+                &model,
+                &env(on),
+                &request(kind, project, replaces, resume),
+                |_| commit,
+            );
+            assert_eq!(got, want, "{kind:?} {project:?} {replaces:?} {resume:?}");
+        }
+        model.cards[0].worktree = Some("old".into());
+        let got = worktree_for(
+            &model,
+            &env(false),
+            &request(Kind::Claude, &a, Some(id), Some("x")),
+            |_| false,
+        );
+        assert_eq!(
+            got,
+            Some("old".into()),
+            "a resume goes back into its worktree"
+        );
+    }
+
+    #[test]
+    fn cleaning_removes_clean_unused_worktrees_and_keeps_dirty_ones() {
+        let repo = std::env::temp_dir().join(format!("mc-clean-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&repo);
+        std::fs::create_dir_all(&repo).unwrap();
+        let run = |args: &[&str]| {
+            let args: Vec<&OsStr> = args.iter().map(OsStr::new).collect();
+            git(&repo, &args).unwrap_or_else(|| panic!("git {args:?}"))
+        };
+        run(&["init", "-q"]);
+        assert!(!has_commit(&repo));
+        run(&[
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "init",
+        ]);
+        assert!(has_commit(&repo));
+        for name in ["clean", "dirty", "mine"] {
+            let path = format!(".claude/worktrees/{name}");
+            run(&["worktree", "add", "-q", "-b", name, &path]);
+            run(&["worktree", "lock", &path]);
+        }
+        std::fs::write(repo.join(".claude/worktrees/dirty/new.txt"), "x").unwrap();
+        let mut model = crate::app::model::tests::sample(&[]);
+        let mut card = Card::new(
+            SessionId::new(),
+            Kind::Claude,
+            repo.clone(),
+            None,
+            None,
+            model.now,
+        );
+        card.worktree = Some("mine".into());
+        model.cards.push(card);
+        clean_worktrees(&mut model, &repo);
+        let left = |name: &str| repo.join(".claude/worktrees").join(name).exists();
+        assert!(!left("clean"), "{:?}", model.message);
+        assert!(left("dirty") && left("mine"));
+        assert!(
+            run(&["branch", "--list", "clean"]).contains("clean"),
+            "the branch stays"
+        );
+        assert!(model.message.as_deref().unwrap().contains("kept 1"));
+        forget_worktree(&mut model, &repo, "mine");
+        assert!(!left("mine"));
+        std::fs::remove_dir_all(&repo).unwrap();
+    }
+
+    #[test]
+    fn a_rescan_lists_a_new_folder_and_keeps_the_selected_project() {
+        let ws = std::env::temp_dir().join(format!("mc-rescan-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&ws);
+        for name in ["a", "c"] {
+            std::fs::create_dir_all(ws.join(name).join(".git")).unwrap();
+        }
+        let mut model = crate::app::model::tests::sample(&[]);
+        let mut settings = model.settings.clone().unwrap();
+        settings.workspace.clone_from(&ws);
+        model.apply(settings, workspace::scan(&ws), Path::new("/"));
+        model.selected = 1;
+        std::fs::create_dir_all(ws.join("b").join(".git")).unwrap();
+        rescan(&mut model);
+        let names: Vec<&str> = model.projects.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["a", "b", "c"]);
+        assert_eq!(model.selected_project().unwrap().name, "c");
+        std::fs::remove_dir_all(&ws).unwrap();
+    }
 
     #[test]
     fn stops_an_outside_session_only_while_it_is_still_an_agent() {

@@ -286,8 +286,13 @@ Projects are numbered and linked git worktrees nest below their
 repository: `.git` is a file whose `gitdir:` points into
 `<repo>/.git/worktrees/`, and when `<repo>` is also a project the worktree
 follows it with `├ `/`└ ` (ascii `|-`/`` `- ``) and its name without the
-repository's prefix (`nrha-timii-i746` → `i746`). Submodules and worktrees
-of repositories outside the workspace stay top level.
+repository's prefix (`nrha-timii-i746` → `i746`). A project's worktrees
+that live outside the workspace (inside the repository, as an agent's own
+`.claude/worktrees/<name>`, or in a temporary folder) are listed the same
+way, from `<repo>/.git/worktrees/*/gitdir`; they cannot be moved to the
+Trash from mc. Submodules and worktrees of repositories outside the
+workspace stay top level. The workspace is listed again every 5 s, so a
+new worktree appears by itself.
 
 Drag a pane's right border (where two panes meet) with the mouse to
 resize it; the widths stay within their range, the output pane keeps 40
@@ -472,12 +477,18 @@ whether there is a header line.
 ```
 ┃! C #a3f1 write proposal        12m   gutter · state glyph · agent badge · #id · title · right: elapsed or state word
 ┃  needs you · permission: Bash        line 2: state word · detail (tool / prompt kind / exit line) [· model when routed]
-┃  499k tok · $1.42 · ctx 37%          line 3: compact usage (`-` when unknown)
+┃  i110-fix · 3 changed ↑2 ↓1          git line (only in a repository): branch · `clean` or changed files · ahead/behind upstream
+┃  499k tok · $1.42 · ctx 37%          usage line: compact usage (`-` when unknown)
 ┃  * research hooks             / 3m   one line per subagent (flat list): glyph · description · state glyph · time
 ```
 
 - Card order within the pane: by state (needs you, failed, working, your
   turn, stopped, wrapped), then most recent first.
+- Git line (issue #110), `fg-muted`: the branch of the folder the session
+  works in (its worktree when it has one; `detached` without a branch),
+  then `clean` or `N changed` (staged, unstaged, unmerged and untracked
+  files), then `↑N` / `↓N` against the upstream when not zero. The branch
+  is cut short first. Read every 5 s; absent outside a repository.
 - Gutter column: `┃` in `warn` for needs-you, `err` for failed, space otherwise.
 - Title = **the session's name**, as the agent itself knows it (decided):
   Claude's session name (set at launch with `--name`, renamed inside the
@@ -491,7 +502,9 @@ whether there is a header line.
 - Cards never collapse; when the pane is short, it scrolls (the selected
   card is kept in view). **The selected card is expanded (§6.3) only while
   the sessions pane is focused**; when focus is elsewhere every card is the
-  compact 3-line form, so the pane reads the same whichever card is selected.
+  compact 3-line form, and the selected card — the one the output pane
+  shows — carries the projects pane's unfocused-selection bar (`:` / `▌`,
+  `accent`) in column 0 of every line, with its name in `accent`.
 - Truncation: every line is cut to the inner width with a trailing `…`.
   Lines with a right-aligned field (elapsed, state word, subagent time) keep
   the right field and truncate the left text. The usage `limits` line drops
@@ -1109,6 +1122,7 @@ the same frame.
 | `!` · `ctrl-]`                                    | jump to the next needs-you session **across projects**: switches the sidebar selection to that project, selects the card, and enters the output pane (INTERACT) so the answer can be typed at once |
 | `z`                                               | zoom the output pane (toggle; stays in the current mode — from INTERACT: `ctrl-\` then `z`) |
 | `a`                                               | projects pane: new project — a bordered name field and two kinds, with agent files (`git init` + `AGENTS.md` + `CLAUDE.md` = `@AGENTS.md`, the default) or fresh (`git init`); the new row is selected |
+| `c`                                               | projects pane: remove the project's unused git worktrees after a `y` confirm (`git worktree remove` without force: ones with uncommitted files stay, branches stay; ones a session runs in or can resume into are skipped) |
 | `dd` · `V` … `d` · `u`                            | projects pane: move the project, or the `V` line selection (`j`/`k` extend, `esc` cancels, mode word `VISUAL`), to the Trash after a `y` confirm — `~/.Trash` on macOS, the freedesktop trash elsewhere, by `rename` (refused across disks, for running projects, and for anything but a direct child of the workspace); `u` puts the last batch back |
 | `w`                                               | workspace switcher: a bordered filter field over the saved workspaces (`config.json` `workspaces`, most recent first, up to 20, each with its project count and `●` on the current one) and `+ add a folder…` (the settings folder browser). `1`–`9` or `enter` switch, `ctrl-d` drops an entry from the list (never the folder). Switching applies the workspace like settings do and stops nothing: other workspaces' sessions run on, the header still counts them, and `!` switches to the workspace of a session that needs you |
 | `/`                                               | search projects: the search row at the top of the projects pane takes the text (FILTER mode: type, `↑`/`↓` pick, `enter` opens the project's sessions and keeps the search, `esc` clears). Works from the sessions pane too |

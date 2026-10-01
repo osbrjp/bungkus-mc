@@ -43,6 +43,9 @@ pub(crate) struct Config {
     pub panes: crate::ui::Widths,
     /// Saved workspaces for the `w` switcher, most recent first.
     pub workspaces: Vec<String>,
+    /// Whether a Claude session joining a project where another session
+    /// runs gets its own git worktree.
+    pub worktrees: bool,
 }
 
 /// The `cleanup` config block.
@@ -82,6 +85,7 @@ impl Default for Config {
             motion: true,
             panes: crate::ui::Widths::default(),
             workspaces: Vec::new(),
+            worktrees: true,
         }
     }
 }

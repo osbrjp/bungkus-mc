@@ -176,10 +176,17 @@ impl Model {
 
     /// Forwards a mouse event inside the output pane to the agent when it
     /// enabled mouse reporting and INTERACT is on; returns whether it did.
+    ///
+    /// The agent's screen starts below the border and the mascot strip
+    /// ([`ui::strip_height`]); an event on the strip is not forwarded.
     fn forward_mouse(&self, event: MouseEvent, pane: Option<Rect>) -> bool {
         let (Some(pane), Focus::Output) = (pane, self.focus) else {
             return false;
         };
+        let top = pane.y + 1 + ui::strip_height(self.screen);
+        if event.row < top {
+            return false;
+        }
         let Some(pty) = self
             .selected_card()
             .and_then(|i| self.cards[i].pty.as_ref())
@@ -187,7 +194,7 @@ impl Model {
             return false;
         };
         let col = event.column.saturating_sub(pane.x + 1);
-        let row = event.row.saturating_sub(pane.y + 1);
+        let row = event.row - top;
         match keys::mouse(event.kind, col, row, event.modifiers, pty.mode()) {
             Some(bytes) => {
                 pty.send(bytes);
@@ -295,6 +302,33 @@ mod tests {
         };
         m.update(AppEvent::Input(Event::Mouse(click)));
         assert_eq!(m.focus, Focus::Output, "click on the output pane");
+    }
+
+    #[test]
+    fn a_forwarded_click_is_relative_to_the_agent_screen_below_the_strip() {
+        let mut m = sample(&["a"]);
+        let (id, writes) = with_session(&mut m, "s");
+        m.update(AppEvent::Pty(crate::term::PtyEvent::Output(
+            id,
+            b"\x1b[?1000h\x1b[?1006h".to_vec(),
+        )));
+        let pane = ui::panes(m.screen, m.focus, m.zoom, m.widths)
+            .output
+            .unwrap();
+        let strip = ui::strip_height(m.screen);
+        assert!(strip > 0, "the sample screen has a strip");
+        let click = |row| {
+            AppEvent::Input(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: pane.x + 1,
+                row,
+                modifiers: KeyModifiers::NONE,
+            }))
+        };
+        m.update(click(pane.y + 1 + strip));
+        assert_eq!(drain(&writes), b"\x1b[<0;1;1M");
+        m.update(click(pane.y + 1));
+        assert!(drain(&writes).is_empty(), "the strip is not the agent's");
     }
 
     #[test]
