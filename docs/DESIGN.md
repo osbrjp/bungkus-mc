@@ -286,8 +286,13 @@ Projects are numbered and linked git worktrees nest below their
 repository: `.git` is a file whose `gitdir:` points into
 `<repo>/.git/worktrees/`, and when `<repo>` is also a project the worktree
 follows it with `├ `/`└ ` (ascii `|-`/`` `- ``) and its name without the
-repository's prefix (`nrha-timii-i746` → `i746`). Submodules and worktrees
-of repositories outside the workspace stay top level.
+repository's prefix (`nrha-timii-i746` → `i746`). A project's worktrees
+that live outside the workspace (inside the repository, as an agent's own
+`.claude/worktrees/<name>`, or in a temporary folder) are listed the same
+way, from `<repo>/.git/worktrees/*/gitdir`; they cannot be moved to the
+Trash from mc. Submodules and worktrees of repositories outside the
+workspace stay top level. The workspace is listed again every 5 s, so a
+new worktree appears by itself.
 
 Drag a pane's right border (where two panes meet) with the mouse to
 resize it; the widths stay within their range, the output pane keeps 40
