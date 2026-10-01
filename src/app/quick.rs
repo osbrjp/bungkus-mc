@@ -258,9 +258,10 @@ impl Model {
         rows
     }
 
-    /// Applies a key to the move dialog: typing edits the field, `↑`/`↓`
-    /// or `ctrl-k`/`ctrl-j` move the highlight, `enter` moves into the
-    /// highlighted project or creates the new one, `esc` cancels.
+    /// Applies a key to the move dialog: typing edits the field; `↑`/`↓`,
+    /// `ctrl-k`/`ctrl-j`, `ctrl-p`/`ctrl-n` or `shift-tab`/`tab` move the
+    /// highlight (whichever the terminal passes on); `enter` moves into the
+    /// highlighted project or creates the new one; `esc` cancels.
     pub(crate) fn move_key(&mut self, mut dialog: MoveDialog, key: KeyEvent) -> Option<Cmd> {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         let rows = self.move_options(&dialog.query).len();
@@ -282,10 +283,14 @@ impl Model {
                     None => dialog.error = Some("Type a project name.".into()),
                 }
             }
-            KeyCode::Up => dialog.selected = dialog.selected.saturating_sub(1),
-            KeyCode::Char('k') if ctrl => dialog.selected = dialog.selected.saturating_sub(1),
-            KeyCode::Down => dialog.selected = (dialog.selected + 1).min(rows.saturating_sub(1)),
-            KeyCode::Char('j') if ctrl => {
+            KeyCode::Up | KeyCode::BackTab => dialog.selected = dialog.selected.saturating_sub(1),
+            KeyCode::Char('k' | 'p') if ctrl => {
+                dialog.selected = dialog.selected.saturating_sub(1);
+            }
+            KeyCode::Down | KeyCode::Tab => {
+                dialog.selected = (dialog.selected + 1).min(rows.saturating_sub(1));
+            }
+            KeyCode::Char('j' | 'n') if ctrl => {
                 dialog.selected = (dialog.selected + 1).min(rows.saturating_sub(1));
             }
             KeyCode::Backspace => {
@@ -332,7 +337,7 @@ impl Model {
     pub(crate) fn move_quick(&mut self, id: SessionId, dest: PathBuf) -> Option<Cmd> {
         let now = self.now;
         let card = self.cards.iter_mut().find(|c| c.id == id)?;
-        if card.resume_id().is_none() {
+        if card.resume_id().is_none() && card.prompted {
             self.message = Some("This session cannot be resumed (hooks were off).".into());
             return None;
         }
@@ -355,10 +360,28 @@ impl Model {
 
     /// Returns the resume into the card's `move_to` folder once a moving
     /// quick session has exited (or right away for a finished one).
+    ///
+    /// A hooked session that never got a prompt has no saved conversation
+    /// (`claude --resume` would answer "No conversation found"), so it
+    /// starts fresh in the project instead.
     pub(crate) fn moved_after_exit(&mut self, id: SessionId) -> Option<Cmd> {
         let card = self.cards.iter_mut().find(|c| c.id == id)?;
         let dest = card.move_to.take()?;
-        let resume = card.resume_id()?;
+        let resume = if card.hooked && !card.prompted {
+            None
+        } else {
+            Some(card.resume_id()?)
+        };
+        crate::debug_log!(
+            "{} moves to {} ({})",
+            card.id.short(),
+            dest.display(),
+            if resume.is_some() {
+                "resume"
+            } else {
+                "fresh: no prompt yet"
+            }
+        );
         Some(Cmd::Launch(LaunchRequest {
             project: dest,
             kind: card.kind,
@@ -369,9 +392,9 @@ impl Model {
                 prompt: None,
                 settings: None,
                 hook_args: Vec::new(),
-                resume: Some(resume),
+                fork: resume.is_some() && card.kind == Kind::Claude,
+                resume,
                 pick: false,
-                fork: card.kind == Kind::Claude,
             },
             replaces: Some(id),
         }))
@@ -524,6 +547,54 @@ mod tests {
             panic!("enter resumes an ended quick session");
         };
         assert_eq!((req.project, req.replaces), (root, Some(id)));
+    }
+
+    #[test]
+    fn a_quick_session_with_no_prompt_yet_starts_fresh_in_the_project() {
+        let mut m = sample(&["app"]);
+        let root = m.root().unwrap().to_path_buf();
+        let (id, _w) = with_session(&mut m, "quick");
+        m.cards[0].project.clone_from(&root);
+        m.cards[0].expect_hooks();
+        m.update(AppEvent::Pty(PtyEvent::Exited(id, Some(0))));
+        let dest = m.projects[0].path.clone();
+        let Some(Cmd::Launch(req)) = m.move_quick(id, dest) else {
+            panic!("an ended one moves at once");
+        };
+        assert_eq!(req.launch.resume, None, "nothing saved to resume");
+        assert!(!req.launch.fork);
+    }
+
+    #[test]
+    fn tab_and_ctrl_n_move_the_highlight_too() {
+        let mut m = sample(&["app", "apt", "apx"]);
+        let (id, _w) = with_session(&mut m, "quick");
+        m.popup = None;
+        m.overlay = Some(Overlay::Move(MoveDialog {
+            id,
+            query: "ap".into(),
+            selected: 0,
+            error: None,
+        }));
+        let ctrl = |ch| {
+            AppEvent::Input(ratatui::crossterm::event::Event::Key(KeyEvent::new(
+                KeyCode::Char(ch),
+                KeyModifiers::CONTROL,
+            )))
+        };
+        m.update(press(KeyCode::Tab));
+        m.update(ctrl('n'));
+        m.update(ctrl('j'));
+        let Some(Overlay::Move(d)) = &m.overlay else {
+            panic!("still open");
+        };
+        assert_eq!(d.selected, 3, "the create row after three matches");
+        m.update(ctrl('p'));
+        m.update(press(KeyCode::BackTab));
+        let Some(Overlay::Move(d)) = &m.overlay else {
+            panic!("still open");
+        };
+        assert_eq!(d.selected, 1);
     }
 
     #[test]

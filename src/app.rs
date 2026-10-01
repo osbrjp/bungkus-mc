@@ -478,6 +478,7 @@ fn launch(
         card.expect_hooks();
     }
     card.agent_session.clone_from(&launch.resume);
+    card.prompted = launch.resume.is_some();
     if let Some(old) = replaces {
         model.cards.retain(|c| c.id != old);
     }
