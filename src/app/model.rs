@@ -240,6 +240,9 @@ pub(crate) struct Model {
     /// Shows every key mc receives in the hint line (`BUNGKUS_MC_DEBUG_KEYS`),
     /// to find chords a terminal keeps for itself.
     pub debug_keys: bool,
+    /// Project asked for with `-p`, selected by the next [`Model::apply`]
+    /// whose workspace has it; that apply clears it either way.
+    pub want_project: Option<String>,
     /// Whether mc runs in kitty (`KITTY_WINDOW_ID`): `ctrl-h/j/k/l` past
     /// mc's edges then move to kitty's neighbouring window.
     pub kitty: bool,
@@ -354,6 +357,7 @@ impl Model {
             visual: None,
             popup_menu: false,
             debug_keys: false,
+            want_project: None,
             quick_row: Project {
                 name: "quick".into(),
                 path: PathBuf::new(),
@@ -1442,7 +1446,7 @@ impl Model {
     /// * `settings` - The settings now in effect.
     /// * `scan`     - The projects, or why the folder could not be listed.
     /// * `cwd`      - mc's working directory; a project containing it is
-    ///   preselected.
+    ///   preselected, unless [`Model::want_project`] names one here.
     pub(crate) fn apply(
         &mut self,
         settings: Settings,
@@ -1459,10 +1463,12 @@ impl Model {
         self.projects = projects;
         self.scan_error = error;
         self.filter.clear();
+        let wanted = self.want_project.take();
         self.selected = self
             .projects
             .iter()
-            .position(|p| cwd.starts_with(&p.path))
+            .position(|p| Some(&p.name) == wanted.as_ref())
+            .or_else(|| self.projects.iter().position(|p| cwd.starts_with(&p.path)))
             .unwrap_or(0);
         self.card = 0;
         self.quick_row.path.clone_from(&settings.workspace);
@@ -1529,6 +1535,22 @@ pub(crate) mod tests {
 
     pub(crate) fn press(code: KeyCode) -> AppEvent {
         AppEvent::Input(Event::Key(KeyEvent::new(code, KeyModifiers::NONE)))
+    }
+
+    #[test]
+    fn apply_selects_the_wanted_project_once() {
+        let mut m = sample(&["a", "b", "c"]);
+        let settings = m.settings.clone().unwrap();
+        let projects = m.projects.clone();
+        let scan = || Ok(projects.clone());
+        m.want_project = Some("c".into());
+        m.apply(settings.clone(), scan(), Path::new("/"));
+        assert_eq!(m.selected_project().map(|p| p.name.as_str()), Some("c"));
+        assert_eq!(m.want_project, None);
+        m.want_project = Some("nope".into());
+        m.apply(settings, scan(), Path::new("/"));
+        assert_eq!(m.selected, 0);
+        assert_eq!(m.want_project, None, "a miss is not retried for ever");
     }
 
     #[test]

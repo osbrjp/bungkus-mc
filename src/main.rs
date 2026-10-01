@@ -40,6 +40,10 @@ Usage: bungkus-mc [options] [WORKSPACE]
                    (default: the workspace in config.json; first run asks)
 
 Options:
+  -q, --quick      open a quick session popup at once
+  -p, --project NAME
+                   start on this project; when the workspace has no such
+                   project, the workspace switcher opens to find it
   --icons SET      state glyphs: ascii (default), unicode, nerd
   --debug          write a debug log (~/.local/state/bungkus/mc/mc.log)
   -h, --help       print this help
@@ -49,11 +53,26 @@ Keys: ? in the app shows them all; , opens settings; q quits.
 Config: ~/.config/bungkus/mc/config.json
 ";
 
+/// What the command line gives the TUI.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct TuiArgs {
+    /// Workspace folder as typed; the saved one when absent.
+    workspace: Option<String>,
+    /// `--icons`.
+    icons: Option<IconSet>,
+    /// `--debug`: write the debug log.
+    debug: bool,
+    /// `-q`: open a quick session popup at start.
+    quick: bool,
+    /// `-p`: name of the project to start on.
+    project: Option<String>,
+}
+
 /// What the command line asks for.
 #[derive(Debug, PartialEq, Eq)]
 enum Command {
-    /// Run the TUI, optionally on a workspace given on the command line.
-    Tui(Option<String>, Option<IconSet>, bool),
+    /// Run the TUI.
+    Tui(TuiArgs),
     /// Print [`HELP`].
     Help,
     /// Print the version.
@@ -89,18 +108,16 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, lexopt:
     use lexopt::prelude::*;
 
     let mut parser = lexopt::Parser::from_args(args);
-    let mut workspace = None;
-    let mut icons = None;
-    let mut debug = false;
+    let mut tui = TuiArgs::default();
     while let Some(arg) = parser.next()? {
         match arg {
             Short('h') | Long("help") => return Ok(Command::Help),
             Short('V') | Long("version") => return Ok(Command::Version),
-            Value(value) if workspace.is_none() && value == "hook" => return Ok(Command::Hook),
-            Value(value) if workspace.is_none() && value == "statusline" => {
+            Value(value) if tui.workspace.is_none() && value == "hook" => return Ok(Command::Hook),
+            Value(value) if tui.workspace.is_none() && value == "statusline" => {
                 return Ok(Command::StatusLine);
             }
-            Value(value) if workspace.is_none() && value == "uninstall" => {
+            Value(value) if tui.workspace.is_none() && value == "uninstall" => {
                 let (mut purge, mut yes) = (false, false);
                 while let Some(arg) = parser.next()? {
                     match arg {
@@ -111,7 +128,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, lexopt:
                 }
                 return Ok(Command::Uninstall { purge, yes });
             }
-            Value(value) if workspace.is_none() && value == "update" => {
+            Value(value) if tui.workspace.is_none() && value == "update" => {
                 let check = match parser.next()? {
                     None => false,
                     Some(Long("check")) => true,
@@ -119,10 +136,12 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, lexopt:
                 };
                 return Ok(Command::Update { check });
             }
-            Long("debug") => debug = true,
+            Short('q') | Long("quick") => tui.quick = true,
+            Short('p') | Long("project") => tui.project = Some(parser.value()?.string()?),
+            Long("debug") => tui.debug = true,
             Long("icons") => {
                 let value = parser.value()?.string()?;
-                icons = Some(match value.as_str() {
+                tui.icons = Some(match value.as_str() {
                     "ascii" => IconSet::Ascii,
                     "unicode" => IconSet::Unicode,
                     "nerd" => IconSet::Nerd,
@@ -133,11 +152,11 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, lexopt:
                     }
                 });
             }
-            Value(value) if workspace.is_none() => workspace = Some(value.string()?),
+            Value(value) if tui.workspace.is_none() => tui.workspace = Some(value.string()?),
             _ => return Err(arg.unexpected()),
         }
     }
-    Ok(Command::Tui(workspace, icons, debug))
+    Ok(Command::Tui(tui))
 }
 
 /// Parses the command line and runs the chosen command.
@@ -149,8 +168,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, lexopt:
 fn main() -> Result<()> {
     let command = parse_args(std::env::args().skip(1)).context("reading arguments")?;
     let mut stdout = std::io::stdout();
-    let Some(Command::Tui(workspace_arg, icons_arg, debug)) = run_subcommand(command, &mut stdout)?
-    else {
+    let Some(Command::Tui(args)) = run_subcommand(command, &mut stdout)? else {
         return Ok(());
     };
     if !stdout.is_terminal() {
@@ -169,7 +187,7 @@ fn main() -> Result<()> {
     let found = Kind::ALL
         .map(|kind| find_on_path(kind.command(), &path_var).map(|p| tilde(&p, home.as_deref())));
     let fallback = default_workspace(home.as_deref(), &cwd);
-    let icons = icons_arg.unwrap_or(config.icons);
+    let icons = args.icons.unwrap_or(config.icons);
     let theme = Theme::new(ThemeName::Dark, Profile::detect(var), config.background).with_view(
         icons,
         utf8_locale(var),
@@ -197,7 +215,9 @@ fn main() -> Result<()> {
         }
     }
 
-    let workspace = workspace_arg
+    model.want_project.clone_from(&args.project);
+    let workspace = args
+        .workspace
         .map(|arg| app::absolute(&arg, &cwd, home.as_deref()))
         .or_else(|| {
             config
@@ -208,12 +228,19 @@ fn main() -> Result<()> {
     let wizard_prefill = match workspace {
         Some(workspace) => {
             apply(&mut model, &config, workspace, &cwd);
+            if let Some(name) = args.project
+                && model.selected_project().is_none_or(|p| p.name != name)
+            {
+                model.message = Some(format!("No project {name} here; pick its workspace."));
+                model.want_project = Some(name);
+                model.open_switcher();
+            }
             None
         }
         None => Some(tilde(&model.fallback_workspace, home.as_deref())),
     };
     let state_path = store::state::state_file(var);
-    if let (true, Some(path)) = (debug, &state_path) {
+    if let (true, Some(path)) = (args.debug, &state_path) {
         store::debug::open(&path.with_file_name("mc.log")).context("opening the debug log")?;
         debug_log!("bungkus-mc {} started", env!("CARGO_PKG_VERSION"));
     }
@@ -224,6 +251,7 @@ fn main() -> Result<()> {
         config_path,
         cwd,
         wizard_prefill,
+        quick: args.quick,
         config,
         state_path,
     };
@@ -257,7 +285,7 @@ fn run_subcommand(command: Command, stdout: &mut std::io::Stdout) -> Result<Opti
             let text = update::run(check).context("update")?;
             writeln!(stdout, "{text}").context("printing")?;
         }
-        tui @ Command::Tui(..) => return Ok(Some(tui)),
+        tui @ Command::Tui(_) => return Ok(Some(tui)),
     }
     Ok(None)
 }
@@ -343,20 +371,65 @@ mod tests {
 
     #[test]
     fn parses_each_flag_to_its_command() {
+        let tui = Command::Tui;
         let cases: &[(&[&str], Command)] = &[
-            (&[], Command::Tui(None, None, false)),
+            (&[], tui(TuiArgs::default())),
             (
                 &["~/Works"],
-                Command::Tui(Some("~/Works".into()), None, false),
+                tui(TuiArgs {
+                    workspace: Some("~/Works".into()),
+                    ..TuiArgs::default()
+                }),
             ),
-            (&["--debug"], Command::Tui(None, None, true)),
+            (
+                &["--debug"],
+                tui(TuiArgs {
+                    debug: true,
+                    ..TuiArgs::default()
+                }),
+            ),
+            (
+                &["-q"],
+                tui(TuiArgs {
+                    quick: true,
+                    ..TuiArgs::default()
+                }),
+            ),
+            (
+                &["-q", "~/Works", "--debug"],
+                tui(TuiArgs {
+                    workspace: Some("~/Works".into()),
+                    debug: true,
+                    quick: true,
+                    ..TuiArgs::default()
+                }),
+            ),
+            (
+                &["-p", "kedai-web", "~/Works"],
+                tui(TuiArgs {
+                    workspace: Some("~/Works".into()),
+                    project: Some("kedai-web".into()),
+                    ..TuiArgs::default()
+                }),
+            ),
+            (
+                &["--project", "kedai-web", "--quick"],
+                tui(TuiArgs {
+                    quick: true,
+                    project: Some("kedai-web".into()),
+                    ..TuiArgs::default()
+                }),
+            ),
             (&["-h"], Command::Help),
             (&["--help"], Command::Help),
             (&["-V"], Command::Version),
             (&["hook"], Command::Hook),
             (
                 &["--icons", "unicode"],
-                Command::Tui(None, Some(IconSet::Unicode), false),
+                tui(TuiArgs {
+                    icons: Some(IconSet::Unicode),
+                    ..TuiArgs::default()
+                }),
             ),
             (&["statusline"], Command::StatusLine),
             (&["update"], Command::Update { check: false }),
@@ -385,7 +458,13 @@ mod tests {
 
     #[test]
     fn rejects_unknown_arguments() {
-        for args in [&["--nope"][..], &["-x"], &["a", "b"], &["--icons", "emoji"]] {
+        for args in [
+            &["--nope"][..],
+            &["-x"],
+            &["a", "b"],
+            &["--icons", "emoji"],
+            &["-p"],
+        ] {
             assert!(
                 parse_args(args.iter().map(ToString::to_string)).is_err(),
                 "{args:?}"

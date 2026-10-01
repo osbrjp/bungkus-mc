@@ -20,6 +20,8 @@ routing (M9) is not.
 ```bash
 curl -fsSL https://raw.githubusercontent.com/osbrjp/bungkus-mc/main/install.sh | bash
 bungkus-mc            # or the short command: bkmc
+bungkus-mc -q [WORKSPACE]          # open mc with a quick session popup (default: your last workspace)
+bungkus-mc -p PROJECT [WORKSPACE]  # open mc on a project; asks for the workspace when it is not in the last one
 bungkus-mc update     # later: install the newest release (--check only reports)
                       # or press U inside mc: update, then restart on it
 bungkus-mc uninstall  # remove it (--purge also removes config and sessions)
