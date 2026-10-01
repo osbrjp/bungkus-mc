@@ -88,13 +88,30 @@ impl Model {
         }
     }
 
-    /// Handles a key while the popup shows: the exit chord or `ctrl-h`
-    /// hides it (the session keeps running), `ctrl-z` is swallowed, every
-    /// other key goes to the agent.
+    /// Handles a key while the popup shows. The exit chord opens the popup
+    /// menu, whose keys are `h` (or the chord again) hide, `m` move to a
+    /// project, `p` new project, anything else back to the agent; `ctrl-h`
+    /// hides at once; `ctrl-z` is swallowed; every other key goes to the
+    /// agent, so typing never triggers mc.
     pub(crate) fn popup_key(&mut self, id: SessionId, key: KeyEvent) {
         let ctrl = key.modifiers == KeyModifiers::CONTROL;
-        if self.exit_chord.matches(&key) || (ctrl && key.code == KeyCode::Char('h')) {
-            self.popup = None;
+        if self.popup_menu {
+            self.popup_menu = false;
+            match key.code {
+                KeyCode::Char('h') => self.hide_popup(id),
+                KeyCode::Char('m') => self.start_move_of(id, false),
+                KeyCode::Char('p') => self.start_move_of(id, true),
+                _ if self.exit_chord.matches(&key) => self.hide_popup(id),
+                _ => {}
+            }
+            return;
+        }
+        if self.exit_chord.matches(&key) {
+            self.popup_menu = true;
+            return;
+        }
+        if ctrl && key.code == KeyCode::Char('h') {
+            self.hide_popup(id);
             return;
         }
         if ctrl && key.code == KeyCode::Char('z') {
@@ -111,6 +128,22 @@ impl Model {
         }
     }
 
+    /// Hides the popup of quick session `id` (it keeps running) and selects
+    /// it under the `quick` row, so `enter` brings it back.
+    fn hide_popup(&mut self, id: SessionId) {
+        self.popup = None;
+        self.popup_menu = false;
+        self.focus = crate::app::model::Focus::Sessions;
+        self.selected = 0;
+        if let Some(pos) = self
+            .project_cards()
+            .iter()
+            .position(|&i| self.cards[i].id == id)
+        {
+            self.card = pos;
+        }
+    }
+
     /// Opens the move (`m`) or new-project (`p`) dialog for the selected
     /// quick session.
     pub(crate) fn start_move(&mut self, create: bool) {
@@ -122,6 +155,11 @@ impl Model {
             return;
         }
         let id = card.id;
+        self.start_move_of(id, create);
+    }
+
+    /// Opens the move or new-project dialog for quick session `id`.
+    fn start_move_of(&mut self, id: SessionId, create: bool) {
         self.overlay = Some(Overlay::Move(if create {
             MoveDialog::Create {
                 id,
@@ -280,15 +318,34 @@ mod tests {
         };
         assert_eq!(req.project, root);
 
-        let (id, _w) = with_session(&mut m, "quick");
+        let (id, writes) = with_session(&mut m, "quick");
         m.cards.iter_mut().for_each(|c| c.project.clone_from(&root));
         m.popup = None;
         m.open_popup(id);
         assert_eq!(m.popup, Some(id), "a running quick session pops up");
-        m.update(AppEvent::Input(ratatui::crossterm::event::Event::Key(
-            KeyEvent::new(KeyCode::Char('\\'), KeyModifiers::CONTROL),
-        )));
-        assert_eq!(m.popup, None, "the exit chord hides it");
+        let menu = || {
+            AppEvent::Input(ratatui::crossterm::event::Event::Key(KeyEvent::new(
+                KeyCode::Char('\\'),
+                KeyModifiers::CONTROL,
+            )))
+        };
+        m.update(press(KeyCode::Char('m')));
+        assert!(
+            writes.try_recv().is_ok(),
+            "a plain m is typed into the agent"
+        );
+        assert!(m.overlay.is_none());
+        m.update(menu());
+        assert!(m.popup_menu, "the exit chord opens the popup menu");
+        m.update(press(KeyCode::Char('m')));
+        assert!(matches!(
+            m.overlay,
+            Some(Overlay::Move(MoveDialog::Pick { .. }))
+        ));
+        m.update(press(KeyCode::Esc));
+        m.update(menu());
+        m.update(press(KeyCode::Char('h')));
+        assert_eq!(m.popup, None, "menu h hides it");
 
         assert_eq!(m.visible()[0].name, "quick", "a quick row leads the list");
         m.selected = 0;

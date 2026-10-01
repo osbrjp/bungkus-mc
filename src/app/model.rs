@@ -200,6 +200,9 @@ pub(crate) struct Model {
     /// The latest plan limits per vendor (`Kind::ALL` order); per
     /// account, not per session (DESIGN §6.1).
     pub limits: [Vec<Window>; 2],
+    /// When each vendor's limits were last reported; they only refresh when
+    /// a session in mc reports, so the status bar shows their age once old.
+    pub limits_at: [Option<Instant>; 2],
     /// Wall-clock time in unix seconds, for stale limit windows.
     pub unix_now: u64,
     /// `cleanup.keep`: extra process names that start as `[keep]`.
@@ -215,6 +218,8 @@ pub(crate) struct Model {
     pub debug_keys: bool,
     /// The quick session whose popup shows (keys go to it).
     pub popup: Option<SessionId>,
+    /// Whether the popup's menu (`ctrl-\`: hide, move, new project) is open.
+    pub popup_menu: bool,
     /// The `quick` row that leads the projects list while quick sessions
     /// exist; its path is the workspace root.
     pub quick_row: Project,
@@ -271,6 +276,7 @@ impl Model {
             quitting: None,
             alerts: Vec::new(),
             limits: [Vec::new(), Vec::new()],
+            limits_at: [None, None],
             unix_now: 0,
             keep: Vec::new(),
             next_scan: None,
@@ -278,6 +284,7 @@ impl Model {
             external: Vec::new(),
             poke: None,
             popup: None,
+            popup_menu: false,
             debug_keys: false,
             quick_row: Project {
                 name: "quick".into(),
@@ -585,6 +592,7 @@ impl Model {
         if let Some(usage) = wire.usage {
             if !usage.limits.is_empty() {
                 self.limits[card.kind as usize].clone_from(&usage.limits);
+                self.limits_at[card.kind as usize] = Some(now);
             }
             card.report(usage);
             return None;
@@ -612,6 +620,7 @@ impl Model {
     fn codex_usage(&mut self, id: SessionId, usage: Usage) {
         if !usage.limits.is_empty() {
             self.limits[Kind::Codex as usize].clone_from(&usage.limits);
+            self.limits_at[Kind::Codex as usize] = Some(self.now);
         }
         if let Some(card) = self.card_mut(id) {
             card.report(usage);

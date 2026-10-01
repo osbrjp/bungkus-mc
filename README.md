@@ -64,12 +64,11 @@ below it as a branch: `├ i746` under `nrha-timii`.
 | `enter` · `l` · `→` · `tab` | talk to the selected session (**INTERACT**: every key goes to the agent) |
 | `ctrl-\` | leave INTERACT |
 | `ctrl-h` · `ctrl-l` | pane left · right, also from inside INTERACT (`R` redraws) |
-| `cmd`/`alt`/`ctrl` + `1` `2` `3` | projects · sessions · output pane, also from inside INTERACT (whichever your terminal passes on: most macOS terminals keep `cmd`-digits for their tabs, so use `alt` with Option-as-Meta, or `ctrl`) |
+| `cmd`/`alt`/`ctrl` + `1` `2` `3` | projects · sessions · output pane, also from inside INTERACT (`cmd` needs the terminal mapping below) |
 | `!` · `ctrl-]` | jump to the next session that needs you, in any project |
 | `j` `k` · `↓` `↑` · `gg` `G` | move |
 | `x` | stop a session (lists what it started too) |
-| `N` | quick session at the workspace root, in a popup (`ctrl-\` hides it; `enter` on it under the `quick` row reopens it) |
-| `m` · `p` | on a quick session: move it into a project · make a new project for it (folder + `git init`); the conversation comes along |
+| `N` | quick session at the workspace root, in a popup. Every key goes to the agent; `ctrl-\` opens the popup menu: `h` hide · `m` move it into a project · `p` make a new project for it (folder + `git init`). The conversation comes along. A hidden one waits under the `quick` row (`enter` reopens; `m`/`p` there too) |
 | `r` | resume the selected finished session; anywhere else, open the agent's own list of this project's past sessions (`claude --resume` / `codex resume`) to pick any of them |
 | `d` | forget a finished session |
 | `z` | zoom the output pane |
@@ -83,6 +82,25 @@ INTERACT is signalled four ways at once: double border, `INTERACT` in the
 title, the reverse-video mode word and the hint. The mouse wheel scrolls
 mc's scrollback; to select text, hold `shift` (kitty, Ghostty, iTerm2,
 WezTerm, Alacritty) or `option` (Terminal.app) while dragging.
+
+**`cmd` + 1 2 3 on macOS.** Terminals keep `cmd`-digits for their own tabs,
+so map them to the sequences mc reads (this gives up the terminal's
+`cmd`-1..3 tab switching):
+
+- Ghostty (`~/.config/ghostty/config`):
+  ```
+  keybind = cmd+1=csi:49;9u
+  keybind = cmd+2=csi:50;9u
+  keybind = cmd+3=csi:51;9u
+  ```
+- kitty (`kitty.conf`): `map cmd+1 send_text all \x1b[49;9u` (and `50`, `51`
+  for 2 and 3).
+- WezTerm: `{ key = '1', mods = 'CMD', action = wezterm.action.SendString '\x1b[49;9u' }`
+  (and 2, 3).
+- iTerm2: Settings → Profiles → Keys → Key Mappings → `+`, shortcut `⌘1`,
+  action "Send Escape Sequence", `[49;9u` (and `[50;9u`, `[51;9u`).
+
+`alt` and `ctrl` + 1 2 3 do the same where the terminal passes them on.
 
 **If a chord does nothing**, your terminal probably keeps it (IDE terminals
 bind many `ctrl`/`cmd` chords; macOS terminals keep `cmd`-digits for tabs).

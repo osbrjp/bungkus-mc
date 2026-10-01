@@ -589,10 +589,14 @@ fn draw_getah(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
             .iter()
             .find(|c| c.id == id)
             .map_or("the agent", |c| c.kind.command());
-        format!(
-            "keys go to {agent} · {} hide · then m move it to a project, p make one",
-            model.exit_chord.label()
-        )
+        if model.popup_menu {
+            "h hide · m move to a project · p new project · any other key: back".to_owned()
+        } else {
+            format!(
+                "keys go to {agent} · {} menu (hide · move · new project)",
+                model.exit_chord.label()
+            )
+        }
     } else if interact {
         let agent = model
             .selected_card()
@@ -623,16 +627,29 @@ fn draw_getah(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
 /// Returns the plan limits for the getah bar's right end (DESIGN §6.1):
 /// `C 5h 42% · 7d 18% · X 5h 10% · 7d 3%`, with 5-cell bars when only one
 /// vendor reported, only the 5-hour figure when narrow; `warn` from 80 %,
-/// `err` from 95 %, `fg-muted` once a window's reset time has passed.
+/// `err` from 95 %, `fg-muted` once a window's reset time has passed. A
+/// report older than [`LIMITS_FRESH_MINUTES`] gets its age (`(12m ago)`):
+/// the figures come from Claude's status line in mc's own sessions, so use
+/// elsewhere only shows after their next turn.
 fn limit_spans(model: &Model, theme: Theme, wide: bool) -> Vec<Span<'static>> {
-    let vendors: Vec<(char, &Vec<crate::agent::usage::Window>)> = crate::agent::Kind::ALL
+    let vendors: Vec<(
+        char,
+        &Vec<crate::agent::usage::Window>,
+        Option<std::time::Instant>,
+    )> = crate::agent::Kind::ALL
         .iter()
-        .map(|k| (k.badge(), &model.limits[*k as usize]))
-        .filter(|(_, w)| !w.is_empty())
+        .map(|k| {
+            (
+                k.badge(),
+                &model.limits[*k as usize],
+                model.limits_at[*k as usize],
+            )
+        })
+        .filter(|(_, w, _)| !w.is_empty())
         .collect();
     let bars = vendors.len() == 1 && wide;
     let mut spans = Vec::new();
-    for (v, (badge, windows)) in vendors.iter().enumerate() {
+    for (v, (badge, windows, at)) in vendors.iter().enumerate() {
         if v > 0 {
             spans.push(Span::styled(" · ", theme.fg(Token::FgMuted)));
         }
@@ -670,11 +687,31 @@ fn limit_spans(model: &Model, theme: Theme, wide: bool) -> Vec<Span<'static>> {
                 theme.fg(token),
             ));
         }
+        let age = at.map(|at| model.now.saturating_duration_since(at).as_secs() / 60);
+        if let Some(minutes) = age.filter(|m| *m >= LIMITS_FRESH_MINUTES) {
+            spans.push(Span::styled(
+                format!(" ({})", age_label(minutes)),
+                theme.fg(Token::FgMuted),
+            ));
+        }
     }
     if !spans.is_empty() {
         spans.push(Span::raw(" "));
     }
     spans
+}
+
+/// Minutes after which the status bar shows how old the plan limits are:
+/// they refresh only when a session in mc reports (DESIGN §6.1).
+const LIMITS_FRESH_MINUTES: u64 = 5;
+
+/// Returns `12m ago` / `3h ago` for an age in minutes.
+fn age_label(minutes: u64) -> String {
+    if minutes < 60 {
+        format!("{minutes}m ago")
+    } else {
+        format!("{}h ago", minutes / 60)
+    }
 }
 
 /// Border weights (DESIGN §3): light, heavy (focused), double (INTERACT
@@ -1204,5 +1241,24 @@ pub(crate) mod tests {
             screen.contains("▄██████████████▄"),
             "the full-size mascot: {screen}"
         );
+    }
+
+    #[test]
+    fn old_plan_limits_show_their_age() {
+        use crate::agent::usage::Window;
+
+        let mut model = sample(PROJECTS);
+        model.limits[0] = vec![Window {
+            label: "5h".into(),
+            used_pct: 7.0,
+            resets_at: None,
+        }];
+        model.limits_at[0] = Some(model.now);
+        assert!(
+            !render(&mut model, 120, 40).contains("ago)"),
+            "fresh: no age"
+        );
+        model.now += std::time::Duration::from_mins(12);
+        assert!(render(&mut model, 120, 40).contains("7% (12m ago)"));
     }
 }
