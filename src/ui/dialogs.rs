@@ -168,8 +168,8 @@ pub(super) fn draw_stop(
             Target::Session(id) => {
                 if let Some(card) = model.cards.iter().find(|c| c.id == *id) {
                     spans.push(Span::styled(
-                        format!("{} ", card.kind.badge()),
-                        theme.fg(Token::Accent),
+                        format!("{} ", theme.agent_mark(card.kind)),
+                        theme.agent_style(card.kind),
                     ));
                     spans.push(Span::styled(
                         format!("{} ", card.id.short()),

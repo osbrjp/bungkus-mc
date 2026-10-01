@@ -1,17 +1,17 @@
  bungkus-mc  kedai-web › sessions      x 1 failed · | 1 working · v0.1.0-beta.1
 ┏ [2] sessions · kedai-web ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃ ┃x C #a3f1 checkout redesign                                           failed┃
+┃ ┃x ✻ #a3f1 checkout redesign                                           failed┃
 ┃ ┃  exit 1 · boom                                                             ┃
 ┃ ┃  - tok · - · ctx -                                                         ┃
 ┃              ╔ quit? ═════════════════════════════════════════╗              ┃
-┃> | C #a3f2 fl║                                                ║            0m┃
+┃> | ✻ #a3f2 fl║                                                ║            0m┃
 ┃    output onl║  Stopping 1 session and what it started:       ║              ┃
 ┃    tokens   i║                                                ║              ┃
-┃    cache    r║ >[stop] C #a3f2 flaky payment test             ║              ┃
+┃    cache    r║ >[stop] ✻ #a3f2 flaky payment test             ║              ┃
 ┃    cost     -║  [stop] zsh pid 4460                           ║              ┃
 ┃    context  -║  [stop] node pid 4470                          ║              ┃
 ┃              ║  [stop] vite :5173 pid 4471                    ║              ┃
-┃  + C #a3f3 bu║  [stop] esbuild helper pid 4480                ║       wrapped┃
+┃  + ✻ #a3f3 bu║  [stop] esbuild helper pid 4480                ║       wrapped┃
 ┃    0m · 0 too║  [keep] com.docker.backend pid 4500            ║              ┃
 ┃    - tok · - ║  [stop] postgres :5432 pid 4502                ║              ┃
 ┃              ║                                                ║              ┃

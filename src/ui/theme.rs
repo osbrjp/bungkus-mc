@@ -267,6 +267,32 @@ impl Theme {
         )
     }
 
+    /// Returns the agent's mark (DESIGN §5.2): Claude's starburst `✻` and
+    /// Codex's hexagon `⬡` on a UTF-8 terminal, else `C` and `X`. Neither
+    /// logo exists in Nerd Fonts, so these are the closest plain glyphs.
+    #[must_use]
+    pub(crate) const fn agent_mark(self, kind: crate::agent::Kind) -> char {
+        match (kind, self.utf8) {
+            (crate::agent::Kind::Claude, true) => '✻',
+            (crate::agent::Kind::Codex, true) => '⬡',
+            (kind, false) => kind.badge(),
+        }
+    }
+
+    /// Returns the agent mark's colour: Claude's orange (`#d97757`, index
+    /// 173 at 256 colours), Codex in the text colour, nothing under
+    /// `NO_COLOR`.
+    #[must_use]
+    pub(crate) const fn agent_style(self, kind: crate::agent::Kind) -> ratatui::style::Style {
+        let color = match (kind, self.profile) {
+            (_, Profile::NoColor) | (crate::agent::Kind::Codex, _) => return self.fg(Token::Fg),
+            (crate::agent::Kind::Claude, Profile::TrueColor) => rgb(0xd9_7757),
+            (crate::agent::Kind::Claude, Profile::Ansi256) => Color::Indexed(173),
+            (crate::agent::Kind::Claude, Profile::Ansi16) => Color::Indexed(3),
+        };
+        ratatui::style::Style::new().fg(color)
+    }
+
     /// Returns whether colour and motion are off (`NO_COLOR`).
     #[must_use]
     pub(crate) const fn no_color(self) -> bool {

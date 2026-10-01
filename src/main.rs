@@ -244,6 +244,7 @@ fn restore_state(model: &mut app::model::Model, path: &std::path::Path) {
         .iter()
         .filter_map(|r| app::sessions::Card::from_record(r, now, unix_now))
         .collect();
+    model.known = model.cards.iter().map(|c| c.id).collect();
 }
 
 /// Returns whether the locale is UTF-8 (DESIGN §3): the first set of

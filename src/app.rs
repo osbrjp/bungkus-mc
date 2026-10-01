@@ -406,14 +406,21 @@ fn run_cmd(
 /// Writes every card to `sessions.json`; a failure is shown once and
 /// retried on the next change.
 fn save_state(model: &mut Model, env: &Env) {
+    use crate::store::state;
     model.state_dirty = false;
     let Some(path) = &env.state_path else { return };
-    let records: Vec<_> = model
+    let ours: Vec<_> = model
         .cards
         .iter()
         .map(|c| c.to_record(model.now, model.unix_now))
         .collect();
-    if let Err(e) = crate::store::state::save(path, &records) {
+    let known = model
+        .known
+        .iter()
+        .map(|id| id.0.hyphenated().to_string())
+        .collect();
+    let records = state::merge_records(state::load(path), ours, &known);
+    if let Err(e) = state::save(path, &records) {
         model.message = Some(format!("Sessions not saved: {e}"));
     }
     let unix = |at: Option<std::time::Instant>| {
@@ -423,11 +430,21 @@ fn save_state(model: &mut Model, env: &Env) {
                 .saturating_sub(model.now.saturating_duration_since(at).as_secs())
         })
     };
-    let limits = crate::store::state::Limits {
+    let ours = state::Limits {
         vendors: [0, 1].map(|v| (model.limits[v].clone(), unix(model.limits_at[v]))),
     };
+    let file = state::limits_file(path);
+    let limits = state::merge_limits(state::load_limits(&file), ours.clone());
+    for (v, (windows, at)) in limits.vendors.iter().enumerate() {
+        if *at > ours.vendors[v].1 {
+            model.limits[v].clone_from(windows);
+            model.limits_at[v] = model.now.checked_sub(std::time::Duration::from_secs(
+                model.unix_now.saturating_sub(*at),
+            ));
+        }
+    }
     // reason: limits are a convenience; the next report brings them back.
-    let _ = crate::store::state::save_limits(&crate::store::state::limits_file(path), &limits);
+    let _ = state::save_limits(&file, &limits);
 }
 
 /// Asks kitty to focus its neighbouring window on `side` with
