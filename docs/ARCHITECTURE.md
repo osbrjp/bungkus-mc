@@ -537,6 +537,9 @@ No capability flags, no registry.
   with modified or untracked files, and the branch stays. `c` skips any
   worktree a card runs in or can resume into, or an outside agent session
   runs in.
+  The removal runs on its own thread (a worktree with dependencies takes
+  seconds to delete) with git in its own process group, so mc stays
+  responsive and a closed terminal does not leave a half-deleted worktree.
 - **Resume:** `claude --resume <id> --settings <json> [--model <id>]` in the
   stored `cwd` (never together with `--session-id`; unit test covers both).
   `--name` is not repeated on resume. `--fork-session` follows the id
