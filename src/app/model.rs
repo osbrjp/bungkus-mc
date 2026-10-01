@@ -311,7 +311,8 @@ impl Model {
 
     /// Returns the projects matching the filter, in display order, then
     /// the [`Model::elsewhere`] row while an outside session runs in no
-    /// project folder.
+    /// project folder, then the `quick` row (number 0) while quick
+    /// sessions exist.
     #[must_use]
     pub(crate) fn visible(&self) -> Vec<&Project> {
         let needle = self.filter.to_lowercase();
@@ -321,10 +322,10 @@ impl Model {
             .iter()
             .any(|c| self.is_quick(c))
             .then_some(&self.quick_row);
-        quick
-            .into_iter()
-            .chain(&self.projects)
+        self.projects
+            .iter()
             .chain(elsewhere)
+            .chain(quick)
             .filter(|p| p.name.to_lowercase().contains(&needle))
             .collect()
     }
@@ -722,17 +723,26 @@ impl Model {
     /// [`JUMP_WINDOW`] of the previous digit it extends the number (`1`
     /// then `6` is 16), otherwise it starts a new one. A number with no
     /// project leaves the last jump in place; any other key ends the
-    /// number, and `0` alone does nothing.
+    /// number, and `0` alone selects the `quick` row.
     fn jump_digit(&mut self, previous: Option<(usize, Instant)>, d: usize) {
         let n = match previous {
             Some((n, at)) if self.now < at + JUMP_WINDOW => n * 10 + d,
             _ => d,
         };
+        let visible = self.visible();
+        let quick = visible
+            .last()
+            .is_some_and(|p| self.root() == Some(p.path.as_path()));
+        let numbered = visible.len() - usize::from(quick);
         if n == 0 {
+            if quick && previous.is_none_or(|(_, at)| self.now >= at + JUMP_WINDOW) {
+                self.selected = numbered;
+                self.card = 0;
+            }
             return;
         }
         self.jump = Some((n, self.now));
-        if n <= self.visible().len() {
+        if n <= numbered {
             self.selected = n - 1;
             self.card = 0;
         }

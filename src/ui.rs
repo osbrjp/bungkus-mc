@@ -512,7 +512,14 @@ fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
                 Span::styled(marker.to_string(), theme.fg(Token::Ok)),
                 Span::styled(spinner.to_string(), theme.fg(Token::Ok)),
                 Span::raw(" "),
-                Span::styled(format!("{:>digits$} ", i + 1), theme.fg(Token::Ok)),
+                Span::styled(
+                    if model.root() == Some(project.path.as_path()) {
+                        format!("{:>digits$} ", 0)
+                    } else {
+                        format!("{:>digits$} ", i + 1)
+                    },
+                    theme.fg(Token::Ok),
+                ),
                 Span::styled(branch.unwrap_or_default(), theme.fg(Token::FgMuted)),
                 Span::styled(text, name),
                 Span::raw(" ".repeat(pad)),
@@ -590,7 +597,7 @@ fn draw_getah(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
             .find(|c| c.id == id)
             .map_or("the agent", |c| c.kind.command());
         if model.popup_menu {
-            "h hide · m move to a project · p new project · any other key: back".to_owned()
+            "h hide · m move to a project or a new one · any other key: back".to_owned()
         } else {
             format!(
                 "keys go to {agent} · {} menu (hide · move · new project)",
@@ -1260,5 +1267,27 @@ pub(crate) mod tests {
         );
         model.now += std::time::Duration::from_mins(12);
         assert!(render(&mut model, 120, 40).contains("7% (12m ago)"));
+    }
+
+    #[test]
+    fn the_move_dialog_shows_the_mascot_field_and_recent_projects() {
+        use crate::app::model::tests::with_session;
+        use crate::app::quick::MoveDialog;
+
+        let mut model = sample(PROJECTS);
+        let (id, _w) = with_session(&mut model, "s");
+        model.overlay = Some(Overlay::Move(MoveDialog {
+            id,
+            query: String::new(),
+            selected: 0,
+            error: None,
+        }));
+        let screen = render(&mut model, 120, 40);
+        assert!(
+            screen.contains("Move into a project, or name a new one:"),
+            "{screen}"
+        );
+        assert!(screen.contains("recent"), "{screen}");
+        assert!(screen.contains("▄██████████████▄"), "the mascot: {screen}");
     }
 }
