@@ -188,7 +188,7 @@ main() {
   fi
   command -v curl >/dev/null 2>&1 || err "required command not found: curl"
 
-  local os arch tag asset tmp expected actual dest
+  local os arch tag asset expected actual dest
   os=$(detect_os)
   arch=$(detect_arch)
   tag=$(resolve_tag)
@@ -196,7 +196,9 @@ main() {
 
   asset="${BIN_NAME}-${os}-${arch}"
   tmp=$(mktemp -d -t "${BIN_NAME}.XXXXXX")
-  trap 'rm -rf "$tmp"' EXIT
+  # tmp is global: the EXIT trap runs after main returns, when a local
+  # would be gone and `set -u` would fail the whole install.
+  trap 'rm -rf "${tmp:-}"' EXIT
   log "installing ${BIN_NAME} ${tag} (${os}/${arch})"
   download "$tag" "$asset" "$tmp"
 
