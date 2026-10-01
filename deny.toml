@@ -1,0 +1,32 @@
+[graph]
+targets = [
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-unknown-linux-gnu",
+]
+all-features = true
+
+[advisories]
+yanked = "deny"
+
+[licenses]
+allow = ["MIT", "Apache-2.0", "Unicode-3.0", "Zlib"]
+
+[licenses.private]
+ignore = true
+
+[bans]
+multiple-versions = "deny"
+wildcards = "deny"
+skip = [
+    { crate = "syn@2", reason = "ratatui 0.30: strum/derive_more use syn 2, instability uses syn 3" },
+    { crate = "hashbrown@0.16", reason = "ratatui 0.30: kasuari uses 0.16, lru uses 0.17" },
+    { crate = "signal-hook@0.3", reason = "crossterm 0.29 uses 0.3, alacritty_terminal 0.26 uses 0.4" },
+    { crate = "thiserror@1", reason = "portable-pty 0.9 via filedescriptor 0.8 uses 1.x; mc uses 2.x" },
+    { crate = "thiserror-impl@1", reason = "see thiserror@1" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

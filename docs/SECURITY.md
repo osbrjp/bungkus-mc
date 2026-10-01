@@ -1,18 +1,20 @@
 # Security
 
-bungkus-mcc is a local, single-user terminal application. It runs with the
+bungkus-mc is a local, single-user terminal application. It runs with the
 invoking user's own OS privileges, spawns AI coding agents (`claude`,
 `codex`) as child processes with those same privileges, listens on a
-private unix socket for events from those children, and stores a small
-amount of state under the user's home directory. It exposes no network
-service and sends nothing anywhere except the release check described
-below. This document records the security-relevant aspects of the tool
-itself, in the same format as bungkus-cli's SECURITY.md.
+private unix socket for events from those children, reads one kind of
+record from Codex's session log, stops the agents' descendant processes on
+quit, and stores a small amount of state under the user's home directory.
+It exposes no network service and sends nothing anywhere except the
+release check and — only when the user opts in — the model-routing
+request described below. This document records the security-relevant
+aspects of the tool itself, in the same format as bungkus-cli's SECURITY.md.
 
 ## Reporting a vulnerability
 
 Open a private security advisory on the GitHub repository
-(`osbrjp/bungkus-mcc`), or email the maintainer. Please do not file public
+(`osbrjp/bungkus-mc`), or email the maintainer. Please do not file public
 issues for undisclosed vulnerabilities.
 
 ## Threat model
@@ -20,105 +22,193 @@ issues for undisclosed vulnerabilities.
 Trust boundaries, most to least trusted:
 
 1. The user and their shell environment.
-2. bungkus-mcc's own binary and config.
-3. The agent processes it spawns — they run *as the user*, can do anything
-   the user can, and are driven by an LLM that reads untrusted repository
-   content. mcc does not and cannot sandbox them; that is the agents' own
-   job (Codex sandbox, Claude Code permissions).
-4. Bytes the agents write to their PTYs (rendered by mcc) and JSON the
-   agents' hooks send to mcc's socket — **untrusted input**.
-5. Other local users on the machine (multi-user hosts) — must not read
-   mcc's socket or state.
+2. bungkus-mc's own binary and config.
+3. The agent processes it spawns — they run *as the user* and are driven by
+   an LLM reading untrusted repository content. mc does not and cannot
+   sandbox them; that is the agents' job.
+4. Bytes the agents write to their PTYs, JSON their hooks and status line
+   send to mc's socket, lines in Codex's session log, prompt text,
+   directory names in the workspace, and process names in the process
+   table — **untrusted input**.
+5. Other local users on the machine — must not read mc's socket or state.
 
-What we protect: the user's terminal (no escape-sequence injection into the
-*host* terminal), the user's files (no writes outside mcc's own dirs and
-nothing the user did not ask for), the user's secrets (never copied into
-mcc state), and the mcc process itself (no code paths where agent output
-controls what mcc executes).
+**Out of scope, explicitly:** an attacker running as the *same uid*. The
+socket has no peer-credential check beyond directory/file permissions and
+no HMAC; a same-uid process can already read the user's `~/.claude` and
+`~/.codex`, which is strictly more than it could learn from mc.
+
+Secrets goal, restated: **mc's state on disk is a 0600 subset of what the
+agents already store.** No `tool_input` beyond a 200-char description, no
+`tool_response`, no transcript text; names and messages truncated.
 
 ### Assets and threats
 
-| Asset / surface | Threat | Control |
-|-----------------|--------|---------|
-| Spawning agents | Command/argument injection via project name or prompt | `exec.Command` with an argv slice, never a shell. Agent command names come from config (`agents.<kind>.command`) and are resolved with `exec.LookPath`; the prompt is a single positional argument. Project directories are only ever passed as `cwd`, never interpolated |
-| Workspace / project selection | Path traversal, symlink escape, launching in an unintended directory | Workspace is an absolute, cleaned path chosen through the picker or config. Projects are *direct* children of the workspace: `filepath.Join(workspace, name)` where `name` passed `ValidateProjectName` (single path segment, no `..`, no separators — same rule as bungkus-cli's `pkg/validate.go`). Symlinked children are shown but resolved with `filepath.EvalSymlinks` and rejected if they leave the workspace |
-| Agent output rendering | Terminal escape-sequence injection: an agent (or a repo file it prints) emits sequences intended for the *host* terminal — OSC 52 clipboard writes, title changes, DCS/APC payloads, `\e[?1049` alt-screen toggles, hyperlinks with `file:`/`javascript:` schemes | All PTY bytes go through the VT emulator (`x/vt`), which interprets them into a cell grid. mcc renders cells, never raw bytes. The emulator's callbacks for OSC 52 (clipboard), OSC 0/2 (title), OSC 8 (links), bell and DCS are **not** forwarded to the host in stage 1 (clipboard/title from the agent are dropped; the pane title shows mcc's own text). A table test feeds known-hostile sequences and asserts the rendered output contains no ESC/OSC/DCS bytes other than those lipgloss emits |
-| Hook socket | Another local process injects fake events (spoof "wrapped", hide "needs you"); DoS with large payloads; symlink races on the socket path | Socket directory `${XDG_RUNTIME_DIR:-$TMPDIR}/bungkus-mcc-<uid>/` created 0700 and verified (`Lstat`: owned by uid, mode 0700, not a symlink) before listening; socket file 0600 (umask 0177 around `Listen`); per-process name `<pid>.sock`; the path is handed to children via env, not discoverable through a fixed well-known name. Listener: read ≤ 1 MiB per connection with a 2 s deadline, one line, then close; malformed JSON dropped and counted. Events only *change display state*; nothing mcc does on an event executes anything |
-| Hook payload contents | Payloads carry `tool_input` (may include command lines, file contents) and `last_assistant_message` — may contain secrets the agent saw | Only the fields listed in ARCHITECTURE.md §5 are kept in memory; `Raw` is discarded after parsing (kept only in `--debug` logs, see below). The per-session event log on disk stores `Name, SessionID, AgentID, AgentType, ToolName, Notify, timestamps` and a 200-char truncated `LastMessage` — never `ToolInput`. Files 0600 |
-| Transcript files | Reading them would put every secret the agent ever saw through mcc | **mcc does not read transcripts in stage 1.** It stores `transcript_path` as an opaque string for the user's `o` key. A later history adapter must be reviewed against this document before merging |
-| Environment passthrough | mcc leaks its own vars, or strips ones the agents need (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, proxies) | Children inherit `os.Environ()` unchanged plus `BUNGKUS_MCC_SOCK` and `BUNGKUS_MCC_SESSION`. mcc never reads, logs or displays the environment. `--debug` logs never include env |
-| Config and state files | Tampering, world-readable state | JSON under `~/.config/bungkus/mcc` and `~/.local/state/bungkus/mcc`, dirs 0700, files 0600, atomic writes (temp + rename). Config values are validated on load (paths absolute, enum fields exact); a bad config is reported and replaced by defaults in memory, never auto-rewritten |
-| Codex `setup codex` | Silently modifying the user's `~/.codex/hooks.json` | Prints the exact JSON block it will add, asks y/N, writes atomically, never removes or reorders existing entries. Nothing in mcc modifies `~/.claude/settings.json` (Claude hooks are session-scoped via `--settings`) |
-| Update check / self-update | MITM, unverified binary | Identical to bungkus-cli: HTTPS to `api.github.com` (release tag only, 3 s timeout, once per day, `BUNGKUS_NO_UPDATE_CHECK` disables); `bungkus-mcc update` re-runs the checksum-verified `install.sh` |
-| Debug log | Secrets in logs | Off by default; `--debug` writes to a 0600 file; documented as "may contain hook payloads — delete after sharing"; never written to the terminal |
-| Signals / child lifetime | Orphaned agents keep running invisibly after a crash | Children are in their own session (setsid) and receive SIGHUP when the PTY master closes; on normal quit mcc sends SIGTERM then SIGKILL after 3 s. A crash of mcc still closes the PTY (kernel), so agents get SIGHUP. Nothing is left running without a terminal by design (stage 1 has no detach) |
+| Surface | Threat | Control |
+|---------|--------|---------|
+| Spawning agents | Argument injection via prompt, name or project | `std::process::Command` (through `portable-pty`) with an argv vector, never a shell. Agent commands come from config and are resolved on `PATH` before spawning. The prompt is one positional argument after `--`; the name is one `--name` value; model ids come from config and match `^[A-Za-z0-9._:-]{1,64}$`. Project directories are only ever `cwd`. Session ids used in argv must parse as UUIDs (`uuid::Uuid::parse_str`; anything else would be read by Codex as a session *name* and by Claude as a picker request) |
+| Workspace / project selection | Launching in an unintended directory | Workspace is an absolute cleaned path from CLI arg, config or the first-run input. Projects are direct child directories containing `CLAUDE.md`, `AGENTS.md` or `.git` (`read_dir` + `fs::metadata` of the three markers, symlinks followed), dot-dirs skipped, `cwd = workspace.join(entry.file_name())` |
+| **All strings not from the PTY** (hook fields, prompt/name, directory names, process names, agent versions) | Terminal escape injection through a card, the header or a dialog | One `ui::sanitise::sanitise()` (char-based: strip every `ESC`-led sequence to its terminator, then drop every `char` < U+0020 except `\t`→space, U+007F, U+0080–U+009F; truncate) applied in each adapter's `parse`, in `workspace::scan`, in `proc::scan`, and on the prompt/name before display. The hostile-sequence corpus is rendered through cards, header and dialogs, not only the output pane |
+| Agent output rendering | Escape-sequence injection into the *host* terminal | All PTY bytes go through the VT emulator into a cell grid; the cell-to-buffer mapping is an **allowlist** (printable graphemes + SGR attributes are copied into the ratatui buffer; nothing else exists in a cell, and OSC 8 hyperlink data is dropped in stage 1). Emulator events for clipboard/title/bell/notifications are not forwarded. Corpus and oracle in ARCHITECTURE.md §4.2 |
+| Hook / status-line socket | Spoofed events; oversized payloads; symlink races | Directory `clean(${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}})/bungkus-mc-<uid>/` created 0700; before listening: `symlink_metadata` — a directory, owned by our uid, mode 0700, not a symlink; socket `set_permissions(0o600)` immediately after `UnixListener::bind` (no process-wide umask change; the 0700 directory covers the gap); per-process name `<pid>.sock`. **If any check fails, or the path exceeds 104 bytes, mc runs without a socket** (cards "output only"). Listener: ≤ 1 MiB per connection, 2 s deadline, one line, close; malformed JSON dropped. **Plainly: a prompt-injected agent — same uid, holding `$BUNGKUS_MC_SOCK` and `$BUNGKUS_MC_SESSION` — can forge any event.** The effect is bounded to display state (a card can lie about its own status or usage) plus one file read, the Codex usage reader, whose path is validated under `CODEX_HOME` and whose parser only yields numbers. No event can start, stop, signal or route anything |
+| Hook subcommands (`hook`, `statusline`) | Agents run hook commands through `sh -c`; bad quoting of our path; our output corrupting the agent's UI | Command string = `std::env::current_exe()` → `canonicalize` → POSIX single-quoted + ` hook`; settings JSON built with `serde_json`; tested with a path containing a space and `'`. Both subcommands: no usage/error output, no update check, every error and panic caught → exit 0, never write stdout/stderr of their own. stdin capped at 8 MiB (hook) / 1 MiB (statusline) and drained |
+| Hook payload contents | `tool_input`, `tool_response`, `last_assistant_message` may contain secrets | The `hook` subcommand forwards only: event name, session/prompt/agent ids, agent type, tool name/use id, `tool_input.description` (≤ 200; Codex's `tool_input.task_name` when there is no description), notification type, `last_assistant_message` (≤ 200), `session_title` (≤ 80), `background_tasks` (id/type/agent_type/status/description ≤ 200), `transcript_path`, `cwd`. Debug log records event name + session + byte count only |
+| Status-line payload | Account usage/limit figures pass through mc; the user's own status-line command is run by our wrapper | Forwarded fields: `session_id, session_name, cost, context_window, rate_limits` only (`model.id` dropped); stdin over 1 MiB is passed through and not forwarded; the forward has a 200 ms budget and never delays the user's line. The user's command is resolved from *their* settings files (`CLAUDE_CONFIG_DIR` honoured; malformed JSON = none; a command that is our own `statusline` is dropped — recursion guard), never from the agent or the socket, and run with `Command::new("sh").args(["-c", cmd])` with the buffered stdin, stdout inherited, stderr null. Project/local settings files are repo-controlled; running their command is acceptable because Claude's workspace-trust gate precedes any hook or status-line execution, so mc never runs a repo command Claude would not. Persisted: a per-session usage subset in `sessions.json` (0600); limits in memory only |
+| **Codex session log reader** (the one transcript exception, approved) | Reading a file that holds everything the agent saw; a crafted path from a hook; a huge, growing or special file | `src/agent/codex_usage.rs` only. Path from Codex's own `SessionStart` hook: `Path::canonicalize` on it and on `${CODEX_HOME:-~/.codex}`, then `resolved.strip_prefix(codex_home)` must succeed component-wise (string-prefix checks are not enough), extension `jsonl`; opened read-only with `OFlags::NONBLOCK` and the open `File::metadata()` (an fstat on the fd) must be a regular file — else disabled. Read-only, tail-only, ≤ 256 KiB per 1 s poll, partial-line and carry-buffer limits; lines are prefiltered with a byte search for `"token_count"` and only those are deserialised into a fixed tolerant struct; nothing is retained, displayed or logged beyond the numbers. Any error → reader stops, card shows `-` |
+| **Process-tree scan and cleanup** | Killing a process that is not ours (pid reuse, wrong parent chain, another user's process, a port-holder that happens to be listening, a long-lived agent the user relies on); parsing attacker-named processes; a locale-mangled `ps` | Only processes observed as descendants of an mc-launched agent's pid are ever recorded (`ppid` chain from periodic snapshots; entries missing from a new snapshot are pruned; nothing is inferred from ports or names). Entries whose uid is not ours are dropped (`ps … uid=` on macOS, `fs::metadata("/proc/<pid>")` on Linux). Identity is `{pid, startTime}`, re-read immediately before each signal (Linux: `rustix::process::pidfd_open` then `pidfd_send_signal`, so check and signal cannot race); mismatch = skip. **Default-keep:** app bundles under an `Applications` folder, the agents `claude`/`codex`, `gpg-agent`, `ssh-agent`, `tmux`, `screen`, `watchman`, `ollama`, `colima`, `docker`, `code`, and `cleanup.keep` from config start as "keep" and are never auto-stopped, dialog or not. Signals: SIGTERM, 3 s grace, SIGKILL; `-pgid` only while the waiter has not reported exit; EPERM shown as "could not stop". Discovery runs with fixed argv and `LC_ALL=C` (`ps -axo pid=,ppid=,uid=,lstart=,comm=` on macOS, `/proc` on Linux; `lsof -nP -iTCP -sTCP:LISTEN -a -p …` on both for port annotation only); argv of other processes is never read. `basename(comm)` goes through `sanitise()` before display. A fresh scan runs when the dialog opens; the dialog lists every session and pid with its keep/stop state before anything is signalled, and exactly that set is signalled; `esc`/`n` stops nothing |
+| Transcript files (all other) | Reading them would put every secret the agent ever saw through mc | **Not read.** `transcript_path` is stored as an opaque string for the Codex usage reader's path check and nothing else. Claude transcripts are never opened |
+| **Model routing (opt-in)** | Prompt text leaves the machine; a prompt that contains a secret; API key leakage; a compromised or spoofed routing service influencing which model runs; a key command that prompts or hangs | Off by default; requires `routing.enabled` **and** a recorded consent (`consent.json` in the state dir, written only after the dialog). Only the `n` start prompt is ever sent — never resume, never INTERACT bytes, never cwd, project name, env or history — as `{"prompt": <sanitised, ≤ 4 KiB>}` plus the Jev model id and the fixed question. Prompts matching common secret shapes (`sk-`, `ghp_`, `github_pat_`, `AKIA`, `xox[bp]-`, `-----BEGIN`) are not sent at all (`default · not routed`). Response body capped at 64 KiB (ureq body limit / `Read::take`); `confidence` must be within `[0, 1]`; the `choice` can only select one of the configured model ids (anything else → fallback) and cannot change argv beyond the `--model`/`-m` value. HTTPS only, ureq/rustls defaults, no redirects, 1.5 s timeout, no retries. API key from `TYPESAFE_API_KEY` or `routing.apiKeyCommand` (argv, no shell) — the command runs once per mc process, lazily, in its own process group (`CommandExt::process_group(0)`, no `pre_exec`), `Stdio::null()` stdin, stderr discarded, a 10 s timeout after which the group is killed, stdout capped at 4 KiB and trimmed; the key is held in memory for the process lifetime, never written to config, state or logs, and `TYPESAFE_API_KEY` is unset in every child's environment; the debug log records "routed: tier/confidence" only |
+| Environment passthrough | Leaking mc vars (the routing key); stripping vars the agents need | Children inherit `std::env::vars_os()` plus `BUNGKUS_MC_*`, with `TERM`/`COLORTERM` set, host-terminal identity vars unset, and **`TYPESAFE_API_KEY` unset** (test). mc never reads, logs or displays the environment |
+| **Inherited agent session markers** | An agent started from *inside* a Claude Code or Codex session inherits that session's marker variables and misbehaves — the spike's child inherited `CLAUDE_CODE_CHILD_SESSION` and **stopped saving its transcript**; markers can also carry a messaging socket/token of the parent session | An explicit denylist is unset in every child (ARCHITECTURE.md §3.1): `CLAUDECODE`, `CLAUDE_CODE_CHILD_SESSION`, `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_CODE_EXECPATH`, `CLAUDE_CODE_MESSAGING_SOCKET`, `CLAUDE_CODE_MESSAGING_TOKEN`, `CLAUDE_CODE_SESSION_ATTENDED`, `CLAUDE_CODE_SESSION_ID`, `CLAUDE_EFFORT`, `CLAUDE_PID`, plus any `CODEX_*` marker found at M3/M6. User configuration (`CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_PROJECT_DIR_NAME`, `CODEX_HOME`, deliberate `CLAUDE_CODE_*` settings) is kept — a denylist, not a wildcard. A test asserts both lists. Values are never read or logged |
+| Config and state files | Tampering; world-readable | JSON under `~/.config/bungkus/mc` and `~/.local/state/bungkus/mc`, dirs 0700, files 0600, atomic writes. Values validated on load; a bad config is reported and replaced by defaults in memory. mc writes `config.json` only from the settings screen and wizard, and only the keys `workspace`, `defaultAgent`, `theme` (round-tripped `serde_json::Value`, other keys kept, a malformed file never replaced); consent is recorded in the state dir (`consent.json`) |
+| Hook trust bypass | Running untrusted hooks | **Never pass `--dangerously-bypass-hook-trust`** or any `--dangerously-*` flag to either agent |
+| Update check / self-update | MITM, tampered binary | The release tag comes from the public GitHub API through `curl` (fixed argv, 3 s, 64 KiB cap, daily; `BUNGKUS_NO_UPDATE_CHECK` disables; skipped silently offline). No token is used, read or stored. Cached tag validated as semver before display (cache 0600). `bungkus-mc update` and `U` download `install.sh` from `main` over HTTPS and run it with `bash`; it verifies the binary's SHA-256 against the release's `checksums.txt`. Control: TLS + integrity checksum; no signature (as bungkus-cli) |
+| Debug log | Secrets in logs | Off by default; `--debug` writes a 0600 file with event names, sizes, errors, routing tier — no payload bodies, no prompts, no env, no keys |
+| Signals / child lifetime | Orphaned agents after a crash | Children are in their own session and get SIGHUP when the PTY master closes (also on a mc crash); descendants that survive a *crash* are not cleaned (no dialog, no scan) — a normal quit is required for cleanup |
 
 ### Explicitly out of scope
 
 - Sandboxing or restricting what the agents do — configure the agents.
-- Protecting against a malicious *user* — mcc runs as them.
+- Protecting against a malicious *user* or same-uid process.
 - Multi-tenant or remote use.
+- What TypeSafe does with a prompt after receiving it — governed by their
+  DPA; the consent dialog says so.
 
 ## Rules for contributors
 
-- No shell. `exec.Command(name, args...)` only; never `sh -c` with user or
-  agent-derived strings. (Exception: `update.go`, copied from bungkus-cli,
-  runs a fixed hardcoded pipeline.)
-- No raw agent bytes reach `os.Stdout`. Everything goes through the emulator
-  → cells → lipgloss.
-- New file paths: absolute, `filepath.Clean`, under one of the three mcc
-  directories or the workspace; add a `ValidateProjectName`-style test.
-- New socket messages: fields optional, size-bounded, no side effects beyond
-  UI state.
-- New persisted field: ask "could this contain a secret?" — if yes, don't
-  persist it, or truncate and document.
-- No new network calls without updating "External communication" below.
-- No telemetry, ever.
+- No shell in `std::process::Command` for anything mc decides. Exceptions,
+  each fixed and reviewed: `update` (the installer pipeline, ported from
+  bungkus-cli) and the `statusline` wrapper running the user's own command.
+- No raw agent bytes reach stdout (`print_stdout` is a denied lint; the
+  emulator yields cells, and only printable cells + SGR reach the ratatui
+  buffer); no string from a hook, prompt, directory name, process table or
+  session log reaches the screen without `sanitise()`.
+- No transcript reads outside `agent/codex_usage.rs`, and none there beyond
+  `token_count` records. Extending it is a SECURITY.md review.
+- No `unsafe`, no `pre_exec`. If a syscall truly needs it, see
+  "Dependency management & remediation policy" below.
+- No process is signalled unless it is in a session's observed-descendant
+  set with a matching start time, or is the agent's own process group.
+- New file paths: absolute, normalised (`canonicalize` where the file must exist), under mc's dirs, the
+  workspace, or (read-only) `CODEX_HOME`.
+- New socket fields: optional, size-bounded, no side effects beyond UI state.
+- New persisted field: "could this contain a secret?" — if yes, don't.
+- No new network calls without updating "External communication"; no
+  network call that sends user text without an opt-in and a consent dialog.
+- No `--dangerously-*` flags to agents. No telemetry, ever.
+- Code ported from bungkus-cli (the updater) names its origin in the
+  module's `//!` doc comment (`Port of osbrjp/bungkus-cli pkg/update.go @<sha>`)
+  so security fixes can be mirrored in both directions.
 
 ## External communication
 
-- **Host:** `https://api.github.com/repos/osbrjp/bungkus-mcc/releases/latest`
-  (hardcoded, HTTPS only). **Trigger:** once per day on start when stderr is a
-  terminal and `BUNGKUS_NO_UPDATE_CHECK` is unset; and `bungkus-mcc update
-  --check`. **Auth:** none. **Client policy:** 3 s (background) / 10 s
-  (explicit) timeout, no retries, Go TLS defaults.
-- `bungkus-mcc update` runs `curl -fsSL <install.sh> | bash`, which downloads
-  the release asset and `checksums.txt` from `github.com` and verifies SHA-256
-  before installing — same script family as bungkus-cli.
+- **Release check.** mc runs `curl -fsSL --max-time 3` against
+  `https://api.github.com/repos/osbrjp/bungkus-mc/releases/latest` (fixed
+  argv, no shell, no token) and keeps only `tag_name`, validated as semver.
+  Trigger: once a day on start when stderr is a terminal and
+  `BUNGKUS_NO_UPDATE_CHECK` is unset; `bungkus-mc update --check`; `U`.
+  Policy: 3 s timeout, 64 KiB cap, no retries, skipped silently on failure.
+- **Self-update.** `install.sh` is downloaded from the repository's `main`
+  with `curl` and run with `bash` (the one documented shell use for
+  updates); it downloads the release asset and `checksums.txt` and
+  verifies SHA-256. The installer's `bkmc` symlink is created only when no
+  `bkmc` exists on `PATH` or in the install dir. It never replaces another
+  program's command. It never asks for sudo unless the existing install's
+  folder is not writable and `~/.local/bin` does not come first on `PATH`
+  (ARCHITECTURE §11); the shadowed old copy is reported, never removed by
+  the script. In the TUI (`U`) the installer gets no terminal, so a sudo
+  prompt fails with a hint instead of hanging.
+- **Uninstall.** `bungkus-mc uninstall` removes only its own binary, the
+  `bkmc` link that points at it, and with `--purge` mc's own config, state
+  and cache folders, after listing them and asking (`--yes` skips).
+- **Model routing (opt-in, off by default).** Host
+  `https://api.typesafe.ai/v1/systemone` (hardcoded, HTTPS, POST). Trigger:
+  only when `routing.enabled` is true in config, `consent.json` records
+  consent, and the user **starts** a session *with a prompt* from the `n`
+  picker with `model = auto` — never on resume. Auth: `Authorization: Bearer <key>` from
+  `TYPESAFE_API_KEY` or `routing.apiKeyCommand`. Sent: the sanitised start
+  prompt (≤ 4 KiB), the Jev model id, one fixed Choice question; nothing
+  else. Received: a tier choice, probabilities, confidence, token usage.
+  Policy: 1.5 s timeout, no retries, no redirects, 64 KiB body cap,
+  ureq/rustls defaults.
+  Retention: TypeSafe states it does not train on requests; zero data
+  retention is an enterprise option; standard retention is per their DPA
+  (docs.typesafe.ai/legal) — surfaced verbatim in the consent dialog.
 - The spawned agents make their own network calls under their own
-  configuration; that is outside this tool's control.
+  configuration; outside this tool's control.
 
 ## Dependency management & remediation policy
 
-Same policy as bungkus-cli:
+Same policy as bungkus-cli (which uses `govulncheck`), with the Rust tools:
 
-- **Inventory.** `go.mod` + `go.sum` are authoritative; `go.sum` hashes are
-  verified against the Go checksum database; all module paths are
-  fully-qualified public repositories.
-- **Scanning.** `govulncheck ./...` runs in CI on every push and fails the
-  build on any advisory affecting called code.
-- **Updates.** Bumped when `govulncheck` flags an advisory or during periodic
-  review; Charm modules are bumped in lockstep with bungkus-cli.
-- **Remediation windows** (advisory severity, called code): Critical ≤ 7 days;
-  High ≤ 30 days; Moderate/Low ≤ 90 days. Uncalled modules: next routine bump.
-- **Untagged dependency.** `charmbracelet/x/vt` is pinned to a pseudo-version;
-  it is reviewed (diff read) on every bump because it parses untrusted bytes.
+- **Inventory.** The committed `Cargo.lock` pins everything; `Cargo.toml`
+  minor-pins 0.x crates by caret; every crate comes from crates.io
+  (`deny.toml` `sources` allows no git dependencies — the reason
+  `wezterm-term` was rejected).
+- **Scanning.** `cargo deny check` (RustSec advisories, licences, bans,
+  sources; `[graph] targets` = the four unix triples) in CI on every push
+  and PR.
+- **Updates.** On advisories or periodic review; `alacritty_terminal`
+  bumps are read as a diff (it parses untrusted bytes).
+- **Remediation windows:** Critical ≤ 7 days; High ≤ 30 days; Moderate/Low
+  ≤ 90 days. Advisories in crates whose affected code we do not call:
+  next routine bump.
+- **`unsafe` is denied crate-wide** (`unsafe_code = "deny"`); `rustix`
+  provides safe wrappers for signals, pidfd, uid, `O_NONBLOCK` and
+  `poll`; child process groups use std's safe `process_group(0)`, never
+  `pre_exec`/`setsid`.
+  Any future exception is one small function in one module that allows
+  `unsafe_code`, with a `// SAFETY:` comment on every block, reviewed
+  against this document.
+- **Lints as a security control.** `unwrap_used`/`panic`/`todo` are denied
+  in shipped code, so untrusted input (hook payloads, `ps` output, Codex
+  records, TypeSafe responses) cannot crash mc; the skill's checklist is
+  part of review.
 
 ## Dangerous functionality (summary for reviewers)
 
-- **Subprocess execution** — `internal/term/session.go` (agents, `bungkus-cli`
-  for "new project"), `cmd/update.go` (installer). All argv-based except the
-  fixed installer pipeline.
-- **PTY / raw terminal** — `internal/term`, Bubble Tea. Restored on exit and
-  on panic (deferred `Program.Kill`/`ReleaseTerminal`).
-- **Unix socket server** — `internal/ipc/server.go`. Permissions and limits
-  as above.
-- **Filesystem writes** — `internal/store` (config/state/log, own dirs only),
-  `cmd/setup.go` (`~/.codex/hooks.json`, opt-in).
-- **Signals to other processes** — `internal/term` sends SIGTERM/SIGKILL only
-  to process groups it created.
+- **Subprocess execution** — `src/term/session.rs` (agents, argv, via
+  `portable-pty`); `src/proc/` (`ps`, `lsof`, fixed argv, `LC_ALL=C`);
+  `src/route/` (`routing.apiKeyCommand`, argv, once, own process group
+  via `process_group(0)`, null stdin, 10 s then group kill);
+  `src/update/` (installer via `bash -c`);
+  `src/ipc/statusline.rs` (user's status line via `sh -c`). All
+  `std::process::Command`. Agents themselves run our `hook`/`statusline`
+  commands via `sh -c`, hence the quoted executable path. Stage 2:
+  locating `bungkus-cli` on `PATH`.
+- **Signals to other processes** — `src/proc/kill.rs` (`rustix::process::
+  kill_process_group`, `pidfd_open`/`pidfd_send_signal` on Linux): the
+  agent's process group, then observed descendants by pid + start time only.
+- **PTY / raw terminal** — `src/term/`, `ratatui::crossterm` raw mode +
+  alt screen behind a `Drop` guard; restored on exit and from the panic
+  hook. Per session one writer thread owns the PTY writer; the UI thread
+  never blocks on the PTY.
+- **Unix socket server** — `src/ipc/server.rs` (`std::os::unix::net::
+  UnixListener`); permissions, limits, fail-to-no-socket.
+- **File reads outside mc's dirs** — `src/agent/codex_usage.rs` (Codex
+  rollout, canonicalised path under `CODEX_HOME`, `File::metadata()` regular file,
+  `token_count` only); `src/ipc/statusline.rs` (Claude settings files,
+  read-only, for the status-line command).
+- **Sessions outside mc** — `src/external.rs` only lists them: `claude
+  agents --json` (fixed argv, stdin closed, 1 MiB cap, killed after 3 s);
+  Codex from the own-uid process snapshot plus `lsof -a -d cwd` for its
+  folder. Names and statuses go through `sanitise()`; these sessions are
+  never typed into, persisted or read beyond that. They are signalled in
+  one case only, by owner decision: `x` on such a row, confirmed with `y`
+  in a "Stop …?" dialog, sends one SIGTERM — after a fresh snapshot of this
+  user's processes still shows the pid as `claude`, `codex` or `node`, and
+  with that start time re-checked right before the signal (the same
+  identity rule as descendants). Never by port, never without the confirm. Take-over
+  only probes the pid with signal 0 (`test_kill_process`, no signal is
+  delivered) and resumes the session id `claude agents` reported, checked
+  to be a UUID, as one `--resume` argument.
+- **Outbound HTTP** — `src/update/` (GitHub) and `src/route/` (TypeSafe,
+  opt-in), both `ureq` with rustls, timeouts, no redirects, capped bodies.
+- **Filesystem writes** — `src/store/` (own dirs only: `sessions.json`,
+  `consent.json`, the debug log). mc never writes Codex's or Claude's own
+  config: hooks are injected per launch (`--settings`, `-c`).
 
 ## Risky components
 
-To be reviewed against `go.mod` at the first release and quarterly
-thereafter; record the date and `govulncheck` result here, as bungkus-cli does.
+To be reviewed against `Cargo.lock` at the first release and quarterly
+thereafter; record the date and the `cargo deny check` result here, as
+bungkus-cli does with `govulncheck`.

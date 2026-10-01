@@ -1,0 +1,41 @@
+
+
+
+
+
+
+
+
+
+                                ▄▄
+                              ▄████▄         bungkus-mc  v0.1.0-beta.1
+                             ████████        mission control for AI agents
+                           ▄██████████▄
+                         ▄██████████████▄    step 1 of 4 · workspace
+                               █  █
+                              ▀▀ ▀▀
+
+                         workspace   ┃/tmp                                                    ┃
+                                     1 project in this folder
+                                       ./  this folder
+                                     > kedai-web/  project
+                                       notes/
+                                       roti-docs/
+                                       Works/
+
+
+
+
+
+
+                             j/k pick · l open · h up · / type a path · enter choose · esc skip
+
+
+
+
+
+
+
+
+
+cursor: hidden

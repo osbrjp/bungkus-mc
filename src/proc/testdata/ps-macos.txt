@@ -1,0 +1,11 @@
+    1     0     0 Tue Sep 29 12:11:39 2026     /sbin/launchd
+  611     1   501 Tue Sep 29 12:12:07 2026     /usr/bin/ssh-agent
+ 4400     1   501 Wed Sep 30 13:41:02 2026     /Users/me/.local/bin/claude
+ 4460  4400   501 Wed Sep 30 13:42:10 2026     /bin/zsh
+ 4470  4460   501 Wed Sep 30 13:42:11 2026     node
+ 4471  4470   501 Wed Sep 30 13:42:12 2026     /Users/me/proj/node_modules/.bin/vite
+ 4480  4400   501 Wed Sep 30 13:43:00 2026     /opt/My Tools/esbuild helper
+ 4490  4400     0 Wed Sep 30 13:43:01 2026     /usr/bin/sudo
+ 4500  4400   501 Wed Sep 30 13:43:02 2026     /Applications/Docker.app/Contents/MacOS/com.docker.backend
+ 4502  4400   501 Wed Sep 30 13:43:03 2026     postgres
+ 4600     1   501 Wed Sep 30 13:44:00 2026     /usr/bin/unrelated

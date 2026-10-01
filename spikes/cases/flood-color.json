@@ -1,0 +1,21 @@
+{
+ "name": "flood-color",
+ "cwd": "/Users/spencer-osbr/Documents/Works/OSBR/bungkus-mc",
+ "env": {
+  "TERM": "xterm-256color",
+  "COLORTERM": "truecolor"
+ },
+ "cmd": [
+  "bash",
+  "-c",
+  "for i in $(seq 1 20000); do printf '\\e[38;5;%dmline %d \\e[1mbold\\e[0m 日本 🍙\\n' $((i%256)) $i; done"
+ ],
+ "steps": [
+  {
+   "waitexit": 60000
+  },
+  {
+   "dump": "screen"
+  }
+ ]
+}

@@ -2,67 +2,91 @@
 
 ## Project Overview
 
-**bungkus-mcc** ("mission control") is a Go terminal TUI for people who run
-AI coding agents (Claude Code, Codex CLI) in the terminal. One screen:
-projects in a workspace (left), agent sessions with their subagent tree per
-project (middle), the selected agent's real interactive UI (right). Sibling
-of bungkus-cli; same tooling, release pipeline and conventions. Status:
-**proposal / pre-development** — no application code yet. Read the docs
-before writing any.
+**bungkus-mc** ("mission control") is a **Rust** terminal TUI for people
+who run AI coding agents (Claude Code, Codex CLI) in the terminal. One
+screen: projects in a workspace (left), the selected project's agent
+sessions with their subagents and usage figures (middle), the selected
+agent's real interactive UI (right), plan limits in the status bar.
+Sibling of bungkus-cli (Go); same release pipeline, installer and
+conventions; the palette is shared as a token spec. Status: **M1–M8 built**
+(v0.1.0 candidate; M9 routing not started). Read the docs before changing
+behaviour.
 
 ## Docs (read in this order)
 
-- `docs/PROPOSAL.md` — goals, non-goals, stage plan, open questions, risks
-- `docs/ARCHITECTURE.md` — process model, how subagents are observed (PTY + hooks over a unix socket), adapter boundary, modes/keys, storage paths, concurrency rules, package layout, relationship with bungkus-cli, terminal compatibility
-- `docs/DESIGN.md` — "Daun Pisang" design language: palette + contrast, glyphs, layout mockups, card states, keybindings, microcopy
-- `docs/TECH_STACK.md` — every dependency and why
-- `docs/CODING_RULES.md` — conventions, testing, review checklist, YAGNI rules
+- `docs/PROPOSAL.md` — goals, non-goals, stage plan (M0 done, M1–M9), decided list, open questions, risks
+- `docs/ARCHITECTURE.md` — process model, threads and the event loop, how subagents and usage are observed (PTY + hooks + status line over a unix socket), adapter boundary, state machine, modes/keys, storage, crate layout, bungkus-cli relationship, terminal compatibility, routing
+- `docs/DESIGN.md` — "Daun Pisang" design language: palette token spec with contrast + declared 256/16 values, glyphs, mascot, generated mockups, components, states, keybindings, notifications, microcopy
+- `docs/TECH_STACK.md` — every crate and why, toolchain, CI, release
+- `docs/CODING_RULES.md` — behaviour rules, tests, review checklist, YAGNI rules
 - `docs/SECURITY.md` — threat model and rules
+- `.claude/skills/rust-best-practices/SKILL.md` — **mandatory for every `.rs` / `Cargo.toml` change**: lints, doc comments, API style, errors, concurrency, `unsafe`, tests, dependencies
+- `spikes/SPEC.md`, `spikes/rust/README.md` — the M0 prototype; `src/term/keys.rs` starts from `spikes/rust/src/keys.rs`
 
 ## Tech Stack
 
-- **Go 1.26** — single static binary, darwin/linux × arm64/amd64
-- **Cobra** — `bungkus-mcc` (TUI), `hook`, `setup codex`, `update`
-- **Bubble Tea v2 / Lip Gloss v2 / Bubbles v2** (`charm.land/*`) — TUI; versions match bungkus-cli
-- **creack/pty + charmbracelet/x/vt** — agents run in a PTY, rendered by an embedded VT emulator
-- stdlib for JSON config/state, unix socket IPC, slog
+- **Rust stable 1.97** (`rust-toolchain.toml`), edition 2024, one binary crate; darwin/linux × arm64/amd64
+- **ratatui** (UI; its re-exported `ratatui::crossterm` for input, raw mode, kitty keyboard flags on the host side)
+- **alacritty_terminal 0.26** (embedded emulator) + **portable-pty**
+- `thiserror`/`anyhow` (anyhow only in `main.rs` and top-level subcommand entry points), `serde`/`serde_json`, `uuid`, `lexopt`, `ureq` (rustls, sync), `semver`, `rustix` — **12 crates**, `Cargo.lock` committed; no logging crate (`debug_log!` macro)
+- No async runtime; threads + `std::sync::mpsc`; one PTY writer thread per session
 
-## Planned Structure
+## Module layout
 
 ```
-main.go, version.go          # Version via -ldflags (as bungkus-cli)
-cmd/                         # root (TUI), hook, setup, update
-internal/theme/              # Daun Pisang palette, icons, styles (shareable file)
-internal/tui/                # tea.Model, keymap.go (single source of keys/help), panes, golden tests
-internal/agent/              # Event, Adapter, state machine; claude.go, codex.go; testdata/ recorded hook payloads
-internal/term/               # pty + vt emulator session
-internal/ipc/                # unix socket server/client
-internal/store/              # XDG paths, config.json, sessions.json
-internal/workspace/          # project dir scan
+src/main.rs        # lexopt → subcommand (TUI, hook, statusline, update); anyhow only here; panic hook restores the terminal
+src/app/           # event loop + Model (Elm-style): mode/focus, sessions, dirty flag, ticks, AppEvent
+src/ui/            # panes, dialogs, first run, keymap.rs, theme.rs (token spec), mascot.rs, string sanitise
+src/term/          # session.rs (PTY + Term + reader/waiter threads), keys.rs (encoder), query replies
+src/agent/         # Event/Usage/Adapter, claude.rs, codex.rs, codex_usage.rs (the one transcript reader); testdata/
+src/ipc/           # unix socket server; hook.rs / statusline.rs subcommands
+src/proc/          # descendant scan (/proc + pidfd, ps), lsof ports, kill + keep rule
+src/route/         # TypeSafe Jev tier → model id (opt-in)
+src/store/         # XDG paths, config.json, sessions.json, consent.json
+src/update/        # release check + `update` (port of bungkus-cli's updater)
+src/workspace.rs   # project dir scan
 ```
 
 ## Key Decisions (don't relitigate without reading the docs)
 
-- Live pane = PTY + VT emulator. Structure = agent hooks → `bungkus-mcc hook` → unix socket. **Never parse agent transcripts** (formats are vendor-internal).
-- Claude hooks are injected per session with `--settings`; Codex hooks via one-time `setup codex` into `~/.codex/hooks.json`.
-- Quitting mcc stops sessions (confirm dialog); they are resumable (`claude --resume` / `codex resume`). No daemon in stage 1.
-- Modes: NORMAL (vim + arrows) and INTERACT (keys go to the agent); exit chord is `ctrl-\`. All keys live in `internal/tui/keymap.go`.
-- Separate repo and binary from bungkus-cli; shared code is copied (theme, updater, installer, workflows), not a shared module, until a third product exists.
-- Seven direct deps. Adding one requires a TECH_STACK.md entry.
+- **Rust, not Go** (owner, M0 spike: 12× faster on heavy output, 1.2 MB binary, a maintained emulator crate on crates.io). bungkus-cli stays Go.
+- Live pane = PTY + `alacritty_terminal` advanced on the UI thread (M3 re-times the flood cases; pump-thread fallback); per session a bounded reader thread, a **writer thread** that owns the PTY writer (the UI thread only sends), and a waiter (exit on reader EOF or 500 ms after `wait`); query replies (DSR/DA/OSC 10/11 from the theme, CSI 14 t; 18 t is alacritty's); `kitty_keyboard: true` + our own encoder (`term/keys.rs`) incl. kitty CSI-u toward the agent (M3); sync-update deadline + `stop_sync`; mouse forwarded when the agent enabled it; EIO after child exit ignored. **Focusing the output pane is INTERACT** (full passthrough); `ctrl-\` returns to the sessions pane.
+- Structure = agent hooks → `bungkus-mc hook` → unix socket. Usage = Claude status line → `bungkus-mc statusline` (forwards within 200 ms, then runs the user's own status line under `sh`). **Never parse agent transcripts — except `agent/codex_usage.rs`** (`token_count` records only, owner-approved).
+- Render on a dirty flag or the 350 ms animation tick, never on a fixed timer.
+- Child env: `TERM`/`COLORTERM` set; host-terminal identity vars, `TYPESAFE_API_KEY` and the Claude/Codex **session-marker** vars (`CLAUDECODE`, `CLAUDE_CODE_CHILD_SESSION`, …, see ARCHITECTURE §3.1) unset; `CLAUDE_CONFIG_DIR`/`CODEX_HOME` kept.
+- Quit and `x` also stop observed descendants (dev servers): 2 s scan, uid filter, pid + start-time identity (pidfd on Linux), `[stop]/[keep]` dialog with a default-keep list, SIGTERM → 3 s → SIGKILL; never by port; a user stop yields `stopped`.
+- States: running / your turn / needs you / failed / wrapped / stopped; `background_tasks` authoritative; `idle_prompt` ignored; sidebar badge precedence failed > needs you > your turn, spinner for working.
+- Middle pane = selected project's sessions; `!` jumps across projects. Card title = the session's own name. Projects = child folders containing `CLAUDE.md`, `AGENTS.md` or `.git`.
+- Palette: painted low-saturation green at TrueColor only (`background: paint`), terminal bg/fg + declared `Color::Indexed` values otherwise; the DESIGN §2 tables are the spec shared with bungkus-cli, guarded by a token-table test in each repo. Default icon set ASCII; every state is glyph + word + colour.
+- Mascot (banana-leaf packet, Figma poses): 16×14 / 8×6 half-block sprites, died for anything failed; never over agent output. Screens ≥ 120×36: a 3-row strip at the top of the output pane with the mini mascot at its right (mood of the selected session; click → hop + random quote bubble); no session: the big empty-state mascot. Smaller: corner of the output pane by mood and busyness.
+- Routing (TypeSafe Jev) opt-in, `n` start prompt only, secret-shape guard, consent in `consent.json`, key from env or a once-per-process command; M9 / v0.2.0.
+- No daemon, no async runtime, no `unsafe` (rustix; no `pre_exec`/`setsid` — child processes use `process_group(0)`), 12 crates. Adding one requires a TECH_STACK.md entry.
 
-## Build, Run, Test (once code exists)
+## Build, Run, Test
 
 ```bash
-go build -o bungkus-mcc .
-go run .                      # TUI
-go test ./...                 # includes teatest goldens; -update to regenerate
+cargo build --release                 # target/release/bungkus-mc
+cargo run -- ~/Works                  # TUI with a workspace
+cargo run -- hook < payload.json      # the silent hook subcommand
+UPDATE_GOLDEN=1 cargo test            # regenerate rendering goldens on purpose
+```
+
+CI (all must pass with no warnings):
+
+```bash
+cargo fmt --all --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-features
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
+cargo deny check
 ```
 
 ## Conventions
 
-- Conventional commits (`feat:`, `fix:`, `test:`, `chore:`, `docs:`); semantic-release: `main` = canary, `release` = stable (merge commit, never squash the promotion PR)
+- Conventional commits (`feat:`, `fix:`, `test:`, `chore:`, `docs:`); `main` = canary, `release` = stable via `git-pr-release` release PRs; bump `version` in `Cargo.toml` in the release PR (merge commit, never squash the promotion PR)
 - Branch naming: `i{issue#}-{date}-{seq}` (e.g. `i12-20261007-0930`)
-- GitHub repo: `osbrjp/bungkus-mcc`
-- Tests next to code, table-driven; views have goldens at 120×40 and 80×24 with `NO_COLOR=1 --icons ascii`
-- No shell in `exec`; no raw agent bytes to stdout; no secrets persisted (see `docs/SECURITY.md`)
-- Every state has glyph + word + color; every vim key has an arrow twin
+- Licence: proprietary (`LICENSE`, `publish = false`); never add code under a non-permissive licence.
+- GitHub repo: `osbrjp/bungkus-mc`; binary `bungkus-mc`, short command `bkmc`
+- Tests in `#[cfg(test)]` modules next to the code, table-driven; recorded hook payloads and `ps` output in `testdata/`; goldens are plain text + cursor at 120×40 and 80×24 with `NO_COLOR=1` and the ascii default
+- Doc comments carry the documentation (skill §2); no agent chatter in comments
+- No shell in `Command` for anything mc decides; no raw agent bytes to stdout; no secrets persisted; no `unsafe` (see `docs/SECURITY.md`)

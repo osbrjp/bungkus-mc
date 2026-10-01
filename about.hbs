@@ -1,0 +1,13 @@
+THIRD-PARTY NOTICES
+
+bungkus-mc includes the following open-source components. Each is listed
+with the crates that use it and the full licence text.
+{{#each licenses}}
+
+========================================================================
+{{name}} ({{id}})
+Used by: {{#each used_by}}{{crate.name}} {{crate.version}}{{#unless @last}}, {{/unless}}{{/each}}
+========================================================================
+
+{{text}}
+{{/each}}

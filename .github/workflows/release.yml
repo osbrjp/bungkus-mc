@@ -1,0 +1,126 @@
+name: Release
+# A release PR (main -> release, opened by prepare-release.yml) merged into
+# `release` builds the four binaries and publishes them as v<Cargo.toml
+# version>, with checksums.txt, install.sh and THIRD-PARTY-NOTICES, then
+# announces it on Slack (skipped while SLACK_WEBHOOK_URL is unset).
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - release
+permissions:
+  contents: read
+
+jobs:
+  version:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: release
+      - id: tag
+        name: Tag from Cargo.toml
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="v$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::$tag is already released; bump version in Cargo.toml in the release PR"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: version
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { runner: macos-latest, target: aarch64-apple-darwin, asset: bungkus-mc-darwin-arm64 }
+          - { runner: macos-latest, target: x86_64-apple-darwin, asset: bungkus-mc-darwin-amd64 }
+          - { runner: ubuntu-latest, target: x86_64-unknown-linux-gnu, asset: bungkus-mc-linux-amd64 }
+          - { runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, asset: bungkus-mc-linux-arm64 }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: release
+      - run: rustup target add ${{ matrix.target }}
+      - run: cargo build --release --locked --target ${{ matrix.target }}
+      - run: cp target/${{ matrix.target }}/release/bungkus-mc ${{ matrix.asset }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+
+  publish:
+    needs: [version, build]
+    permissions:
+      contents: write
+      pull-requests: write
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.version.outputs.tag }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: release
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Third-party notices
+        run: |
+          cargo install --locked cargo-about --features cli
+          cargo about generate about.hbs > dist/THIRD-PARTY-NOTICES
+      - name: Checksums and installer
+        run: |
+          cp install.sh dist/
+          cd dist && sha256sum bungkus-mc-* > checksums.txt
+      - uses: release-drafter/release-drafter@v7
+        with:
+          config-name: ./release-drafter-config.yml
+          tag: ${{ needs.version.outputs.tag }}
+          name: ${{ needs.version.outputs.tag }}
+          version: ${{ needs.version.outputs.tag }}
+          publish: true
+      - name: Upload assets
+        run: gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+
+
+  # Slack, as in bungkus-cli: the release title and notes to
+  # SLACK_WEBHOOK_URL. Skipped while the secret is unset.
+  announce:
+    needs: [version, publish]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post release announcement
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          REPO: ${{ github.repository }}
+          NAME: ${{ github.event.repository.name }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "SLACK_WEBHOOK_URL not set — skipping Slack announcement"
+            exit 0
+          fi
+
+          title=$(gh release view "$TAG" --repo "$REPO" --json name --jq '.name // ""')
+          body=$(gh release view "$TAG" --repo "$REPO" --json body --jq '.body // ""')
+          url=$(gh release view "$TAG" --repo "$REPO" --json url --jq '.url')
+
+          header="*${NAME}@${TAG}*"
+          if [ -n "$title" ] && [ "$title" != "$TAG" ]; then
+            header="${header} — ${title}"
+          fi
+          install='`curl -fsSL https://raw.githubusercontent.com/osbrjp/bungkus-mc/main/install.sh | bash`'
+          text="${header}"$'\n\n'"${body}"$'\n\n'"${install}"$'\n'"<${url}|View release>"
+
+          jq -n --arg t "$text" '{text: $t}' \
+            | curl -sSf -X POST -H 'Content-type: application/json' --data @- "$SLACK_WEBHOOK_URL"

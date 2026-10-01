@@ -1,0 +1,41 @@
+ bungkus-mc  ~/Works/OSBR › kedai-web                                                     ! 1 needs you · v0.1.0-beta.1
+┌ [1] projects ──────┐┏ [2] sessions · kedai-web ━━━━━━━━━━┓┌ [3] output · C #a3f1 · sl-test ──────────────────────────┐
+│ / search           │┃>┃! C #a3f1 sl-test               0m┃│                                                   ▄██▄   │
+│:  1 kedai-web  ! 1 │┃ ┃  needs you · permission: Agent   ┃│                                                 ▄██████▄ │
+│   2 pasar-mobile   │┃ ┃  tokens   in 45k · out 140       ┃│                                                   ▀  ▀   │
+│   3 roti-docs      │┃ ┃  cache    read 30k · write 15k   ┃│                                                          │
+│   4 teh-cli        │┃ ┃  cost     $0.04 (list price)     ┃│                                                          │
+│   5 warung-api     │┃ ┃  context  23% of 200k · 45k used ┃│                                                          │
+│                    │┃ ┃  limits   5h 6% · 7d 18%         ┃│                                                          │
+│                    │┃ ┃  * say hi                    | 0m┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃  ~ C #a3f2 seo audit      your turn┃│                                                          │
+│                    │┃    done: "Three fixes, see above"  ┃│                                                          │
+│                    │┃    - tok · - · ctx -               ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                   Warming up the wok…                    │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
+└────────────────────┘┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛└──────────────────────────────────────────────────────────┘
+ NORMAL  enter → agent · n new · x stop · ? keys                                           C 5h #---- 6% · 7d #---- 18%
+cursor: hidden
