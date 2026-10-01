@@ -77,6 +77,7 @@ below it as a branch: `├ i746` under `nrha-timii`.
 | `/` | search projects (`↑` `↓` pick, `enter` open, `esc` clear) |
 | `1`–`9` | jump to project N; type the next digit quickly for two digits (`1` `6` → 16) |
 | `,` · `w` | settings · workspace |
+| `ctrl-j` `ctrl-k` · `ctrl-n` `ctrl-p` | down · up in every dialog, list and the `/` search (same as `↓` `↑`) |
 | `?` · `space` | key menu: every key for the pane; press one to run it |
 | `q` | quit (stops sessions and what they started, after a confirm) |
 

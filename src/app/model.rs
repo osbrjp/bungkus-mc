@@ -246,6 +246,26 @@ pub(crate) struct Model {
     pub elsewhere: Project,
 }
 
+/// Returns `key` with the list-navigation chords every dialog accepts
+/// turned into arrows: `ctrl-j`/`ctrl-n` are `↓`, `ctrl-k`/`ctrl-p` are
+/// `↑` (vim and readline habits), so each dialog only handles arrows.
+#[must_use]
+pub(crate) fn nav_alias(key: KeyEvent) -> KeyEvent {
+    if key.modifiers != KeyModifiers::CONTROL {
+        return key;
+    }
+    let code = match key.code {
+        KeyCode::Char('j' | 'n') => KeyCode::Down,
+        KeyCode::Char('k' | 'p') => KeyCode::Up,
+        _ => return key,
+    };
+    KeyEvent {
+        code,
+        modifiers: KeyModifiers::NONE,
+        ..key
+    }
+}
+
 impl Model {
     /// Creates a model with no settings applied yet.
     ///
@@ -719,10 +739,10 @@ impl Model {
         }
         self.message = None;
         if let Some(overlay) = self.overlay.take() {
-            return self.overlay_key(overlay, key);
+            return self.overlay_key(overlay, nav_alias(key));
         }
         if self.filtering {
-            self.filter_key(key);
+            self.filter_key(nav_alias(key));
             return None;
         }
         if self.visual.is_some() && self.focus == Focus::Projects {
@@ -825,7 +845,12 @@ impl Model {
             Overlay::ResumeAgent(kind) => match key.code {
                 KeyCode::Enter => self.pick_past(kind),
                 KeyCode::Esc => None,
-                KeyCode::Left | KeyCode::Right | KeyCode::Char('h' | 'l') | KeyCode::Tab => {
+                KeyCode::Left
+                | KeyCode::Right
+                | KeyCode::Up
+                | KeyCode::Down
+                | KeyCode::Char('h' | 'l')
+                | KeyCode::Tab => {
                     let other = match kind {
                         Kind::Claude => Kind::Codex,
                         Kind::Codex => Kind::Claude,
@@ -1564,6 +1589,34 @@ pub(crate) mod tests {
             (None, 1),
             "esc only closes"
         );
+    }
+
+    #[test]
+    fn ctrl_j_k_n_p_move_in_every_dialog_and_the_search() {
+        let ctrl = |ch| {
+            AppEvent::Input(Event::Key(KeyEvent::new(
+                KeyCode::Char(ch),
+                KeyModifiers::CONTROL,
+            )))
+        };
+        let mut m = sample(&["kedai", "kopi", "roti"]);
+        m.update(press(KeyCode::Char('n')));
+        let row = |m: &Model| match &m.overlay {
+            Some(Overlay::Picker(p)) => p.row,
+            other => panic!("picker: {other:?}"),
+        };
+        let first = row(&m);
+        m.update(ctrl('j'));
+        assert_ne!(row(&m), first, "ctrl-j moves down in the n picker");
+        m.update(ctrl('k'));
+        assert_eq!(row(&m), first, "ctrl-k moves back up");
+        m.update(press(KeyCode::Esc));
+        m.update(press(KeyCode::Char('/')));
+        m.update(press(KeyCode::Char('k')));
+        m.update(ctrl('n'));
+        assert_eq!(m.selected, 1, "ctrl-n moves through the search matches");
+        m.update(ctrl('p'));
+        assert_eq!(m.selected, 0);
     }
 
     #[test]
