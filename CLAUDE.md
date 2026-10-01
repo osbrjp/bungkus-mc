@@ -38,12 +38,13 @@ src/main.rs        # lexopt → subcommand (TUI, hook, statusline, update); anyh
 src/app/           # event loop + Model (Elm-style): mode/focus, sessions, dirty flag, ticks, AppEvent; diff.rs (the `D` changes popup)
 src/ui/            # panes, dialogs, first run, keymap.rs, theme.rs (token spec), mascot.rs, string sanitise
 src/term/          # session.rs (PTY + Term + reader/waiter threads), keys.rs (encoder), query replies
-src/agent/         # Event/Usage/Adapter, claude.rs, codex.rs, pi.rs + bundled extension, codex_usage.rs (the one transcript reader), mcp.rs; testdata/
-src/ipc/           # unix socket server; hook.rs / pi_hook.rs / statusline.rs subcommands
+src/agent/         # Kind/Launch/argv, usage.rs (Usage), claude.rs, codex.rs, pi.rs + bundled extension, codex_usage.rs (the one transcript reader), mcp.rs; testdata/
+src/ipc/           # unix socket server; hook.rs / pi_hook.rs / statusline.rs subcommands; wire types (HookEvent, Wire)
 src/proc/          # descendant scan (/proc + pidfd, ps), lsof ports, kill + keep rule
-src/route/         # TypeSafe Jev tier → model id (opt-in)
+src/route/         # TypeSafe Jev tier → model id (opt-in; M9, not built yet)
 src/store/         # XDG paths, config.json, sessions.json, consent.json
-src/update/        # release check + `update` (port of bungkus-cli's updater)
+src/update.rs      # release check + `update` (follows bungkus-cli's updater: `curl` lookup, then `install.sh`)
+src/external.rs    # agent sessions running outside mc, shown read-only
 src/workspace.rs   # project dir scan
 ```
 

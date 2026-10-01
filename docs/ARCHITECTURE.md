@@ -1056,16 +1056,17 @@ name. No recursion, no project file.
 Cargo.toml, Cargo.lock, rust-toolchain.toml (stable 1.97), rustfmt.toml, clippy.toml, deny.toml
 src/
   main.rs            # lexopt parsing → subcommand; anyhow at this level only; panic hook restores the terminal
-  app/               # the event loop and Model: mode/focus, sessions, dirty flag, ticks, AppEvent
+  app.rs, app/       # the event loop and Model: mode/focus, sessions, dirty flag, ticks, AppEvent
   ui/                # panes, dialogs, first run, keymap.rs (single source of keys/help), theme.rs (token spec impl),
                      # mascot.rs (pixel maps, frames, moods), sanitise.rs (the one string sanitiser)
-  term/              # session.rs (PTY + Term + reader/writer/waiter threads), keys.rs (encoder, from the spike), replies.rs (OSC 10/11, CSI 14 t)
-  agent/             # mod.rs (Kind, Launch, argv), usage.rs (Usage), claude.rs, codex.rs, codex_usage.rs, mcp.rs; testdata/{claude,codex}/
+  term/              # session.rs (PTY + Term + reader/writer/waiter threads; query replies OSC 10/11, CSI 14 t), keys.rs (encoder, from the spike), screen.rs (cell allowlist → ratatui buffer)
+  agent/             # mod.rs (Kind, Launch, argv), usage.rs (Usage), claude.rs, codex.rs, pi.rs + pi-extension.js, codex_usage.rs, mcp.rs; testdata/{claude,codex,pi}/
   ipc/               # server.rs (UnixListener), hook.rs and statusline.rs (the silent subcommands), wire types
-  proc/              # scan (linux.rs: /proc + pidfd; macos.rs: ps), ports.rs (lsof), kill.rs, keep rule
-  route/             # Jev tier judgement → model id, key runner, secret-shape guard, consent
-  store/             # paths (XDG), config.rs, state.rs (atomic writes), consent, debug.rs (the ~20-line debug_log! macro → 0600 file under --debug)
-  update/            # release check + `update` subcommand (port of bungkus-cli's ~150 lines)
+  proc/              # mod.rs (scan: /proc on Linux, ps on macOS), ports.rs (lsof), kill.rs, keep rule
+  route/             # M9, not built yet: Jev tier judgement → model id, key runner, secret-shape guard, consent
+  store/             # mod.rs (XDG paths, atomic writes), config.rs, state.rs (sessions.json, limits.json), debug.rs (the ~20-line debug_log! macro → 0600 file under --debug)
+  update.rs          # release check + `update` subcommand (follows bungkus-cli's updater: `curl` lookup, then `install.sh`)
+  external.rs        # agent sessions running outside mc, shown read-only (§3.4)
   workspace.rs       # project dir scan
 install.sh           # bungkus-cli's script, REPO/BIN_NAME changed
 ```
