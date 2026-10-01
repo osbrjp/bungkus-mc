@@ -1,13 +1,13 @@
-                                                                                                                 ▄██▄
- bungkus-mc  ~/Works/OSBR › kedai-web                                                                v0.1.0    ▄██████▄
-                                                                                                                 ▀  ▀
-┏ projects ━━━━━━━━━━┓┌ sessions · kedai-web ──────────────┐┌ output ──────────────────────────────────────────────────┐
+ bungkus-mc  ~/Works/OSBR › kedai-web                                                                     v0.1.0-beta.1
+┏ [1] projects ━━━━━━┓┌ [2] sessions · kedai-web ──────────┐┌ [3] output ──────────────────────────────────────────────┐
 ┃ / search           ┃│ No sessions in kedai-web. n to     ││                                                          │
 ┃>  1 kedai-web      ┃│ start one.                         ││                                                          │
 ┃   2 pasar-mobile   ┃│                                    ││                                                          │
 ┃   3 roti-docs      ┃│                                    ││                                                          │
 ┃   4 teh-cli        ┃│                                    ││                                                          │
 ┃   5 warung-api     ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
+┃                    ┃│                                    ││                                                          │
 ┃                    ╔ keys · projects pane ══════════════════════════════════════════════════════╗                    │
 ┃                    ║                                                                            ║                    │
 ┃                    ║  enter                its sessions    n                    new session     ║                    │
@@ -18,11 +18,11 @@
 ┃                    ║  j ↓                  down            k ↑                  up              ║                    │
 ┃                    ║  gg home              first           G end                last            ║                    │
 ┃                    ║  ctrl-d pgdn          half page down  ctrl-u pgup          half page up    ║                    │
-┃                    ║  ! ctrl-]             next needs you  z                    zoom output     ║.                   │
-┃                    ║  /                    search projects 1-9                  jump to project ║n                   │
+┃                    ║  ! ctrl-]             next needs you  z                    zoom output     ║                    │
+┃                    ║  /                    search projects 1-9                  jump to project ║                    │
 ┃                    ║  N                    quick session   cmd/alt-1            projects pane   ║                    │
-┃                    ║  cmd/alt-2            sessions pane   cmd/alt-3            output pane     ║                    │
-┃                    ║  w                    workspace       ,                    settings        ║                    │
+┃                    ║  cmd/alt-2            sessions pane   cmd/alt-3            output pane     ║.                   │
+┃                    ║  w                    workspace       ,                    settings        ║n                   │
 ┃                    ║  R                    redraw          ?                    this help       ║                    │
 ┃                    ║  q ctrl-c             quit                                                 ║                    │
 ┃                    ║                                                                            ║                    │

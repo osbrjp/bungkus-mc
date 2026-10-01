@@ -12,8 +12,8 @@ small Rust binary, no daemon.
 It is a sibling of [bungkus-cli](https://github.com/osbrjp/bungkus-cli)
 and shares its release pipeline and the "Daun Pisang" design language.
 
-**Status:** milestones M1–M8 are built (v0.1.0 candidate). Model routing
-(M9) is not.
+**Status:** beta (`0.1.0-beta.1`): milestones M1–M8 are built; model
+routing (M9) is not.
 
 ## Install
 

@@ -131,7 +131,12 @@ jobs:
             if npm view "$name@$version" version >/dev/null 2>&1; then
               echo "$name@$version already published"
             else
-              npm publish "$tgz" --access public
+              # A prerelease (0.1.0-beta.1) goes out under the beta dist-tag,
+              # so `npm i -g @osbrjp/bungkus-mc` keeps the last stable.
+              case "$version" in
+                *-*) npm publish "$tgz" --access public --tag beta ;;
+                *) npm publish "$tgz" --access public ;;
+              esac
             fi
           done
 
