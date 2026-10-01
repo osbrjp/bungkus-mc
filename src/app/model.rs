@@ -136,6 +136,10 @@ pub(crate) enum Cmd {
 
 /// Everything the screen shows.
 #[derive(Debug)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "independent view flags of the one app model, not a state machine"
+)]
 pub(crate) struct Model {
     /// Colours for the applied settings.
     pub theme: Theme,
@@ -206,6 +210,9 @@ pub(crate) struct Model {
     pub state_dirty: bool,
     /// Agent sessions running outside mc, read-only (ARCHITECTURE §3.4).
     pub external: Vec<External>,
+    /// Shows every key mc receives in the hint line (`BUNGKUS_MC_DEBUG_KEYS`),
+    /// to find chords a terminal keeps for itself.
+    pub debug_keys: bool,
     /// The quick session whose popup shows (keys go to it).
     pub popup: Option<SessionId>,
     /// The `quick` row that leads the projects list while quick sessions
@@ -271,6 +278,7 @@ impl Model {
             external: Vec::new(),
             poke: None,
             popup: None,
+            debug_keys: false,
             quick_row: Project {
                 name: "quick".into(),
                 path: PathBuf::new(),
@@ -551,7 +559,11 @@ impl Model {
                 }
             }
             AppEvent::Input(Event::Key(key)) if key.kind != KeyEventKind::Release => {
-                return self.key(key);
+                let cmd = self.key(key);
+                if self.debug_keys {
+                    self.message = Some(format!("key: {:?} + {:?}", key.code, key.modifiers));
+                }
+                return cmd;
             }
             AppEvent::Input(Event::Paste(text)) => self.paste(&text),
             AppEvent::Input(Event::Mouse(mouse)) => return self.mouse(mouse),

@@ -152,7 +152,7 @@ pub(crate) const BINDINGS: &[Binding] = &[
         label: "enter l → tab",
         action: Action::Interact,
         help: "→ agent",
-        hint: Some("enter → agent (ctrl-\\ back)"),
+        hint: Some("enter → agent"),
         scope: Scope::Sessions,
     },
     Binding {
@@ -192,7 +192,7 @@ pub(crate) const BINDINGS: &[Binding] = &[
         label: "r",
         action: Action::Resume,
         help: "resume · past",
-        hint: None,
+        hint: Some("r resume"),
         scope: Scope::Sessions,
     },
     Binding {
@@ -200,7 +200,7 @@ pub(crate) const BINDINGS: &[Binding] = &[
         label: "r",
         action: Action::Resume,
         help: "past sessions",
-        hint: None,
+        hint: Some("r past"),
         scope: Scope::Projects,
     },
     Binding {
@@ -237,7 +237,7 @@ pub(crate) const BINDINGS: &[Binding] = &[
         label: "j ↓",
         action: Action::Down,
         help: "down",
-        hint: Some("j/k"),
+        hint: None,
         scope: Scope::Global,
     },
     Binding {
@@ -293,7 +293,7 @@ pub(crate) const BINDINGS: &[Binding] = &[
         label: "! ctrl-]",
         action: Action::NextNeedsYou,
         help: "next needs you",
-        hint: Some("! next"),
+        hint: None,
         scope: Scope::Global,
     },
     Binding {
@@ -309,7 +309,7 @@ pub(crate) const BINDINGS: &[Binding] = &[
         label: "/",
         action: Action::Filter,
         help: "search projects",
-        hint: None,
+        hint: Some("/ search"),
         scope: Scope::Global,
     },
     Binding {
@@ -336,7 +336,7 @@ pub(crate) const BINDINGS: &[Binding] = &[
         label: "N",
         action: Action::QuickSession,
         help: "quick session",
-        hint: None,
+        hint: Some("N quick"),
         scope: Scope::Global,
     },
     Binding {

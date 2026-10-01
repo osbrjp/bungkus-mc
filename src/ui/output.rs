@@ -183,11 +183,21 @@ fn default_colors(theme: Theme) -> (Color, Color) {
     }
 }
 
-/// Draws the line shown before the first output, or why nothing runs.
+/// Draws the line shown before the first output, or, for a session that
+/// has ended with nothing on screen (one restored from `sessions.json`),
+/// how to resume or forget it.
 fn draw_message(frame: &mut Frame, inner: Rect, card: &Card, theme: Theme) {
     let (text, token) = match &card.state {
-        State::Failed(reason) => (reason.clone(), Token::Err),
-        State::Working | State::YourTurn | State::NeedsYou | State::Stopped | State::Wrapped => {
+        State::Failed(reason) => (format!("{reason} · r retries · d forgets"), Token::Err),
+        State::Stopped => (
+            "Stopped. r resumes it · d forgets it".to_owned(),
+            Token::FgMuted,
+        ),
+        State::Wrapped => (
+            "Wrapped. r resumes it · d forgets it".to_owned(),
+            Token::FgMuted,
+        ),
+        State::Working | State::YourTurn | State::NeedsYou => {
             ("Warming up the wok…".to_owned(), Token::FgMuted)
         }
     };

@@ -37,5 +37,5 @@
 ┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │
 ┗━━━━━━━━━━━━━━━━━━━━┛└────────────────────────────────────┘└──────────────────────────────────────────────────────────┘
- NORMAL  enter → sessions · n new · j/k · ! next · ? help
+ NORMAL  enter → sessions · n new · r past · / search · N quick · ? help
 cursor: hidden
