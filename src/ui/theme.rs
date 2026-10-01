@@ -267,30 +267,23 @@ impl Theme {
         )
     }
 
-    /// Returns the agent's mark (DESIGN §5.2): Claude's starburst `✻` and
-    /// Codex's hexagon `⬡` on a UTF-8 terminal, else `C` and `X`. Neither
-    /// logo exists in Nerd Fonts, so these are the closest plain glyphs.
-    #[must_use]
-    pub(crate) const fn agent_mark(self, kind: crate::agent::Kind) -> char {
-        match (kind, self.utf8) {
-            (crate::agent::Kind::Claude, true) => '✻',
-            (crate::agent::Kind::Codex, true) => '⬡',
-            (kind, false) => kind.badge(),
-        }
-    }
-
-    /// Returns the agent mark's colour: Claude's orange (`#d97757`, index
-    /// 173 at 256 colours), Codex in the text colour, nothing under
-    /// `NO_COLOR`.
+    /// Returns the agent mark's colour, bold: Claude's orange (`#d97757`,
+    /// 256-index 173, yellow at 16 colours) and Codex's green (`#10a37f`,
+    /// 256-index 36, cyan at 16); plain bold under `NO_COLOR`.
     #[must_use]
     pub(crate) const fn agent_style(self, kind: crate::agent::Kind) -> ratatui::style::Style {
+        use crate::agent::Kind::{Claude, Codex};
+        let bold = ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::BOLD);
         let color = match (kind, self.profile) {
-            (_, Profile::NoColor) | (crate::agent::Kind::Codex, _) => return self.fg(Token::Fg),
-            (crate::agent::Kind::Claude, Profile::TrueColor) => rgb(0xd9_7757),
-            (crate::agent::Kind::Claude, Profile::Ansi256) => Color::Indexed(173),
-            (crate::agent::Kind::Claude, Profile::Ansi16) => Color::Indexed(3),
+            (_, Profile::NoColor) => return bold,
+            (Claude, Profile::TrueColor) => rgb(0xd9_7757),
+            (Codex, Profile::TrueColor) => rgb(0x10_a37f),
+            (Claude, Profile::Ansi256) => Color::Indexed(173),
+            (Codex, Profile::Ansi256) => Color::Indexed(36),
+            (Claude, Profile::Ansi16) => Color::Indexed(3),
+            (Codex, Profile::Ansi16) => Color::Indexed(6),
         };
-        ratatui::style::Style::new().fg(color)
+        bold.fg(color)
     }
 
     /// Returns whether colour and motion are off (`NO_COLOR`).
