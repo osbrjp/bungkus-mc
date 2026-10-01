@@ -574,9 +574,27 @@ fn apply(model: &mut Model, env: &Env, settings: config::Settings) {
     model.remember_workspace(&settings.workspace);
     save_workspaces(model, env);
     model.apply(settings, scan, &env.cwd);
+    recolour(model);
+}
+
+/// Points running sessions at the theme now in effect: the OSC 10/11
+/// answers, and for Claude a colour-scheme report (`CSI ? 997 ; 1 n` dark,
+/// `2 n` light) so its `auto` theme follows without a restart. The
+/// emulator does not track mode 2031, so the report is sent unasked;
+/// Claude parses it either way.
+fn recolour(model: &mut Model) {
     let colors = colors(model.theme);
-    for pty in model.cards.iter_mut().filter_map(|c| c.pty.as_mut()) {
-        pty.set_colors(colors);
+    let report: &[u8] = match model.theme.name {
+        theme::ThemeName::Dark => b"\x1b[?997;1n",
+        theme::ThemeName::Light => b"\x1b[?997;2n",
+    };
+    for card in &model.cards {
+        if let Some(pty) = &card.pty {
+            pty.set_colors(colors);
+            if card.kind == Kind::Claude {
+                pty.send(report.to_vec());
+            }
+        }
     }
 }
 
@@ -1267,6 +1285,20 @@ mod tests {
         forget_worktree(&mut model, &repo, "mine");
         assert!(!left("mine"));
         std::fs::remove_dir_all(&repo).unwrap();
+    }
+
+    #[test]
+    fn a_theme_switch_reports_the_colour_scheme_to_claude() {
+        let mut model = crate::app::model::tests::sample(&["a"]);
+        let (_, writes) = crate::app::model::tests::with_session(&mut model, "s");
+        for (name, want) in [
+            (theme::ThemeName::Light, &b"\x1b[?997;2n"[..]),
+            (theme::ThemeName::Dark, &b"\x1b[?997;1n"[..]),
+        ] {
+            model.theme = model.theme.with_name(name);
+            recolour(&mut model);
+            assert_eq!(writes.try_recv().unwrap(), want);
+        }
     }
 
     #[test]
