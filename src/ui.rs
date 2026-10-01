@@ -170,6 +170,29 @@ pub(crate) fn panes(area: Rect, focus: Focus, zoom: bool, widths: Widths) -> Pan
     }
 }
 
+/// Returns the quick-session popup: centred, a fixed share of the screen
+/// (not draggable or resizable; issue #46).
+#[must_use]
+pub(crate) fn popup_rect(area: Rect) -> Rect {
+    let width = (area.width.saturating_sub(10))
+        .clamp(60, 120)
+        .min(area.width);
+    let height = (area.height.saturating_sub(6))
+        .clamp(16, 40)
+        .min(area.height);
+    centred(area, width, height)
+}
+
+/// Returns the PTY size of a quick session: the popup's inner size.
+#[must_use]
+pub(crate) fn popup_size(area: Rect) -> Size {
+    let popup = popup_rect(area);
+    Size {
+        cols: popup.width.saturating_sub(2).max(1),
+        rows: popup.height.saturating_sub(2).max(1),
+    }
+}
+
 /// Returns the output pane's inner size, which every session's PTY has
 /// (the size the pane has whenever it is shown).
 #[must_use]
@@ -233,6 +256,9 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
         output::draw(frame, rect, model, theme);
     }
     draw_getah(frame, getah, model, theme);
+    if model.popup.is_some() {
+        output::draw_popup(frame, popup_rect(area), model, theme);
+    }
     match &model.overlay {
         Some(Overlay::Help) => help::draw(frame, area, model.focus.scope(), theme),
         Some(Overlay::Form(f)) => form::draw_settings(frame, area, f, theme, model.host_light),
@@ -241,6 +267,7 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
         Some(Overlay::Forget(id)) => dialogs::draw_forget(frame, area, *id, model, theme),
         Some(Overlay::TakeOver(ext, _)) => dialogs::draw_take_over(frame, area, ext, theme),
         Some(Overlay::ResumeAgent(kind)) => dialogs::draw_resume_agent(frame, area, *kind, theme),
+        Some(Overlay::Move(dialog)) => dialogs::draw_move(frame, area, dialog, model, theme),
         None => {}
     }
 }
@@ -549,8 +576,10 @@ fn truncate_start(s: &str, max: usize) -> String {
 /// Draws the last line: the mode word as a badge, then the focused pane's
 /// key hints or the current message (DESIGN §5.1).
 fn draw_getah(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
-    let interact = model.focus == Focus::Output;
-    let (mode, token) = if interact {
+    let interact = model.focus == Focus::Output || model.popup.is_some();
+    let (mode, token) = if model.popup.is_some() {
+        (" QUICK ", Token::Warn)
+    } else if interact {
         (" INTERACT ", Token::Warn)
     } else if model.filtering {
         (" FILTER ", Token::Info)
@@ -559,6 +588,16 @@ fn draw_getah(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
     };
     let text = if let Some(message) = &model.message {
         message.clone()
+    } else if let Some(id) = model.popup {
+        let agent = model
+            .cards
+            .iter()
+            .find(|c| c.id == id)
+            .map_or("the agent", |c| c.kind.command());
+        format!(
+            "keys go to {agent} · {} hide · then m move it to a project, p make one",
+            model.exit_chord.label()
+        )
     } else if interact {
         let agent = model
             .selected_card()

@@ -42,6 +42,12 @@ pub(crate) enum Action {
     /// Jump to a project by its number (digits; two when there are more
     /// than nine projects).
     Jump,
+    /// Start a quick session at the workspace root (a popup).
+    QuickSession,
+    /// Move the selected quick session into a project.
+    MoveQuick,
+    /// Make a new project for the selected quick session.
+    MakeProject,
     /// Focus pane 1, 2 or 3 (projects, sessions, output) with cmd, alt or
     /// ctrl plus the digit, whichever the terminal passes on.
     Pane(u8),
@@ -155,6 +161,22 @@ pub(crate) const BINDINGS: &[Binding] = &[
         action: Action::NewSession,
         help: "new session",
         hint: Some("n new"),
+        scope: Scope::Sessions,
+    },
+    Binding {
+        keys: &[c('m')],
+        label: "m",
+        action: Action::MoveQuick,
+        help: "quick → project",
+        hint: None,
+        scope: Scope::Sessions,
+    },
+    Binding {
+        keys: &[c('p')],
+        label: "p",
+        action: Action::MakeProject,
+        help: "quick → new project",
+        hint: None,
         scope: Scope::Sessions,
     },
     Binding {
@@ -306,6 +328,14 @@ pub(crate) const BINDINGS: &[Binding] = &[
         label: "1-9",
         action: Action::Jump,
         help: "jump to project",
+        hint: None,
+        scope: Scope::Global,
+    },
+    Binding {
+        keys: &[Key::Press(KeyCode::Char('N'), KeyModifiers::SHIFT), c('N')],
+        label: "N",
+        action: Action::QuickSession,
+        help: "quick session",
         hint: None,
         scope: Scope::Global,
     },

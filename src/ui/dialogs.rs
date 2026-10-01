@@ -319,3 +319,74 @@ pub(super) fn draw_resume_agent(frame: &mut Frame, area: Rect, kind: Kind, theme
     frame.render_widget(block, rect);
     frame.render_widget(Paragraph::new(lines), inner);
 }
+
+/// Draws the quick-session move dialog: the projects to move into, or the
+/// new project's name (issue #46).
+pub(super) fn draw_move(
+    frame: &mut Frame,
+    area: Rect,
+    dialog: &crate::app::quick::MoveDialog,
+    model: &Model,
+    theme: Theme,
+) {
+    use crate::app::quick::MoveDialog;
+    let (title, mut lines, hint) = match dialog {
+        MoveDialog::Pick { selected, .. } => {
+            let rows = usize::from(area.height.saturating_sub(10)).max(3);
+            let start = (selected + 1).saturating_sub(rows);
+            let lines: Vec<Line> = model
+                .projects
+                .iter()
+                .enumerate()
+                .skip(start)
+                .take(rows)
+                .map(|(i, p)| {
+                    if i == *selected {
+                        Line::styled(
+                            format!("  > {}", truncate(&p.name, 50)),
+                            bold_if(theme.fg(Token::Accent), true),
+                        )
+                    } else {
+                        Line::styled(
+                            format!("    {}", truncate(&p.name, 50)),
+                            theme.fg(Token::Fg),
+                        )
+                    }
+                })
+                .collect();
+            (
+                "move to project",
+                lines,
+                "↑↓ pick · enter move · esc cancel  ",
+            )
+        }
+        MoveDialog::Create { name, error, .. } => {
+            let mut lines = vec![
+                Line::styled(
+                    "  New project folder in the workspace:",
+                    theme.fg(Token::Fg),
+                ),
+                Line::styled(format!("  > {name}▏"), theme.fg(Token::Accent)),
+            ];
+            if let Some(e) = error {
+                lines.push(Line::styled(format!("  {e}"), theme.fg(Token::Err)));
+            } else {
+                lines.push(Line::styled(
+                    "  mc creates it, runs git init and moves the session there.",
+                    theme.fg(Token::FgMuted),
+                ));
+            }
+            ("new project", lines, "enter create · esc cancel  ")
+        }
+    };
+    lines.insert(0, Line::from(""));
+    lines.push(Line::from(""));
+    lines.push(Line::styled(hint, theme.fg(Token::FgMuted)).alignment(Alignment::Right));
+    let height = u16::try_from(lines.len() + 2).unwrap_or(u16::MAX);
+    let rect = centred(area, 64, height);
+    frame.render_widget(Clear, rect);
+    let block = dialog_block(title, theme);
+    let inner = block.inner(rect);
+    frame.render_widget(block, rect);
+    frame.render_widget(Paragraph::new(lines), inner);
+}

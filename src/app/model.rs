@@ -77,6 +77,8 @@ pub(crate) enum Overlay {
     TakeOver(External, Instant),
     /// Which agent's list of past sessions `r` opens.
     ResumeAgent(Kind),
+    /// Moving a quick session into a project, or a new one.
+    Move(crate::app::quick::MoveDialog),
 }
 
 /// A session the loop must start.
@@ -122,6 +124,9 @@ pub(crate) enum Cmd {
     Scan,
     /// Write the dragged pane widths to `config.json`.
     SaveWidths(crate::ui::Widths),
+    /// Create this project folder (`git init`), then move quick session
+    /// `SessionId` into it.
+    CreateProject(SessionId, PathBuf),
 }
 
 /// Everything the screen shows.
@@ -196,6 +201,11 @@ pub(crate) struct Model {
     pub state_dirty: bool,
     /// Agent sessions running outside mc, read-only (ARCHITECTURE §3.4).
     pub external: Vec<External>,
+    /// The quick session whose popup shows (keys go to it).
+    pub popup: Option<SessionId>,
+    /// The `quick` row that leads the projects list while quick sessions
+    /// exist; its path is the workspace root.
+    pub quick_row: Project,
     /// When the band mascot was last clicked and which quote it says.
     pub poke: Option<(Instant, usize)>,
     /// The "elsewhere" row that ends the projects list while an outside
@@ -255,6 +265,12 @@ impl Model {
             state_dirty: false,
             external: Vec::new(),
             poke: None,
+            popup: None,
+            quick_row: Project {
+                name: "quick".into(),
+                path: PathBuf::new(),
+                worktree_of: None,
+            },
             elsewhere: Project {
                 name: "elsewhere".into(),
                 path: PathBuf::new(),
@@ -280,8 +296,14 @@ impl Model {
     pub(crate) fn visible(&self) -> Vec<&Project> {
         let needle = self.filter.to_lowercase();
         let elsewhere = (!self.external_in(Path::new("")).is_empty()).then_some(&self.elsewhere);
-        self.projects
+        let quick = self
+            .cards
             .iter()
+            .any(|c| self.is_quick(c))
+            .then_some(&self.quick_row);
+        quick
+            .into_iter()
+            .chain(&self.projects)
             .chain(elsewhere)
             .filter(|p| p.name.to_lowercase().contains(&needle))
             .collect()
@@ -307,6 +329,9 @@ impl Model {
     /// descendant's pid, or by the agent's session id.
     #[must_use]
     pub(crate) fn external_in(&self, project: &Path) -> Vec<&External> {
+        if self.root() == Some(project) {
+            return Vec::new();
+        }
         let inside = |e: &External| {
             if project.as_os_str().is_empty() {
                 !self.projects.iter().any(|p| e.cwd.starts_with(&p.path))
@@ -505,6 +530,12 @@ impl Model {
                         self.alerts.push(Alert::Failed(text));
                     }
                 }
+                if self.popup == Some(id) {
+                    self.popup = None;
+                }
+                if let Some(cmd) = self.moved_after_exit(id) {
+                    return Some(cmd);
+                }
                 if let Some(cmd) = self.plan_after_exit(id) {
                     return Some(cmd);
                 }
@@ -624,6 +655,10 @@ impl Model {
         if self.quitting.is_some() {
             return None;
         }
+        if let (Some(id), None) = (self.popup, &self.overlay) {
+            self.popup_key(id, key);
+            return None;
+        }
         if self.focus == Focus::Output && self.overlay.is_none() {
             self.interact_key(key);
             return None;
@@ -699,6 +734,7 @@ impl Model {
                 picker::Outcome::Start => self.launch(&p),
             },
             Overlay::Stop(dialog) => self.stop_key(dialog, key),
+            Overlay::Move(dialog) => self.move_key(dialog, key),
             Overlay::ResumeAgent(kind) => match key.code {
                 KeyCode::Enter => self.pick_past(kind),
                 KeyCode::Esc => None,
@@ -752,6 +788,7 @@ impl Model {
             hook_args: Vec::new(),
             resume: None,
             pick: false,
+            fork: false,
         };
         Some(Cmd::Launch(LaunchRequest {
             project,
@@ -782,6 +819,7 @@ impl Model {
             hook_args: Vec::new(),
             resume: Some(id),
             pick: false,
+            fork: false,
         };
         Some(Cmd::Launch(LaunchRequest {
             project: card.project.clone(),
@@ -803,6 +841,41 @@ impl Model {
             pick = (pick + 1) % quotes;
         }
         self.poke = Some((self.now, pick));
+    }
+
+    /// Enters the selected row of the sessions pane: takes over an outside
+    /// session, opens a quick session's popup, or enters INTERACT.
+    fn enter_session(&mut self) -> Option<Cmd> {
+        if let Some(ext) = self.selected_external().cloned() {
+            return self.take_over(ext);
+        }
+        if let Some(card) = self.selected_card().map(|i| &self.cards[i])
+            && self.is_quick(card)
+        {
+            let id = card.id;
+            self.open_popup(id);
+            return None;
+        }
+        self.interact();
+        None
+    }
+
+    /// Opens the `n` picker for the selected project, preselecting the
+    /// default agent.
+    fn open_picker(&mut self) {
+        let agent = self
+            .settings
+            .as_ref()
+            .map_or(Kind::Claude, |s| s.default_agent);
+        let project = self
+            .selected_project()
+            .map(|p| p.name.clone())
+            .unwrap_or_default();
+        self.overlay = Some(Overlay::Picker(Picker::new(
+            agent,
+            self.installed(),
+            project,
+        )));
     }
 
     /// Focuses pane `n`: 1 projects, 2 sessions, 3 output (INTERACT when
@@ -862,6 +935,7 @@ impl Model {
                 hook_args: Vec::new(),
                 resume: None,
                 pick: true,
+                fork: false,
             },
             replaces: None,
         }))
@@ -872,13 +946,22 @@ impl Model {
     pub(crate) fn add_card(&mut self, card: Card) {
         self.state_dirty = true;
         let running = card.running();
+        let quick = self.is_quick(&card);
         let id = card.id;
+        let project = card.project.clone();
         self.cards.push(card);
+        if let Some(row) = self.visible().iter().position(|p| p.path == project) {
+            self.selected = row;
+        }
         self.card = self
             .project_cards()
             .iter()
             .position(|&i| self.cards[i].id == id)
             .unwrap_or(0);
+        if running && quick {
+            self.popup = Some(id);
+            return;
+        }
         self.focus = if running {
             Focus::Output
         } else {
@@ -973,10 +1056,7 @@ impl Model {
                 };
             }
             Action::NextPane | Action::Interact if self.focus == Focus::Sessions => {
-                if let Some(ext) = self.selected_external().cloned() {
-                    return self.take_over(ext);
-                }
-                self.interact();
+                return self.enter_session();
             }
             Action::Interact => self.interact(),
             Action::NextPane | Action::OpenProject => self.focus = Focus::Sessions,
@@ -991,19 +1071,7 @@ impl Model {
                     .selected_project()
                     .is_some_and(|p| !p.path.as_os_str().is_empty()) =>
             {
-                let agent = self
-                    .settings
-                    .as_ref()
-                    .map_or(Kind::Claude, |s| s.default_agent);
-                let project = self
-                    .selected_project()
-                    .map(|p| p.name.clone())
-                    .unwrap_or_default();
-                self.overlay = Some(Overlay::Picker(Picker::new(
-                    agent,
-                    self.installed(),
-                    project,
-                )));
+                self.open_picker();
             }
             Action::Stop => {
                 if let Some(i) = self.selected_card().filter(|&i| self.cards[i].running()) {
@@ -1011,6 +1079,9 @@ impl Model {
                 }
             }
             Action::Pane(n) => self.focus_pane(n),
+            Action::QuickSession => return self.quick_session(),
+            Action::MoveQuick => self.start_move(false),
+            Action::MakeProject => self.start_move(true),
             Action::Zoom => self.zoom = !self.zoom,
             Action::Resume => {
                 if self
@@ -1085,6 +1156,7 @@ impl Model {
             .position(|p| cwd.starts_with(&p.path))
             .unwrap_or(0);
         self.card = 0;
+        self.quick_row.path.clone_from(&settings.workspace);
         self.settings = Some(settings);
     }
 }

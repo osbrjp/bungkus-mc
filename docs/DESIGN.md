@@ -1136,6 +1136,8 @@ highlighted project with the default agent and no prompt.
 | `enter` · `l` `→` `tab`  | focus the output pane on this session = **INTERACT** (hint: `ctrl-\ back`) |
 | `n`                      | new session in this project (picker: agent, model, name, prompt) |
 | `x`                      | stop (confirm; lists the session's tracked descendants too)   |
+| `N`                      | quick session: the default agent at the workspace root, in a fixed popup over the panes (not draggable or resizable). Keys go to it; `ctrl-\` or `ctrl-h` hides it and it keeps running under a `quick` row that leads the projects list (`enter` reopens it). `n` on the `quick` row starts another |
+| `m` · `p`                | on a quick session: move it into a project (pick one) · make a new project for it (`<workspace>/<name>` + `git init`). mc stops it, then resumes it in the project — Claude `--resume <id> --fork-session` (new session saved under the project, original kept), Codex `resume <id>` — so the conversation comes along |
 | `r`                      | resume a stopped/wrapped/failed session; on a running or outside row (and `r` in the projects pane) open the agent's own past-session list instead: `claude --resume` / `codex resume` with no id, asking which agent when both are installed. mc never reads that list itself |
 | `d`                      | forget a stopped/wrapped/failed session (confirm; list only)  |
 
