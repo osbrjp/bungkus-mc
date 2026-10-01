@@ -67,8 +67,9 @@ curl -fsSL …/install.sh | BUNGKUS_INSTALL_DIR=/opt/bin bash
 
 ### Updates
 
-mc checks for a newer release once a day. `BUNGKUS_NO_UPDATE_CHECK=1`
-turns that off.
+mc checks for a newer release once an hour, also while it runs; a newer
+one stays in the header (`v0.1.0 → v0.2.0 · U updates`) until you update.
+`BUNGKUS_NO_UPDATE_CHECK=1` turns that off.
 
 ### Uninstall
 

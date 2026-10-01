@@ -471,6 +471,9 @@ whether there is a header line.
   key hints one by one from the end. Never dropped: the mode word, `? help`,
   and in INTERACT the exit chord.
 - Transient messages (errors, "copied") replace the key hints for 5 s.
+- A newer release is announced here once, and stays in the **header**
+  after the version, in `info`: `v0.1.0 → v0.2.0 · U updates`, until mc is
+  updated (issue #114). The check runs hourly, also while mc runs.
 
 ### 5.2 Card anatomy (sessions pane, inner width 36)
 

@@ -76,7 +76,7 @@ pub(crate) enum AppEvent {
     Repos(Vec<(PathBuf, repo::Status)>),
     /// The host terminal went away (input closed).
     HostGone,
-    /// A newer release exists (the daily check).
+    /// A newer release exists (the hourly check).
     UpdateAvailable(String),
     /// The `U` update finished: the installed tag, `None` when already
     /// latest, or why it failed.
@@ -291,9 +291,19 @@ fn start_background(
     if std::io::stderr().is_terminal() {
         let tx = tx.clone();
         thread::spawn(move || {
-            if let Some(tag) = crate::update::available(|n| std::env::var(n).ok()) {
-                // reason: mc may have quit meanwhile.
-                let _ = tx.send(AppEvent::UpdateAvailable(tag));
+            let mut told = None;
+            loop {
+                let tag = crate::update::available(|n| std::env::var(n).ok());
+                if tag.is_some() && tag != told {
+                    told.clone_from(&tag);
+                    if tx
+                        .send(AppEvent::UpdateAvailable(tag.unwrap_or_default()))
+                        .is_err()
+                    {
+                        return;
+                    }
+                }
+                thread::sleep(crate::update::CHECK_TTL);
             }
         });
     }

@@ -376,7 +376,8 @@ fn draw_too_small(frame: &mut Frame, area: Rect) {
     frame.render_widget(Paragraph::new(text).alignment(Alignment::Center), row);
 }
 
-/// Draws line 1: the app name and where you are, the version right.
+/// Draws line 1: the app name and where you are, the version right, and
+/// after it the newer release once the update check found one.
 ///
 /// Wide: `~/Works/OSBR › kedai-web`. Narrow (one pane): the breadcrumb
 /// `kedai-web › sessions`.
@@ -411,8 +412,12 @@ fn draw_header(frame: &mut Frame, area: Rect, model: &Model, theme: Theme, wide:
     .map(|(_, text)| format!("{text} · "))
     .collect();
     let version = format!("{}v{} ", counts.concat(), env!("CARGO_PKG_VERSION"));
-    let room =
-        usize::from(area.width).saturating_sub(" bungkus-mc  ".len() + version.chars().count() + 1);
+    let newer = model
+        .newer
+        .as_ref()
+        .map_or_else(String::new, |tag| format!("→ {tag} · U updates "));
+    let right = version.chars().count() + newer.chars().count();
+    let room = usize::from(area.width).saturating_sub(" bungkus-mc  ".len() + right + 1);
     let line = Line::from(vec![
         Span::styled(
             " bungkus-mc",
@@ -425,7 +430,11 @@ fn draw_header(frame: &mut Frame, area: Rect, model: &Model, theme: Theme, wide:
     ]);
     frame.render_widget(line, area);
     frame.render_widget(
-        Line::styled(version, theme.fg(Token::FgMuted)).alignment(Alignment::Right),
+        Line::from(vec![
+            Span::styled(version, theme.fg(Token::FgMuted)),
+            Span::styled(newer, theme.fg(Token::Info)),
+        ])
+        .alignment(Alignment::Right),
         area,
     );
 }
@@ -1065,6 +1074,20 @@ pub(crate) mod tests {
         assert!(screen.contains("cursor: 5,2"), "{screen}");
         assert!(screen.contains("FILTER"), "{screen}");
         assert!(!screen.contains("pasar-mobile"), "{screen}");
+    }
+
+    #[test]
+    fn a_newer_release_stays_in_the_header_after_a_key_clears_the_message() {
+        let mut model = crate::app::model::tests::sample(&["a"]);
+        model.update(crate::app::AppEvent::UpdateAvailable("v9.9.9".into()));
+        model.update(crate::app::model::tests::press(
+            ratatui::crossterm::event::KeyCode::Char('j'),
+        ));
+        assert_eq!(model.message, None);
+        let screen = render(&mut model, 120, 40);
+        let header = screen.lines().next().unwrap();
+        let want = format!("v{} → v9.9.9 · U updates", env!("CARGO_PKG_VERSION"));
+        assert!(header.ends_with(&want), "{header}");
     }
 
     #[test]
