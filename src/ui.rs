@@ -656,27 +656,24 @@ fn draw_getah(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
 /// elsewhere only shows after their next turn.
 fn limit_spans(model: &Model, theme: Theme, wide: bool) -> Vec<Span<'static>> {
     let vendors: Vec<(
-        char,
+        crate::agent::Kind,
         &Vec<crate::agent::usage::Window>,
         Option<std::time::Instant>,
     )> = crate::agent::Kind::ALL
         .iter()
-        .map(|k| {
-            (
-                theme.agent_mark(*k),
-                &model.limits[*k as usize],
-                model.limits_at[*k as usize],
-            )
-        })
+        .map(|k| (*k, &model.limits[*k as usize], model.limits_at[*k as usize]))
         .filter(|(_, w, _)| !w.is_empty())
         .collect();
     let bars = vendors.len() == 1 && wide;
     let mut spans = Vec::new();
-    for (v, (badge, windows, at)) in vendors.iter().enumerate() {
+    for (v, (kind, windows, at)) in vendors.iter().enumerate() {
         if v > 0 {
             spans.push(Span::styled(" · ", theme.fg(Token::FgMuted)));
         }
-        spans.push(Span::styled(format!("{badge} "), theme.fg(Token::Accent)));
+        spans.push(Span::styled(
+            format!("{} ", kind.badge()),
+            theme.agent_style(*kind),
+        ));
         let shown = windows.iter().filter(|w| wide || w.label == "5h");
         for (i, w) in shown.enumerate() {
             let stale = w.resets_at.is_some_and(|at| at < model.unix_now);
@@ -998,11 +995,11 @@ pub(crate) mod tests {
         };
         assert_eq!(
             line(&model, true),
-            "✻ 5h ###-- 42% · 7d #####- 81% ".replace("#####-", "#####")
+            "C 5h ###-- 42% · 7d #####- 81% ".replace("#####-", "#####")
         );
         model.limits[1] = vec![w("5h", 10.0, 2_000), w("7d", 3.0, 500)];
-        assert_eq!(line(&model, true), "✻ 5h 42% · 7d 81% · ⬡ 5h 10% · 7d 3% ");
-        assert_eq!(line(&model, false), "✻ 42% · ⬡ 10% ");
+        assert_eq!(line(&model, true), "C 5h 42% · 7d 81% · X 5h 10% · 7d 3% ");
+        assert_eq!(line(&model, false), "C 42% · X 10% ");
         let theme = Theme::new(
             theme::ThemeName::Dark,
             theme::Profile::Ansi256,

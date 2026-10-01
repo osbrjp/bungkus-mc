@@ -1,17 +1,17 @@
  bungkus-mc  ~/Works/OSBR › kedai-web                                          x 1 failed · | 1 working · v0.1.0-beta.1
-┌ [1] projects ──────┐┏ [2] sessions · kedai-web ━━━━━━━━━━┓┌ [3] output · ✻ #a3f2 · flaky payment test ───────────────┐
-│ / search           │┃ ┃x ✻ #a3f1 checkout redesign failed┃│                                                   ▄██▄   │
+┌ [1] projects ──────┐┏ [2] sessions · kedai-web ━━━━━━━━━━┓┌ [3] output · C #a3f2 · flaky payment test ───────────────┐
+│ / search           │┃ ┃x C #a3f1 checkout redesign failed┃│                                                   ▄██▄   │
 │:| 1 kedai-web  x 1 │┃ ┃  exit 1 · boom                   ┃│                                                 ▄██████▄ │
 │   2 pasar-mobile   │┃ ┃  - tok · - · ctx -               ┃│                                                   ▀  ▀   │
 │   3 roti-docs      │┃                                    ┃│> fix the flaky date test                                 │
-│   4 teh-cli        │┃> | ✻ #a3f2 flaky payment test    0m┃│  run it twice                                            │
+│   4 teh-cli        │┃> | C #a3f2 flaky payment test    0m┃│  run it twice                                            │
 │   5 warung-api     │┃    output only · live tree unavail…┃│                                                          │
 │                    │┃    tokens   in - · out -           ┃│                                                          │
 │                    │┃    cache    read - · write -       ┃│                                                          │
 │                    │┃    cost     -                      ┃│                                                          │
 │                    │┃    context  -                      ┃│                                                          │
 │                    │┃                                    ┃│                                                          │
-│                    │┃  + ✻ #a3f3 bump deps        wrapped┃│                                                          │
+│                    │┃  + C #a3f3 bump deps        wrapped┃│                                                          │
 │                    │┃    0m · 0 tools · 0 subagents      ┃│                                                          │
 │                    │┃    - tok · - · ctx -               ┃│                                                          │
 │                    │┃                                    ┃│                                                          │
