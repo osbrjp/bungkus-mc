@@ -7,6 +7,11 @@
   Claude Code and Codex CLI, across every project in a workspace, on one screen.
 </p>
 
+<p align="center">
+  <img src="docs/assets/promo.gif" width="720" alt="A 45-second tour of bungkus-mc: projects, agent sessions with usage, and the selected agent's live screen on one screen"><br>
+  <a href="docs/assets/promo.mp4">Download the tour with sound (mp4)</a>
+</p>
+
 ---
 
 | Pane | Shows |
