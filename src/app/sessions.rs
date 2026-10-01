@@ -93,6 +93,10 @@ pub(crate) struct Subagent {
 
 /// One session mc started.
 #[derive(Debug)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "independent facts about one session (killed, hooked, prompted, turn done)"
+)]
 pub(crate) struct Card {
     /// mc's id (Claude's `--session-id`).
     pub id: SessionId,
@@ -148,6 +152,9 @@ pub(crate) struct Card {
     pub restored_subagents: u32,
     /// Where a quick session moves once it has exited (issue #46).
     pub move_to: Option<PathBuf>,
+    /// Whether the conversation has a prompt (so the agent saved it and it
+    /// can be resumed); restored and resumed sessions count as prompted.
+    pub prompted: bool,
 }
 
 impl Card {
@@ -201,6 +208,7 @@ impl Card {
             plan_termed: None,
             restored_subagents: 0,
             move_to: None,
+            prompted: false,
         }
     }
 
@@ -265,6 +273,7 @@ impl Card {
         card.tool_calls = record.tool_calls;
         card.restored_subagents = record.subagents;
         card.usage.clone_from(&record.usage);
+        card.prompted = true;
         Some(card)
     }
 
@@ -389,6 +398,7 @@ impl Card {
         match event.name.as_str() {
             "SessionStart" => self.state = State::YourTurn,
             "UserPromptSubmit" => {
+                self.prompted = true;
                 self.main_done = false;
                 self.tool = None;
                 self.state = State::Working;

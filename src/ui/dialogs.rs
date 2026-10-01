@@ -386,7 +386,7 @@ pub(super) fn draw_move(
     frame.render_widget(error, err);
     frame.render_widget(
         Line::styled(
-            "↑↓ ctrl-j/k pick · enter move or create · esc cancel  ",
+            "↑↓ tab ctrl-j/k pick · enter move/create · esc cancel  ",
             theme.fg(Token::FgMuted),
         )
         .alignment(Alignment::Right),
