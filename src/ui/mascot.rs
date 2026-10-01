@@ -250,7 +250,7 @@ fn pixels(pose: Pose, mini: bool) -> Vec<String> {
         }
         Pose::Died => {
             set(4, "....GEGGGGEG....");
-            set(5, "....GGEGGEGG....");
+            set(5, "....GEGGGGEG....");
         }
     }
     rows
