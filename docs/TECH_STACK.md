@@ -104,7 +104,9 @@ cargo deny check          # advisories (RustSec), licences, bans, sources (deny.
 Release (M8, following the OSBR repository template the repo was created
 from): pushes to `main` make `prepare-release.yml` (`git-pr-release`) open a
 release PR `main` → `release`; merging it runs `release.yml`, which tags
-`v<version from Cargo.toml>` (bump it in the release PR; the job refuses a
+`v<version from Cargo.toml>` (bump it with `scripts/bump-version.sh`, which
+also rewrites the README status line, `Cargo.lock` and the version in the
+rendering goldens; the job refuses a
 tag that already exists), builds `--release --locked` for darwin/linux ×
 arm64/amd64 on native runners (`macos-latest` for both macOS targets,
 `ubuntu-latest` + `ubuntu-24.04-arm` for Linux), and publishes

@@ -552,6 +552,31 @@ fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
         })
         .collect();
     frame.render_widget(Paragraph::new(lines), inner);
+    shade(
+        frame,
+        inner,
+        model.selected.saturating_sub(offset),
+        1,
+        theme,
+    );
+}
+
+/// Gives `height` rows of `inner`, from row `top`, the selection
+/// background (the selected project row, the selected card), clipped to
+/// the pane; nothing where mc does not paint its background.
+pub(crate) fn shade(frame: &mut Frame, inner: Rect, top: usize, height: usize, theme: Theme) {
+    let Some(style) = theme.selection() else {
+        return;
+    };
+    let clamp = |n: usize| u16::try_from(n).unwrap_or(u16::MAX);
+    let rows = Rect {
+        y: inner.y.saturating_add(clamp(top)),
+        height: clamp(height),
+        ..inner
+    };
+    frame
+        .buffer_mut()
+        .set_style(rows.intersection(inner), style);
 }
 
 /// Returns the name a project row shows: a worktree drops its
@@ -1088,6 +1113,32 @@ pub(crate) mod tests {
         let header = screen.lines().next().unwrap();
         let want = format!("v{} → v9.9.9 · U updates", env!("CARGO_PKG_VERSION"));
         assert!(header.ends_with(&want), "{header}");
+    }
+
+    #[test]
+    fn the_selected_row_and_card_are_shaded_only_when_painting() {
+        use crate::ui::theme::{Background, Profile, ThemeName, rgb, selection_bg};
+        let mut model = crate::app::model::tests::sample(&["a", "b"]);
+        crate::app::model::tests::with_session(&mut model, "one");
+        crate::app::model::tests::with_session(&mut model, "two");
+        let shaded = |model: &mut Model, profile| -> Vec<(u16, u16)> {
+            model.theme = Theme::new(ThemeName::Dark, profile, Background::Paint);
+            let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
+            terminal.draw(|frame| draw(frame, model)).unwrap();
+            let buffer = terminal.backend().buffer();
+            let want = rgb(selection_bg(ThemeName::Dark));
+            // Column 2 is inside the projects pane, column 24 the sessions pane.
+            [2_u16, 24]
+                .into_iter()
+                .flat_map(|x| (0..40).map(move |y| (x, y)))
+                .filter(|&(x, y)| buffer[(x, y)].bg == want)
+                .collect()
+        };
+        assert_eq!(shaded(&mut model, Profile::Ansi256), []);
+        let rows = shaded(&mut model, Profile::TrueColor);
+        let projects = rows.iter().filter(|(x, _)| *x == 2).count();
+        let card = rows.iter().filter(|(x, _)| *x == 24).count();
+        assert_eq!((projects, card), (1, 3), "one project row, one 3-line card");
     }
 
     #[test]

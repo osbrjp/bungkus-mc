@@ -1,4 +1,4 @@
- bungkus-mc  kedai-web › projects                                 v0.1.0-beta.3
+ bungkus-mc  kedai-web › projects                                 v0.1.0-beta.4
 ┏ [1] projects ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃ / search                                                                     ┃
 ┃>  1 kedai-web                                                                ┃
@@ -21,5 +21,5 @@
 ┃                                                                              ┃
 ┃                                                                              ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
- NORMAL  enter → sessions · n new · ? keys
+ NORMAL  enter → sessions · n new · c clean · ? keys
 cursor: 48,12

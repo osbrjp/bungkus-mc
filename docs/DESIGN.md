@@ -45,7 +45,16 @@ Rules:
    colours, and it answers the agent's OSC 10/11 queries with them, so the
    agent's screen blends in and it picks its dark (or light) theme.
 2. Cards and surfaces are never painted separately (only the one screen
-   background); selection uses reverse video, which by definition contrasts.
+   background), with one exception (issue #122): **the selected project
+   row and the selected session card** get a second shade across the whole
+   row / block — `#273a2e` on Daun Teduh, `#e2e8c4` on Santan, chosen so
+   `fg-muted` text keeps about 4.8:1 on it. Like the screen background it
+   is painted only at TrueColor with `background: paint`; at 256/16
+   colours, on the terminal's own background and under `NO_COLOR` the
+   column-0 markers and the `accent` name stay the only sign. mc only: it
+   is not a token of the spec shared with bungkus-cli. Other selections
+   (dialogs, the `V` line selection) use reverse video, which by
+   definition contrasts.
 3. **Every state is glyph + word + colour.** Colour is never the only carrier.
 4. Colours are declared once per token in two sets. The **painted set**
    is a truecolor hex per token, used only when painting. The **fallback
@@ -1125,7 +1134,7 @@ the same frame.
 | `!` · `ctrl-]`                                    | jump to the next needs-you session **across projects**: switches the sidebar selection to that project, selects the card, and enters the output pane (INTERACT) so the answer can be typed at once |
 | `z`                                               | zoom the output pane (toggle; stays in the current mode — from INTERACT: `ctrl-\` then `z`) |
 | `a`                                               | projects pane: new project — a bordered name field and two kinds, with agent files (`git init` + `AGENTS.md` + `CLAUDE.md` = `@AGENTS.md`, the default) or fresh (`git init`); the new row is selected |
-| `c`                                               | projects pane: remove the project's unused git worktrees after a `y` confirm (`git worktree remove` without force: ones with uncommitted files stay, branches stay; ones a session runs in or can resume into are skipped) |
+| `c`                                               | projects or sessions pane (hinted in the projects pane's bar): remove the selected project's unused git worktrees after a `y` confirm (`git worktree remove` without force: ones with uncommitted files stay, branches stay; ones a session runs in or can resume into are skipped) |
 | `dd` · `V` … `d` · `u`                            | projects pane: move the project, or the `V` line selection (`j`/`k` extend, `esc` cancels, mode word `VISUAL`), to the Trash after a `y` confirm — `~/.Trash` on macOS, the freedesktop trash elsewhere, by `rename` (refused across disks, for running projects, and for anything but a direct child of the workspace); `u` puts the last batch back |
 | `w`                                               | workspace switcher: a bordered filter field over the saved workspaces (`config.json` `workspaces`, most recent first, up to 20, each with its project count and `●` on the current one) and `+ add a folder…` (the settings folder browser). `1`–`9` or `enter` switch, `ctrl-d` drops an entry from the list (never the folder). Switching applies the workspace like settings do and stops nothing: other workspaces' sessions run on, the header still counts them, and `!` switches to the workspace of a session that needs you |
 | `/`                                               | search projects: the search row at the top of the projects pane takes the text (FILTER mode: type, `↑`/`↓` pick, `enter` opens the project's sessions and keeps the search, `esc` clears). Works from the sessions pane too |

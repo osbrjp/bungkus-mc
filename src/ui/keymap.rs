@@ -212,8 +212,16 @@ pub(crate) const BINDINGS: &[Binding] = &[
         label: "c",
         action: Action::CleanWorktrees,
         help: "clean worktrees",
-        hint: None,
+        hint: Some("c clean"),
         scope: Scope::Projects,
+    },
+    Binding {
+        keys: &[c('c')],
+        label: "c",
+        action: Action::CleanWorktrees,
+        help: "clean worktrees",
+        hint: None,
+        scope: Scope::Sessions,
     },
     Binding {
         keys: &[c('m')],

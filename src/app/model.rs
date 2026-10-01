@@ -1674,6 +1674,7 @@ pub(crate) mod tests {
         m.update(press(KeyCode::Char('c')));
         assert!(matches!(m.overlay, Some(Overlay::CleanWorktrees(_))));
         assert_eq!(m.update(press(KeyCode::Char('n'))), None);
+        m.focus = Focus::Sessions;
         m.update(press(KeyCode::Char('c')));
         assert_eq!(
             m.update(press(KeyCode::Char('y'))),

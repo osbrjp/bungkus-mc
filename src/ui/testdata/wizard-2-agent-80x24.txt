@@ -1,6 +1,6 @@
 
             ▄▄
-          ▄████▄         bungkus-mc  v0.1.0-beta.3
+          ▄████▄         bungkus-mc  v0.1.0-beta.4
          ████████        mission control for AI agents
        ▄██████████▄
      ▄██████████████▄    step 2 of 4 · default agent
