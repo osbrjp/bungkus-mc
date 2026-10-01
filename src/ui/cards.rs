@@ -77,6 +77,17 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
         start -= 1;
         used += cards[start].len();
     }
+    let shown =
+        |from: usize, to: usize| -> usize { cards.iter().take(to).skip(from).map(Vec::len).sum() };
+    // The selected block: a card without its blank line, or an outside
+    // session's two lines below the cards and their heading.
+    let (top, height) = match cards.get(model.card) {
+        Some(card) => (shown(start, model.card), card.len() - 1),
+        None => (
+            shown(start, cards.len()) + 1 + 2 * (model.card - cards.len()),
+            2,
+        ),
+    };
     let mut lines: Vec<Line> = cards.into_iter().skip(start).flatten().collect();
     if !external.is_empty() {
         lines.push(Line::styled(
@@ -94,6 +105,7 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
         }
     }
     frame.render_widget(Paragraph::new(lines), inner);
+    crate::ui::shade(frame, inner, top, height, theme);
 }
 
 /// Returns a session running outside mc as two lines: marker, glyph,
