@@ -31,13 +31,24 @@ pub(crate) enum Divider {
 }
 
 impl Model {
-    /// Handles a key in INTERACT: the exit chord returns to the sessions
-    /// pane, `ctrl-z` is swallowed, everything else is encoded for the
-    /// agent (and snaps its view back to the bottom).
+    /// Handles a key in INTERACT: the exit chord and `ctrl-h` return to
+    /// the sessions pane, `ctrl-l` (already the rightmost pane) and `ctrl-z`
+    /// are swallowed, everything else is encoded for the agent (and snaps
+    /// its view back to the bottom).
     pub(super) fn interact_key(&mut self, key: KeyEvent) {
         if self.exit_chord.matches(&key) {
             self.focus = Focus::Sessions;
             return;
+        }
+        if key.modifiers == KeyModifiers::CONTROL {
+            match key.code {
+                KeyCode::Char('h') => {
+                    self.focus = Focus::Sessions;
+                    return;
+                }
+                KeyCode::Char('l') => return,
+                _ => {}
+            }
         }
         let ctrl_z =
             key.code == KeyCode::Char('z') && key.modifiers.contains(KeyModifiers::CONTROL);
@@ -209,7 +220,7 @@ mod tests {
     }
 
     #[test]
-    fn every_key_reaches_the_agent_except_the_exit_chord_and_ctrl_z() {
+    fn every_key_reaches_the_agent_except_the_exit_chord_and_ctrl_h_l_z() {
         let mut m = sample(&["a"]);
         let (_, writes) = with_session(&mut m, "s");
         assert_eq!(m.focus, Focus::Output);
@@ -226,7 +237,7 @@ mod tests {
         ];
         keys.extend(
             ('a'..='y')
-                .filter(|c| *c != 'z')
+                .filter(|c| !matches!(c, 'h' | 'l'))
                 .map(|c| (KeyCode::Char(c), KeyModifiers::CONTROL)),
         );
         for (code, mods) in keys {

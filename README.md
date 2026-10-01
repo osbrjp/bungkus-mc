@@ -61,6 +61,7 @@ below it as a branch: `├ i746` under `nrha-timii`.
 | `n` | new session in the selected project (agent, model, name, optional prompt) |
 | `enter` · `l` · `→` · `tab` | talk to the selected session (**INTERACT**: every key goes to the agent) |
 | `ctrl-\` | leave INTERACT |
+| `ctrl-h` · `ctrl-l` | pane left · right, also from inside INTERACT (`R` redraws) |
 | `!` · `ctrl-]` | jump to the next session that needs you, in any project |
 | `j` `k` · `↓` `↑` · `gg` `G` | move |
 | `x` | stop a session (lists what it started too) |
