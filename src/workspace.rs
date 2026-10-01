@@ -3,9 +3,12 @@
 //! A project is a direct child directory holding `CLAUDE.md`, `AGENTS.md`
 //! or `.git` (PROPOSAL §6 item 2). Dot-directories are skipped, symlinked
 //! directories and markers are followed, names are sanitised, and nothing
-//! below the first level is read, except a `.git` *file*: a linked git
-//! worktree's `gitdir:` line names its main repository, and a worktree
-//! whose main repository is also a project is listed right below it.
+//! below the first level is read, except git's worktree records: a linked
+//! worktree's `.git` *file* names its main repository in its `gitdir:`
+//! line, and a repository's `.git/worktrees/*/gitdir` files name its
+//! worktrees. A worktree whose main repository is a project is listed
+//! right below it, wherever on disk it lives (an agent's own worktrees
+//! are usually inside the repository or in a temporary folder).
 
 use std::path::{Path, PathBuf};
 
@@ -22,7 +25,8 @@ const NAME_MAX: usize = 64;
 pub(crate) struct Project {
     /// Folder name, sanitised for display.
     pub name: String,
-    /// `workspace.join(<raw folder name>)`; the agent's working directory.
+    /// `workspace.join(<raw folder name>)`, or the folder of a linked
+    /// worktree outside the workspace; the agent's working directory.
     pub path: PathBuf,
     /// The name of the project this folder is a linked git worktree of,
     /// when that repository is a project in the same workspace.
@@ -50,8 +54,44 @@ pub(crate) fn scan(workspace: &Path) -> std::io::Result<Vec<Project>> {
             })
         })
         .collect();
+    let elsewhere: Vec<Project> = projects
+        .iter()
+        .flat_map(|p| linked_worktrees(&p.path))
+        .filter(|folder| !projects.iter().any(|p| same_dir(&p.path, folder)))
+        .map(|path| Project {
+            name: sanitise(
+                &path.file_name().unwrap_or_default().to_string_lossy(),
+                NAME_MAX,
+            ),
+            path,
+            worktree_of: None,
+        })
+        .collect();
+    projects.extend(elsewhere);
     projects.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(nest_worktrees(&projects))
+}
+
+/// Returns the folders of the linked worktrees of repository `repo`, which
+/// may be anywhere on disk: each `<repo>/.git/worktrees/<name>/gitdir`
+/// names a worktree's `.git` file, and only a folder whose `.git` file
+/// points back at `repo` counts (as git itself requires), so a stale or
+/// edited record lists nothing.
+fn linked_worktrees(repo: &Path) -> Vec<PathBuf> {
+    let Ok(records) = std::fs::read_dir(repo.join(".git/worktrees")) else {
+        return Vec::new();
+    };
+    records
+        .filter_map(Result::ok)
+        .filter_map(|record| {
+            let text = std::fs::read_to_string(record.path().join("gitdir")).ok()?;
+            let dot_git = record.path().join(text.lines().next()?.trim());
+            let folder = dot_git.parent()?.to_path_buf();
+            main_repo(&folder)
+                .is_some_and(|main| same_dir(&main, repo))
+                .then_some(folder)
+        })
+        .collect()
 }
 
 /// Moves every linked worktree right below its main repository's project
@@ -300,6 +340,24 @@ mod tests {
             "gitdir: /elsewhere/.git/worktrees/o\n",
         )
         .unwrap();
+        // Worktrees outside the workspace: one recorded both ways, one
+        // whose folder is gone, one whose folder does not point back.
+        let far = ws.join("app/.claude/worktrees/far");
+        for dir in ["far", "gone", "liar"] {
+            fs::create_dir_all(ws.join("app/.git/worktrees").join(dir)).unwrap();
+        }
+        fs::create_dir_all(&far).unwrap();
+        fs::write(far.join(".git"), gitdir("app/.git/worktrees/far")).unwrap();
+        let record = |name: &str, folder: &Path| {
+            fs::write(
+                ws.join("app/.git/worktrees").join(name).join("gitdir"),
+                format!("{}\n", folder.join(".git").display()),
+            )
+            .unwrap();
+        };
+        record("far", &far);
+        record("gone", &ws.join("app/.claude/worktrees/gone"));
+        record("liar", &ws.join("lib"));
         let rows: Vec<(String, Option<String>)> = scan(&ws)
             .unwrap()
             .into_iter()
@@ -311,6 +369,7 @@ mod tests {
             [
                 row("app", None),
                 row("app-fix", Some("app")),
+                row("far", Some("app")),
                 row("zz-wt", Some("app")),
                 row("lib", None),
                 row("orphan", None),

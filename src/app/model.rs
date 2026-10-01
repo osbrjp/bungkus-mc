@@ -562,10 +562,42 @@ impl Model {
 
     /// Handles one event from the loop's channel.
     ///
+    /// The selection is a row and a position, and events other than input
+    /// reorder both (cards sort by state, the `quick` and elsewhere rows
+    /// come and go), so after one the selection is put back on the project
+    /// and session it was on: the output pane and INTERACT never switch to
+    /// another session by themselves.
+    ///
     /// # Returns
     ///
     /// The command the loop must run, if any.
     pub(crate) fn update(&mut self, event: AppEvent) -> Option<Cmd> {
+        let pinned = (!matches!(event, AppEvent::Input(_))).then(|| {
+            (
+                self.selected_project().map(|p| p.path.clone()),
+                self.selected_card().map(|i| self.cards[i].id),
+            )
+        });
+        let cmd = self.handle(event);
+        if let Some((project, card)) = pinned {
+            if let Some(row) =
+                project.and_then(|path| self.visible().iter().position(|p| p.path == path))
+            {
+                self.selected = row;
+            }
+            if let Some(pos) = card.and_then(|id| {
+                self.project_cards()
+                    .iter()
+                    .position(|&i| self.cards[i].id == id)
+            }) {
+                self.card = pos;
+            }
+        }
+        cmd
+    }
+
+    /// Applies one event; [`Model::update`] keeps the selection in place.
+    fn handle(&mut self, event: AppEvent) -> Option<Cmd> {
         match event {
             AppEvent::Tick => {
                 self.frame = self.frame.wrapping_add(1);
@@ -618,6 +650,7 @@ impl Model {
                 crate::debug_log!("{} exited: {code:?}", id.short());
                 let now = self.now;
                 self.state_dirty = true;
+                let selected = self.selected_card().map(|i| self.cards[i].id) == Some(id);
                 if let Some(card) = self.card_mut(id) {
                     card.exited(code, now);
                     if let State::Failed(reason) = &card.state {
@@ -634,9 +667,7 @@ impl Model {
                 if let Some(cmd) = self.plan_after_exit(id) {
                     return Some(cmd);
                 }
-                if self.focus == Focus::Output
-                    && self.selected_card().map(|i| self.cards[i].id) == Some(id)
-                {
+                if self.focus == Focus::Output && selected {
                     self.focus = Focus::Sessions;
                 }
             }
@@ -1551,6 +1582,45 @@ pub(crate) mod tests {
         m.apply(settings, scan(), Path::new("/"));
         assert_eq!(m.selected, 0);
         assert_eq!(m.want_project, None, "a miss is not retried for ever");
+    }
+
+    #[test]
+    fn enter_in_interact_keeps_the_output_on_the_session_typed_into() {
+        let mut m = sample(&["a"]);
+        let (done, _done_writes) = with_session(&mut m, "done");
+        let (typing, writes) = with_session(&mut m, "typing");
+        for id in [done, typing] {
+            m.update(hook_line(id, r#"{"hook_event_name":"Stop"}"#));
+        }
+        m.select_session(typing);
+        m.update(press(KeyCode::Enter));
+        assert!(writes.try_recv().is_ok(), "enter goes to the agent");
+        m.update(hook_line(
+            typing,
+            r#"{"hook_event_name":"UserPromptSubmit"}"#,
+        ));
+        assert_eq!(m.card_mut(typing).unwrap().state, State::Working);
+        assert_eq!(
+            m.selected_card().map(|i| m.cards[i].id),
+            Some(typing),
+            "working sorts above your turn; the output pane does not move"
+        );
+    }
+
+    #[test]
+    fn the_selection_follows_its_session_when_cards_reorder() {
+        let mut m = sample(&["a"]);
+        let (first, _first_writes) = with_session(&mut m, "first");
+        let (second, writes) = with_session(&mut m, "second");
+        assert_eq!(m.selected_card().map(|i| m.cards[i].id), Some(second));
+        m.update(AppEvent::Pty(PtyEvent::Exited(first, Some(0))));
+        assert_eq!(
+            m.selected_card().map(|i| m.cards[i].id),
+            Some(second),
+            "the wrapped card sorts below; the output pane stays on its session"
+        );
+        m.update(press(KeyCode::Char('y')));
+        assert!(writes.try_recv().is_ok(), "keys still reach that session");
     }
 
     #[test]
