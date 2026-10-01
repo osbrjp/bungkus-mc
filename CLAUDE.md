@@ -58,7 +58,7 @@ src/workspace.rs   # project dir scan
 - States: running / your turn / needs you / failed / wrapped / stopped; `background_tasks` authoritative; `idle_prompt` ignored; sidebar badge precedence failed > needs you > your turn, spinner for working.
 - Middle pane = selected project's sessions; `!` jumps across projects. Card title = the session's own name. Projects = child folders containing `CLAUDE.md`, `AGENTS.md` or `.git`.
 - Palette: painted low-saturation green at TrueColor only (`background: paint`), terminal bg/fg + declared `Color::Indexed` values otherwise; the DESIGN §2 tables are the spec shared with bungkus-cli, guarded by a token-table test in each repo. Default icon set ASCII; every state is glyph + word + colour.
-- Mascot (banana-leaf packet, Figma poses): 16×14 / 8×6 half-block sprites, corner of the output pane by mood and busyness, died for anything failed; never over agent output.
+- Mascot (banana-leaf packet, Figma poses): 16×14 / 8×6 half-block sprites, died for anything failed; never over agent output. Screens ≥ 120×36: a 3-row top band with the mini mascot at the top right (mood of all sessions; click → hop + random quote bubble). Smaller: corner of the output pane by mood and busyness.
 - Routing (TypeSafe Jev) opt-in, `n` start prompt only, secret-shape guard, consent in `consent.json`, key from env or a once-per-process command; M9 / v0.2.0.
 - No daemon, no async runtime, no `unsafe` (rustix; no `pre_exec`/`setsid` — child processes use `process_group(0)`), 12 crates. Adding one requires a TECH_STACK.md entry.
 

@@ -20,8 +20,9 @@ use crate::ui::theme::{Theme, Token, bg, rgb, spec};
 
 /// Draws the output pane.
 pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
+    let band = super::band_height(model.screen) > 1;
     let Some(card) = model.selected_card().map(|i| &model.cards[i]) else {
-        draw_empty(frame, area, theme, model.frame);
+        draw_empty(frame, area, theme, model.frame, band);
         return;
     };
     let interact = model.focus == Focus::Output;
@@ -61,7 +62,7 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
             } else {
                 (mascot::WIDTH, mascot::HEIGHT)
             };
-            let corner = (inner.width > w + 1 && inner.height > h)
+            let corner = (!band && inner.width > w + 1 && inner.height > h)
                 .then(|| Rect::new(inner.width - 1 - w, 0, w, h));
             let blank = corner.is_some_and(|c| screen.is_blank(c));
             frame.render_widget(screen, inner);
@@ -147,12 +148,13 @@ fn draw_message(frame: &mut Frame, inner: Rect, card: &Card, theme: Theme) {
 }
 
 /// Draws the empty state: the mascot and two lines, centred (DESIGN
-/// §5.7); the mascot is left out when the pane is too short.
-fn draw_empty(frame: &mut Frame, area: Rect, theme: Theme, tick: usize) {
+/// §5.7); the mascot is left out when the pane is too short or the band
+/// at the top already shows it.
+fn draw_empty(frame: &mut Frame, area: Rect, theme: Theme, tick: usize, band: bool) {
     let block = pane("output", false, theme);
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    let with_mascot = inner.height >= mascot::HEIGHT + 4;
+    let with_mascot = !band && inner.height >= mascot::HEIGHT + 4;
     let height = if with_mascot { mascot::HEIGHT + 3 } else { 2 };
     let [content] = Layout::vertical([Constraint::Length(height)])
         .flex(Flex::Center)

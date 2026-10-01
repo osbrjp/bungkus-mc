@@ -92,6 +92,12 @@ impl Model {
             return None;
         }
         let at = Position::new(event.column, event.row);
+        if matches!(event.kind, MouseEventKind::Down(MouseButton::Left))
+            && ui::band_mascot(self.screen).is_some_and(|r| r.contains(at))
+        {
+            self.poke();
+            return None;
+        }
         let panes = ui::panes(self.screen, self.focus, self.zoom, self.widths);
         if let ControlFlow::Break(cmd) = self.drag_border(event, &panes) {
             return cmd;

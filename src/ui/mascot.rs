@@ -49,6 +49,50 @@ pub(crate) const MINI_WIDTH: u16 = 8;
 /// Height of the mini sprite in cells.
 pub(crate) const MINI_HEIGHT: u16 = 3;
 
+/// How long a click on the mascot shows its quote (DESIGN §5.7).
+pub(crate) const POKE: std::time::Duration = std::time::Duration::from_secs(4);
+
+/// What the mascot says when clicked, one picked at random.
+pub(crate) const QUOTES: &[&str] = &[
+    "Bungkus dulu, makan kemudian.",
+    "Ship it while it's warm.",
+    "One leaf, many layers.",
+    "Small commits, happy reviews.",
+    "Read the error. Then read it again.",
+    "Tests are just snacks for later.",
+    "Hungry agents, fed prompts.",
+    "Wrap it tight, no leaks.",
+    "Slow is smooth, smooth is fast.",
+    "Delete code, gain peace.",
+    "The wok is hot. Let's cook.",
+    "Sudah makan? Commit dulu.",
+];
+
+/// The poses a click plays, one per 350 ms tick, before the mood resumes.
+const POKE_POSES: [Pose; 10] = [
+    Pose::Duck,
+    Pose::Hop,
+    Pose::Duck,
+    Pose::Hop,
+    Pose::Duck,
+    Pose::Idle,
+    Pose::LookL,
+    Pose::LookR,
+    Pose::Blink,
+    Pose::Idle,
+];
+
+/// Returns the pose `elapsed` into a click's animation, or `None` once it
+/// is over (or right away without `motion`, which shows a hop instead).
+#[must_use]
+pub(crate) fn poke_pose(elapsed: std::time::Duration, motion: bool) -> Option<Pose> {
+    if !motion {
+        return (elapsed < POKE).then_some(Pose::Hop);
+    }
+    let i = usize::try_from(elapsed.as_millis() / 350).unwrap_or(usize::MAX);
+    POKE_POSES.get(i).copied()
+}
+
 /// One frame of the mascot (DESIGN §5.7 "Full frames").
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Pose {
@@ -260,7 +304,8 @@ impl Widget for Mascot {
     fn render(self, area: Rect, buf: &mut Buffer) {
         if !self.theme.utf8 {
             let eyes = if self.pose == Pose::Died { "xx" } else { "oo" };
-            for (row, text) in ASCII.iter().enumerate() {
+            let rows = if self.mini { &ASCII[1..] } else { &ASCII[..] };
+            for (row, text) in rows.iter().enumerate() {
                 let line = text.replace("oo", eyes);
                 let y = area.y + u16::try_from(row).unwrap_or(u16::MAX);
                 if y < area.bottom() {

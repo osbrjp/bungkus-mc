@@ -21,13 +21,14 @@ use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Flex, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Paragraph};
+use ratatui::widgets::{Block, BorderType, Clear, Paragraph};
 
 use crate::app::form::FormKind;
 use crate::app::model::{Focus, Model, Overlay};
 use crate::app::sessions::{self, State};
 use crate::store::config::tilde;
 use crate::term::session::Size;
+use crate::ui::mascot::{Mascot, Mood};
 use crate::ui::sanitise::truncate;
 use crate::ui::theme::{Theme, Token};
 
@@ -139,7 +140,7 @@ pub(crate) struct Panes {
 #[must_use]
 pub(crate) fn panes(area: Rect, focus: Focus, zoom: bool, widths: Widths) -> Panes {
     let [_, body, _] = Layout::vertical([
-        Constraint::Length(1),
+        Constraint::Length(band_height(area)),
         Constraint::Fill(1),
         Constraint::Length(1),
     ])
@@ -206,14 +207,15 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
         form::draw_wizard(frame, area, f, theme, model.host_light);
         return;
     }
-    let [header, _, getah] = Layout::vertical([
-        Constraint::Length(1),
+    let [band, _, getah] = Layout::vertical([
+        Constraint::Length(band_height(area)),
         Constraint::Fill(1),
         Constraint::Length(1),
     ])
     .areas(area);
-    model.list_rows = usize::from(area.height.saturating_sub(5));
+    model.list_rows = usize::from(area.height.saturating_sub(4 + band.height));
     let layout = panes(area, model.focus, model.zoom, model.widths);
+    let header = draw_band(frame, band, model, theme);
     draw_header(
         frame,
         header,
@@ -241,6 +243,93 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
         Some(Overlay::ResumeAgent(kind)) => dialogs::draw_resume_agent(frame, area, *kind, theme),
         None => {}
     }
+}
+
+/// Screens at least this big get the three-row band with the mascot at
+/// the top right (DESIGN §5.7); smaller ones keep the one-line header.
+const BAND_SIZE: (u16, u16) = (120, 36);
+
+/// Returns the rows above the panes: 3 for the band, 1 otherwise.
+#[must_use]
+pub(crate) fn band_height(area: Rect) -> u16 {
+    if area.width >= BAND_SIZE.0 && area.height >= BAND_SIZE.1 {
+        mascot::MINI_HEIGHT
+    } else {
+        1
+    }
+}
+
+/// Returns where the band mascot sits (the click target), if the screen
+/// has a band.
+#[must_use]
+pub(crate) fn band_mascot(area: Rect) -> Option<Rect> {
+    (band_height(area) > 1).then(|| {
+        Rect::new(
+            area.right().saturating_sub(mascot::MINI_WIDTH + 1),
+            area.y,
+            mascot::MINI_WIDTH,
+            mascot::MINI_HEIGHT,
+        )
+    })
+}
+
+/// Draws the band's mascot and, after a click, its speech bubble; returns
+/// the one-row area left for the header line.
+///
+/// The mascot's mood follows every session (needs you, failed, working,
+/// your turn, else idle); a click plays [`mascot::poke_pose`] and shows a
+/// quote for [`mascot::POKE`].
+fn draw_band(frame: &mut Frame, band: Rect, model: &Model, theme: Theme) -> Rect {
+    let row = Rect { height: 1, ..band };
+    let Some(spot) = band_mascot(frame.area()) else {
+        return row;
+    };
+    let clicked = model
+        .poke
+        .map(|(at, quote)| (model.now.saturating_duration_since(at), quote));
+    let t = tally(model);
+    let mood = if t.needs_you > 0 {
+        Mood::NeedsYou
+    } else if t.failed > 0 {
+        Mood::Failed
+    } else if t.working > 0 {
+        Mood::Working
+    } else if model.cards.iter().any(|c| c.state == State::YourTurn) {
+        Mood::YourTurn
+    } else {
+        Mood::Empty
+    };
+    let pose = clicked
+        .and_then(|(elapsed, _)| mascot::poke_pose(elapsed, theme.animated()))
+        .unwrap_or_else(|| mood.pose(model.frame, theme.animated()));
+    frame.render_widget(
+        Mascot {
+            theme,
+            pose,
+            mini: true,
+        },
+        spot,
+    );
+    let mut room = spot.x.saturating_sub(band.x + 1);
+    if let Some((_, quote)) = clicked {
+        let text = mascot::QUOTES[quote % mascot::QUOTES.len()];
+        let width = u16::try_from(text.chars().count() + 4).unwrap_or(u16::MAX);
+        if width + 2 < room {
+            let bubble = Rect::new(spot.x - width - 2, band.y, width, band.height);
+            frame.render_widget(Clear, bubble);
+            let block = bordered(Weight::Light, theme).border_style(theme.fg(Token::Ok));
+            let inner = block.inner(bubble);
+            frame.render_widget(block, bubble);
+            frame.render_widget(Line::styled(format!(" {text}"), theme.fg(Token::Fg)), inner);
+            let tail = if theme.utf8 { "◂" } else { "<" };
+            frame.render_widget(
+                Line::styled(tail, theme.fg(Token::Ok)),
+                Rect::new(bubble.right(), band.y + 1, 1, 1),
+            );
+            room = bubble.x.saturating_sub(band.x + 1);
+        }
+    }
+    Rect { width: room, ..row }
 }
 
 /// Draws the centred "too small" notice (DESIGN §11).
@@ -873,7 +962,7 @@ pub(crate) mod tests {
         key(&mut model, KeyCode::Char('t'));
         let screen = render(&mut model, 120, 40);
         assert!(screen.contains("┃ / t"), "{screen}");
-        assert!(screen.contains("cursor: 5,2"), "{screen}");
+        assert!(screen.contains("cursor: 5,4"), "{screen}");
         assert!(screen.contains("FILTER"), "{screen}");
         assert!(!screen.contains("pasar-mobile"), "{screen}");
     }
@@ -1001,7 +1090,7 @@ pub(crate) mod tests {
         assert!(
             screen
                 .lines()
-                .nth(1)
+                .nth(3)
                 .unwrap()
                 .starts_with("┏ projects ━━━━━━━━━━━━━━━━━━┓"),
             "{screen}"
@@ -1023,5 +1112,36 @@ pub(crate) mod tests {
         model.theme = model.theme.with_view(model.theme.icons, false, true);
         let screen = render(&mut model, 120, 40);
         assert!(screen.contains("2 |-fix"), "{screen}");
+    }
+
+    #[test]
+    fn big_screens_get_the_band_mascot_and_a_click_shows_a_quote() {
+        use ratatui::crossterm::event::{
+            Event, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+        };
+
+        let mut model = sample(PROJECTS);
+        assert_eq!(
+            band_height(Rect::new(0, 0, 100, 30)),
+            1,
+            "small screens keep one line"
+        );
+        let spot = band_mascot(model.screen).unwrap();
+        let click = |column, row| {
+            crate::app::AppEvent::Input(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column,
+                row,
+                modifiers: KeyModifiers::NONE,
+            }))
+        };
+        model.update(click(spot.x + 2, spot.y + 1));
+        let (at, quote) = model.poke.unwrap();
+        let screen = render(&mut model, 120, 40);
+        assert!(screen.contains(mascot::QUOTES[quote]), "{screen}");
+        model.now = at + mascot::POKE;
+        model.update(crate::app::AppEvent::Tick);
+        assert!(model.poke.is_none(), "the quote goes after a while");
+        assert!(!render(&mut model, 120, 40).contains(mascot::QUOTES[quote]));
     }
 }
