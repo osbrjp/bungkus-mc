@@ -161,6 +161,16 @@ pub(crate) struct Card {
 }
 
 impl Card {
+    /// Returns the folder the session works in: its worktree under the
+    /// project's `.claude/worktrees/` when it has one, else the project.
+    #[must_use]
+    pub(crate) fn folder(&self) -> PathBuf {
+        self.worktree.as_ref().map_or_else(
+            || self.project.clone(),
+            |name| self.project.join(".claude/worktrees").join(name),
+        )
+    }
+
     /// Creates a card for a new session.
     ///
     /// The name falls back to the prompt's first line, then `untitled`

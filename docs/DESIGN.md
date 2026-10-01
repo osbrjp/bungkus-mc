@@ -477,12 +477,18 @@ whether there is a header line.
 ```
 ┃! C #a3f1 write proposal        12m   gutter · state glyph · agent badge · #id · title · right: elapsed or state word
 ┃  needs you · permission: Bash        line 2: state word · detail (tool / prompt kind / exit line) [· model when routed]
-┃  499k tok · $1.42 · ctx 37%          line 3: compact usage (`-` when unknown)
+┃  i110-fix · 3 changed ↑2 ↓1          git line (only in a repository): branch · `clean` or changed files · ahead/behind upstream
+┃  499k tok · $1.42 · ctx 37%          usage line: compact usage (`-` when unknown)
 ┃  * research hooks             / 3m   one line per subagent (flat list): glyph · description · state glyph · time
 ```
 
 - Card order within the pane: by state (needs you, failed, working, your
   turn, stopped, wrapped), then most recent first.
+- Git line (issue #110), `fg-muted`: the branch of the folder the session
+  works in (its worktree when it has one; `detached` without a branch),
+  then `clean` or `N changed` (staged, unstaged, unmerged and untracked
+  files), then `↑N` / `↓N` against the upstream when not zero. The branch
+  is cut short first. Read every 5 s; absent outside a repository.
 - Gutter column: `┃` in `warn` for needs-you, `err` for failed, space otherwise.
 - Title = **the session's name**, as the agent itself knows it (decided):
   Claude's session name (set at launch with `--name`, renamed inside the

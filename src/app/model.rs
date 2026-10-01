@@ -244,6 +244,11 @@ pub(crate) struct Model {
     pub state_dirty: bool,
     /// Agent sessions running outside mc, read-only (ARCHITECTURE §3.4).
     pub external: Vec<External>,
+    /// The git branch and status of each session folder that is in a
+    /// repository, as last read.
+    pub repos: std::collections::HashMap<PathBuf, crate::app::repo::Status>,
+    /// Whether a background read of [`Model::repos`] is under way.
+    pub repo_scan: bool,
     /// Shows every key mc receives in the hint line (`BUNGKUS_MC_DEBUG_KEYS`),
     /// to find chords a terminal keeps for itself.
     pub debug_keys: bool,
@@ -353,6 +358,8 @@ impl Model {
             next_scan: None,
             state_dirty: false,
             external: Vec::new(),
+            repos: std::collections::HashMap::new(),
+            repo_scan: false,
             poke: None,
             popup: None,
             last_trash: Vec::new(),
@@ -632,6 +639,10 @@ impl Model {
                 }
             }
             AppEvent::Procs(snapshot) => self.track(&snapshot),
+            AppEvent::Repos(repos) => {
+                self.repos = repos.into_iter().collect();
+                self.repo_scan = false;
+            }
             AppEvent::External(list) => {
                 self.external = list;
                 self.selected = self.selected.min(self.visible().len().saturating_sub(1));
