@@ -23,8 +23,9 @@ const API_MAX: u64 = 64 * 1024;
 /// How long the release lookup may take (SECURITY.md: 3 s).
 const LOOKUP_TIMEOUT: Duration = Duration::from_secs(3);
 
-/// How long a cached answer is trusted: one check a day.
-const CHECK_TTL: Duration = Duration::from_hours(24);
+/// How long a cached answer is trusted, and how often a running mc looks
+/// again: one check an hour.
+pub(crate) const CHECK_TTL: Duration = Duration::from_hours(1);
 
 /// Returns whether `latest` is a newer release than `current`; an
 /// unparseable version on either side is never newer.
@@ -343,7 +344,7 @@ mod tests {
     }
 
     #[test]
-    fn caches_the_answer_for_a_day_and_ignores_junk() {
+    fn caches_the_answer_for_an_hour_and_ignores_junk() {
         let dir = std::env::temp_dir().join(format!("mc-upd-{}", std::process::id()));
         let path = dir.join("latest-release");
         let now = SystemTime::now();

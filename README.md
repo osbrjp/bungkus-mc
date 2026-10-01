@@ -20,7 +20,7 @@ One small Rust binary, no daemon. A sibling of
 [bungkus-cli](https://github.com/osbrjp/bungkus-cli): same release
 pipeline, same "Daun Pisang" design language.
 
-> **Status:** beta (`0.1.0-beta.2`). Milestones M1–M8 are built; model
+> **Status:** beta (`0.1.0-beta.3`). Milestones M1–M8 are built; model
 > routing (M9) is not.
 
 **Contents:** [Install](#install) · [First run](#first-run) ·
@@ -67,8 +67,9 @@ curl -fsSL …/install.sh | BUNGKUS_INSTALL_DIR=/opt/bin bash
 
 ### Updates
 
-mc checks for a newer release once a day. `BUNGKUS_NO_UPDATE_CHECK=1`
-turns that off.
+mc checks for a newer release once an hour, also while it runs; a newer
+one stays in the header (`v0.1.0 → v0.2.0 · U updates`) until you update.
+`BUNGKUS_NO_UPDATE_CHECK=1` turns that off.
 
 ### Uninstall
 

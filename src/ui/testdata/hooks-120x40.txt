@@ -1,4 +1,4 @@
- bungkus-mc  ~/Works/OSBR › kedai-web                                                     ! 1 needs you · v0.1.0-beta.2
+ bungkus-mc  ~/Works/OSBR › kedai-web                                                     ! 1 needs you · v0.1.0-beta.3
 ┌ [1] projects ──────┐┏ [2] sessions · kedai-web ━━━━━━━━━━┓┌ [3] output · C #a3f1 · sl-test ──────────────────────────┐
 │ / search           │┃>┃! C #a3f1 sl-test               0m┃│                                                   ▄██▄   │
 │:  1 kedai-web  ! 1 │┃ ┃  needs you · permission: Agent   ┃│                                                 ▄██████▄ │
