@@ -98,6 +98,9 @@ jobs:
     needs: [version, publish]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: release
       - name: Post release announcement
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -105,22 +108,16 @@ jobs:
           REPO: ${{ github.repository }}
           NAME: ${{ github.event.repository.name }}
           TAG: ${{ needs.version.outputs.tag }}
+          MASCOT_URL: https://raw.githubusercontent.com/${{ github.repository }}/main/docs/assets/mascot.gif
         run: |
           if [ -z "$SLACK_WEBHOOK_URL" ]; then
             echo "SLACK_WEBHOOK_URL not set — skipping Slack announcement"
             exit 0
           fi
 
-          title=$(gh release view "$TAG" --repo "$REPO" --json name --jq '.name // ""')
-          body=$(gh release view "$TAG" --repo "$REPO" --json body --jq '.body // ""')
-          url=$(gh release view "$TAG" --repo "$REPO" --json url --jq '.url')
+          export URL BODY
+          URL=$(gh release view "$TAG" --repo "$REPO" --json url --jq '.url')
+          BODY=$(gh release view "$TAG" --repo "$REPO" --json body --jq '.body // ""')
 
-          header="*${NAME}@${TAG}*"
-          if [ -n "$title" ] && [ "$title" != "$TAG" ]; then
-            header="${header} — ${title}"
-          fi
-          install='`curl -fsSL https://raw.githubusercontent.com/osbrjp/bungkus-mc/main/install.sh | bash`'
-          text="${header}"$'\n\n'"${body}"$'\n\n'"${install}"$'\n'"<${url}|View release>"
-
-          jq -n --arg t "$text" '{text: $t}' \
+          .github/scripts/slack-release.sh \
             | curl -sSf -X POST -H 'Content-type: application/json' --data @- "$SLACK_WEBHOOK_URL"
