@@ -42,6 +42,8 @@ pub(crate) enum Action {
     /// Jump to a project by its number (digits; two when there are more
     /// than nine projects).
     Jump,
+    /// Create a new project in the workspace.
+    NewProject,
     /// Move the selected project's folder to the Trash (with a confirm).
     TrashProject,
     /// Put the project last moved to the Trash back.
@@ -170,6 +172,14 @@ pub(crate) const BINDINGS: &[Binding] = &[
         scope: Scope::Sessions,
     },
     Binding {
+        keys: &[c('a')],
+        label: "a",
+        action: Action::NewProject,
+        help: "new project",
+        hint: None,
+        scope: Scope::Projects,
+    },
+    Binding {
         keys: &[Key::Press(KeyCode::Char('V'), KeyModifiers::SHIFT), c('V')],
         label: "V",
         action: Action::Visual,
@@ -222,7 +232,7 @@ pub(crate) const BINDINGS: &[Binding] = &[
         label: "r",
         action: Action::Resume,
         help: "resume · past",
-        hint: Some("r resume"),
+        hint: None,
         scope: Scope::Sessions,
     },
     Binding {
@@ -230,7 +240,7 @@ pub(crate) const BINDINGS: &[Binding] = &[
         label: "r",
         action: Action::Resume,
         help: "past sessions",
-        hint: Some("r past"),
+        hint: None,
         scope: Scope::Projects,
     },
     Binding {
@@ -339,7 +349,7 @@ pub(crate) const BINDINGS: &[Binding] = &[
         label: "/",
         action: Action::Filter,
         help: "search projects",
-        hint: Some("/ search"),
+        hint: None,
         scope: Scope::Global,
     },
     Binding {
@@ -366,7 +376,7 @@ pub(crate) const BINDINGS: &[Binding] = &[
         label: "N",
         action: Action::QuickSession,
         help: "quick session",
-        hint: Some("N quick"),
+        hint: None,
         scope: Scope::Global,
     },
     Binding {
@@ -418,11 +428,15 @@ pub(crate) const BINDINGS: &[Binding] = &[
         scope: Scope::Global,
     },
     Binding {
-        keys: &[c('?'), Key::Press(KeyCode::Char('?'), KeyModifiers::SHIFT)],
-        label: "?",
+        keys: &[
+            c('?'),
+            Key::Press(KeyCode::Char('?'), KeyModifiers::SHIFT),
+            c(' '),
+        ],
+        label: "? space",
         action: Action::Help,
         help: "this help",
-        hint: Some("? help"),
+        hint: Some("? keys"),
         scope: Scope::Global,
     },
     Binding {

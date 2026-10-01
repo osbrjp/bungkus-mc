@@ -37,5 +37,5 @@
 │                    │┃                                    ┃│                                                          │
 │                    │┃                                    ┃│                                                          │
 └────────────────────┘┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛└──────────────────────────────────────────────────────────┘
- NORMAL  enter → agent · n new · x stop · r resume · / search · N quick · ? help
+ NORMAL  enter → agent · n new · x stop · ? keys
 cursor: hidden

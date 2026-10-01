@@ -540,3 +540,62 @@ pub(super) fn draw_trash_project(
     frame.render_widget(block, rect);
     frame.render_widget(Paragraph::new(lines), inner);
 }
+
+/// Draws the `a` new-project dialog: the bordered name field and the two
+/// kinds, fresh repository or with agent files.
+pub(super) fn draw_new_project(
+    frame: &mut Frame,
+    area: Rect,
+    dialog: &crate::app::quick::NewProject,
+    theme: Theme,
+) {
+    let kind = |chosen: bool, text: &str| {
+        let style = if chosen {
+            bold_if(theme.fg(Token::Accent), true)
+        } else {
+            theme.fg(Token::Fg)
+        };
+        Line::styled(
+            format!("  {}{text}", if chosen { "> " } else { "  " }),
+            style,
+        )
+    };
+    let mut lines = vec![
+        kind(
+            dialog.agent_files,
+            "with agent files: .git + AGENTS.md + CLAUDE.md (@AGENTS.md)",
+        ),
+        kind(!dialog.agent_files, "fresh: .git only"),
+    ];
+    lines.push(dialog.error.as_deref().map_or_else(
+        || Line::from(""),
+        |e| Line::styled(format!("  {e}"), theme.fg(Token::Err)),
+    ));
+    lines.push(
+        Line::styled(
+            "tab switch · enter create · esc cancel  ",
+            theme.fg(Token::FgMuted),
+        )
+        .alignment(Alignment::Right),
+    );
+    let rect = centred(area, 66, 11);
+    frame.render_widget(Clear, rect);
+    let block = dialog_block("new project", theme);
+    let inner = block.inner(rect);
+    frame.render_widget(block, rect);
+    let [title, field, kinds] = Layout::vertical([
+        Constraint::Length(2),
+        Constraint::Length(3),
+        Constraint::Fill(1),
+    ])
+    .areas(inner);
+    frame.render_widget(
+        Paragraph::new(vec![
+            Line::from(""),
+            Line::styled("  Folder name in the workspace:", theme.fg(Token::Fg)),
+        ]),
+        title,
+    );
+    draw_field(frame, field, &dialog.name, theme);
+    frame.render_widget(Paragraph::new(lines), kinds);
+}

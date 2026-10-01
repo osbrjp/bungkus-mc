@@ -81,6 +81,8 @@ pub(crate) enum Overlay {
     Move(crate::app::quick::MoveDialog),
     /// "Stop this session started outside mc?"
     StopOutside(External),
+    /// The `a` new-project dialog.
+    NewProject(crate::app::quick::NewProject),
     /// "Move these projects' folders to the Trash?"
     TrashProject(Vec<Project>),
 }
@@ -128,6 +130,9 @@ pub(crate) enum Cmd {
     Scan,
     /// Write the dragged pane widths to `config.json`.
     SaveWidths(crate::ui::Widths),
+    /// Create this project folder: `git init`, plus `AGENTS.md` and a
+    /// `CLAUDE.md` that imports it when the flag is set.
+    NewProject(PathBuf, bool),
     /// Move these project folders to the Trash (after the user confirmed).
     TrashProject(Vec<PathBuf>),
     /// Move trashed projects back: each `(folder, where it went)`.
@@ -608,6 +613,7 @@ impl Model {
             if !usage.limits.is_empty() {
                 self.limits[card.kind as usize].clone_from(&usage.limits);
                 self.limits_at[card.kind as usize] = Some(now);
+                self.state_dirty = true;
             }
             card.report(usage);
             return None;
@@ -642,6 +648,7 @@ impl Model {
         if !usage.limits.is_empty() {
             self.limits[Kind::Codex as usize].clone_from(&usage.limits);
             self.limits_at[Kind::Codex as usize] = Some(self.now);
+            self.state_dirty = true;
         }
         if let Some(card) = self.card_mut(id) {
             card.report(usage);
@@ -789,7 +796,10 @@ impl Model {
     /// Passes a key to an overlay; the overlay stays unless it closed.
     fn overlay_key(&mut self, overlay: Overlay, key: KeyEvent) -> Option<Cmd> {
         match overlay {
-            Overlay::Help => None,
+            Overlay::Help => match key.code {
+                KeyCode::Esc | KeyCode::Char('?' | ' ') => None,
+                _ => self.key(key),
+            },
             Overlay::Form(mut form) => match form.key(key) {
                 Outcome::Continue => {
                     self.overlay = Some(Overlay::Form(form));
@@ -834,6 +844,7 @@ impl Model {
                 }
                 None
             }
+            Overlay::NewProject(dialog) => self.new_project_key(dialog, key),
             Overlay::TrashProject(projects) => (key.code == KeyCode::Char('y'))
                 .then(|| Cmd::TrashProject(projects.into_iter().map(|p| p.path).collect())),
             Overlay::Forget(id) => {
@@ -1219,6 +1230,7 @@ impl Model {
             }
             Action::Pane(n) => self.focus_pane(n),
             Action::TrashProject => self.ask_trash(),
+            Action::NewProject => self.start_new_project(),
             Action::UndoTrash => return self.undo_trash(),
             Action::Visual => self.visual = self.visual.xor(Some(self.selected)),
             Action::QuickSession => return self.quick_session(),
@@ -1534,6 +1546,24 @@ pub(crate) mod tests {
         assert!(m.visual.is_none(), "esc ends the selection");
         m.update(press(KeyCode::Char('u')));
         assert_eq!(m.message.as_deref(), Some("Nothing to undo."));
+    }
+
+    #[test]
+    fn the_key_menu_runs_the_key_pressed_in_it() {
+        let mut m = sample(&["a", "b"]);
+        m.focus = Focus::Projects;
+        m.update(press(KeyCode::Char(' ')));
+        assert_eq!(m.overlay, Some(Overlay::Help), "space opens the key menu");
+        m.update(press(KeyCode::Char('j')));
+        assert!(m.overlay.is_none());
+        assert_eq!(m.selected, 1, "j ran");
+        m.update(press(KeyCode::Char('?')));
+        m.update(press(KeyCode::Esc));
+        assert_eq!(
+            (m.overlay.clone(), m.selected),
+            (None, 1),
+            "esc only closes"
+        );
     }
 
     #[test]

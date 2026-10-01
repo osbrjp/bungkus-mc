@@ -21,5 +21,5 @@
 ┃                                                                              ┃
 ┃                                                                              ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
- NORMAL  enter → sessions · n new · r past · / search · N quick · ? help
+ NORMAL  enter → sessions · n new · ? keys
 cursor: hidden
