@@ -130,7 +130,9 @@ late reply would otherwise leak into the key stream; the theme's reference
 values are used when the host does not answer). **OSC 10/11 replies to the agent
 carry those same colours** (spike finding: the prototype answered fixed
 values; mc answers `Event::ColorRequest` from the active theme), so
-agents pick their dark (or light) theme to match.
+agents pick their dark (or light) theme to match. On a theme switch mc
+also writes a colour-scheme report (`CSI ? 997 ; 1 n` dark, `2 n` light) to
+running Claude sessions, so Claude's `auto` theme follows without a restart.
 
 ### 3.2 What happens when mc quits while agents run (decided by the owner)
 
