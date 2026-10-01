@@ -24,9 +24,9 @@
 ┃                    ║  u                    undo dd         dd                   to Trash        ║.                   │
 ┃                    ║                                                                            ║n                   │
 ┃                    ║  workspace & app                                                           ║                    │
-┃                    ║  w                    workspaces      ,                    settings        ║                    │
-┃                    ║  R                    redraw          ? space              this help       ║                    │
-┃                    ║  q ctrl-c             quit                                                 ║                    │
+┃                    ║  U                    update+restart  w                    workspaces      ║                    │
+┃                    ║  ,                    settings        R                    redraw          ║                    │
+┃                    ║  ? space              this help       q ctrl-c             quit            ║                    │
 ┃                    ║                                                                            ║                    │
 ┃                    ║  agent pane & quick popup                                                  ║                    │
 ┃                    ║  ctrl-\               leave · menu    ctrl-h               to sessions     ║                    │
