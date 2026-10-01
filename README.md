@@ -144,7 +144,7 @@ pane; press one to run it.
 | `dd` | move the project to the Trash, after a confirm |
 | `V` then `d` | the same for a line selection of projects |
 | `u` | undo the move to the Trash |
-| `c` | projects pane: remove the project's unused git worktrees after a confirm — never one a session runs in or can resume into, never one with uncommitted files; branches stay |
+| `c` | projects or sessions pane: remove the selected project's unused git worktrees after a confirm — never one a session runs in or can resume into, never one with uncommitted files; branches stay |
 | `w` | workspace switcher (see [Workspace switcher](#workspace-switcher-w)) |
 
 ### App
