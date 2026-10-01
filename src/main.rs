@@ -222,7 +222,27 @@ fn main() -> Result<()> {
         config,
         state_path,
     };
-    app::run(model, &env).context("running the TUI")
+    let exe = std::env::current_exe().ok();
+    if app::run(model, &env).context("running the TUI")? {
+        restart(exe)?;
+    }
+    Ok(())
+}
+
+/// Starts the updated binary in place of this process (`U`), with the same
+/// arguments, once the terminal is restored. `exe` is the path taken at
+/// start, as Linux reports a replaced binary as deleted afterwards.
+///
+/// # Errors
+///
+/// Only when the new binary cannot be executed.
+fn restart(exe: Option<PathBuf>) -> Result<()> {
+    use std::os::unix::process::CommandExt;
+    let exe = exe.context("finding mc's own path to restart")?;
+    let error = std::process::Command::new(&exe)
+        .args(std::env::args_os().skip(1))
+        .exec();
+    Err(error).context("restarting the updated bungkus-mc")
 }
 
 /// Restores the remembered sessions and plan limits from the state folder

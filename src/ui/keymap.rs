@@ -50,6 +50,8 @@ pub(crate) enum Action {
     UndoTrash,
     /// Start or end a line selection of projects (`V`), for `d`/`dd`.
     Visual,
+    /// Install a newer release and restart mc on it (`U`).
+    Update,
     /// Start a quick session at the workspace root (a popup).
     QuickSession,
     /// Move the selected quick session into a project.
@@ -372,6 +374,14 @@ pub(crate) const BINDINGS: &[Binding] = &[
         scope: Scope::Global,
     },
     Binding {
+        keys: &[Key::Press(KeyCode::Char('U'), KeyModifiers::SHIFT), c('U')],
+        label: "U",
+        action: Action::Update,
+        help: "update+restart",
+        hint: None,
+        scope: Scope::Global,
+    },
+    Binding {
         keys: &[Key::Press(KeyCode::Char('N'), KeyModifiers::SHIFT), c('N')],
         label: "N",
         action: Action::QuickSession,
@@ -566,7 +576,12 @@ impl Action {
             Self::NewProject | Self::TrashProject | Self::UndoTrash | Self::Visual => {
                 Group::Projects
             }
-            Self::Workspace | Self::Settings | Self::Help | Self::Redraw | Self::Quit => Group::App,
+            Self::Workspace
+            | Self::Settings
+            | Self::Help
+            | Self::Redraw
+            | Self::Update
+            | Self::Quit => Group::App,
         }
     }
 }

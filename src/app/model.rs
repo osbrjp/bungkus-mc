@@ -137,6 +137,8 @@ pub(crate) enum Cmd {
     SwitchWorkspace(PathBuf, Option<SessionId>),
     /// Write the saved workspaces to `config.json`.
     SaveWorkspaces,
+    /// Check for a newer release and install it in the background (`U`).
+    Update,
     /// Ask kitty to focus its window on that side (`left`, `right`, `top`,
     /// `bottom`): `ctrl-h/j/k/l` past mc's own edge, as vim-kitty-navigator
     /// does.
@@ -244,6 +246,10 @@ pub(crate) struct Model {
     /// Every session id this mc loaded or started (forgotten ones too), so a
     /// save replaces only its own records in the shared `sessions.json`.
     pub known: std::collections::HashSet<SessionId>,
+    /// Whether a `U` update is running.
+    pub updating: bool,
+    /// Whether mc starts again (the updated binary) once it has quit.
+    pub restart: bool,
     /// Saved workspaces, most recently used first (`w`).
     pub workspaces: Vec<PathBuf>,
     /// The projects last moved to the Trash this run, each `(folder, where
@@ -341,6 +347,8 @@ impl Model {
             popup: None,
             last_trash: Vec::new(),
             workspaces: Vec::new(),
+            updating: false,
+            restart: false,
             known: std::collections::HashSet::new(),
             kitty: false,
             visual: None,
@@ -588,8 +596,9 @@ impl Model {
             }
             AppEvent::HostGone => return self.host_gone(),
             AppEvent::UpdateAvailable(tag) => {
-                self.message = Some(format!("bungkus-mc {tag} is out — bungkus-mc update"));
+                self.message = Some(format!("bungkus-mc {tag} is out — U updates and restarts"));
             }
+            AppEvent::Updated(result) => return self.updated(result),
             AppEvent::Pty(PtyEvent::Output(id, bytes)) => {
                 if let Some(pty) = self.card_mut(id).and_then(|c| c.pty.as_mut()) {
                     pty.advance(&bytes);
@@ -1223,6 +1232,43 @@ impl Model {
         };
     }
 
+    /// Starts the `U` update (one at a time).
+    fn start_update(&mut self) -> Option<Cmd> {
+        if self.updating {
+            self.message = Some("Already updating…".into());
+            return None;
+        }
+        self.updating = true;
+        self.message = Some("Checking for an update…".into());
+        Some(Cmd::Update)
+    }
+
+    /// Handles the end of a `U` update: an installed release quits (asking
+    /// about running sessions first, as `q` does) and restarts on it.
+    fn updated(&mut self, result: Result<Option<String>, String>) -> Option<Cmd> {
+        self.updating = false;
+        match result {
+            Ok(Some(tag)) => {
+                crate::debug_log!("updated to {tag}; restarting");
+                self.message = Some(format!("Updated to {tag} — restarting…"));
+                self.restart = true;
+                return Some(self.request_quit());
+            }
+            Ok(None) => {
+                self.message = Some(format!(
+                    "bungkus-mc {} is up to date.",
+                    env!("CARGO_PKG_VERSION")
+                ));
+            }
+            Err(e) => {
+                self.message = Some(format!(
+                    "Update failed: {e} · bungkus-mc update in a terminal shows why"
+                ));
+            }
+        }
+        None
+    }
+
     /// Quits at once, or asks first (after a fresh scan) when sessions
     /// are running or processes they started are tracked.
     fn request_quit(&mut self) -> Cmd {
@@ -1342,6 +1388,7 @@ impl Model {
             Action::UndoTrash => return self.undo_trash(),
             Action::Visual => self.visual = self.visual.xor(Some(self.selected)),
             Action::QuickSession => return self.quick_session(),
+            Action::Update => return self.start_update(),
             Action::MoveQuick => self.start_move(false),
             Action::MakeProject => self.start_move(true),
             Action::Zoom => self.zoom = !self.zoom,
@@ -1728,6 +1775,38 @@ pub(crate) mod tests {
             None,
             "a dialog keeps ctrl-j for its list"
         );
+    }
+
+    #[test]
+    fn u_updates_then_restarts_or_says_why_not() {
+        let mut m = sample(&["a"]);
+        assert_eq!(m.update(press(KeyCode::Char('U'))), Some(Cmd::Update));
+        assert!(
+            m.update(press(KeyCode::Char('U'))).is_none(),
+            "one update at a time"
+        );
+        m.update(AppEvent::Updated(Ok(None)));
+        assert!(
+            m.message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("up to date")
+        );
+        assert!(!m.restart);
+        m.update(AppEvent::Updated(Err("the installer failed".into())));
+        assert!(
+            m.message
+                .as_deref()
+                .unwrap_or_default()
+                .starts_with("Update failed")
+        );
+        let (_id, _w) = with_session(&mut m, "busy");
+        assert_eq!(
+            m.update(AppEvent::Updated(Ok(Some("v0.2.0".into())))),
+            Some(Cmd::OpenStop(StopKind::Quit)),
+            "running sessions are asked about first, as on quit"
+        );
+        assert!(m.restart, "then mc starts again on the new version");
     }
 
     #[test]

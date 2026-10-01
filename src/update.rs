@@ -109,22 +109,112 @@ pub(crate) fn available(var: impl Fn(&str) -> Option<String>) -> Option<String> 
     is_newer(env!("CARGO_PKG_VERSION"), &latest).then_some(latest)
 }
 
-/// Runs `bungkus-mc update [--check]`.
-///
-/// `--check` prints whether a newer release exists. Otherwise the
-/// installer attached to the latest release is downloaded with `gh` and
-/// run with `bash` (the one documented shell use for updates, SECURITY.md);
-/// it verifies the binary against `checksums.txt` itself. The running
+/// Why an update could not be installed.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum UpdateError {
+    /// `gh` is missing, not logged in, or did not answer in time.
+    #[error(
+        "could not ask GitHub for the latest release; is gh installed and logged in (gh auth login)?"
+    )]
+    NoRelease,
+    /// `gh release download` failed.
+    #[error("could not download install.sh for {0}")]
+    Download(String),
+    /// The installer exited non-zero (in mc: it may have needed sudo).
+    #[error("the installer failed")]
+    Installer,
+    /// A temp folder or process could not be created.
+    #[error("{0}")]
+    Io(#[from] std::io::Error),
+}
+
+/// Downloads the installer of release `latest` with `gh` and runs it with
+/// `bash` (the one documented shell use for updates, SECURITY.md); it
+/// verifies the binary against `checksums.txt` itself. The running
 /// binary's real path goes along as `BUNGKUS_CURRENT_BIN`, so the copy
-/// that runs is the one updated (ARCHITECTURE §11).
+/// that runs is the one updated (ARCHITECTURE §11). `quiet` sends the
+/// installer's output nowhere (inside the TUI) and gives it no terminal,
+/// so a sudo prompt fails instead of hanging.
+///
+/// # Errors
+///
+/// [`UpdateError::Download`], [`UpdateError::Installer`] or an I/O error.
+pub(crate) fn install(latest: &str, quiet: bool) -> Result<(), UpdateError> {
+    let dir = std::env::temp_dir().join(format!("bungkus-mc-update-{}", std::process::id()));
+    std::fs::create_dir_all(&dir)?;
+    let io = || {
+        if quiet {
+            Stdio::null()
+        } else {
+            Stdio::inherit()
+        }
+    };
+    let got = Command::new("gh")
+        .args([
+            "release",
+            "download",
+            latest,
+            "--repo",
+            REPO,
+            "--pattern",
+            "install.sh",
+            "--dir",
+        ])
+        .arg(&dir)
+        .stdin(io())
+        .stdout(io())
+        .stderr(io())
+        .status()?;
+    if !got.success() {
+        return Err(UpdateError::Download(latest.to_owned()));
+    }
+    let mut installer = Command::new("bash");
+    installer
+        .arg(dir.join("install.sh"))
+        .env("BUNGKUS_MC_VERSION", latest)
+        .stdin(io())
+        .stdout(io())
+        .stderr(io());
+    if let Ok(exe) = std::env::current_exe().and_then(std::fs::canonicalize) {
+        installer.env("BUNGKUS_CURRENT_BIN", exe);
+    }
+    let status = installer.status()?;
+    // reason: a leftover temp dir is harmless.
+    let _ = std::fs::remove_dir_all(&dir);
+    if status.success() {
+        Ok(())
+    } else {
+        Err(UpdateError::Installer)
+    }
+}
+
+/// Checks for a newer release and installs it quietly (the TUI's `U`).
+///
+/// # Returns
+///
+/// The installed tag, or `None` when this version is the latest.
+///
+/// # Errors
+///
+/// As [`install`], plus [`UpdateError::NoRelease`].
+pub(crate) fn check_and_install() -> Result<Option<String>, UpdateError> {
+    let latest = latest_release().ok_or(UpdateError::NoRelease)?;
+    if !is_newer(env!("CARGO_PKG_VERSION"), &latest) {
+        return Ok(None);
+    }
+    install(&latest, true)?;
+    Ok(Some(latest))
+}
+
+/// Runs `bungkus-mc update [--check]`: `--check` prints whether a newer
+/// release exists; otherwise its installer runs in this terminal.
 ///
 /// # Errors
 ///
 /// A message when `gh` is missing or not logged in, or the installer fails.
 pub(crate) fn run(check_only: bool) -> anyhow::Result<String> {
-    use anyhow::{Context, bail};
     let current = env!("CARGO_PKG_VERSION");
-    let latest = latest_release().context("could not ask GitHub for the latest release; is gh installed and logged in (gh auth login)?")?;
+    let latest = latest_release().ok_or(UpdateError::NoRelease)?;
     if !is_newer(current, &latest) {
         return Ok(format!("bungkus-mc {current} is up to date"));
     }
@@ -133,38 +223,7 @@ pub(crate) fn run(check_only: bool) -> anyhow::Result<String> {
             "bungkus-mc {latest} is available (you have {current}); run: bungkus-mc update"
         ));
     }
-    let dir = std::env::temp_dir().join(format!("bungkus-mc-update-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).context("creating a temp dir")?;
-    let got = Command::new("gh")
-        .args([
-            "release",
-            "download",
-            &latest,
-            "--repo",
-            REPO,
-            "--pattern",
-            "install.sh",
-            "--dir",
-        ])
-        .arg(&dir)
-        .status()
-        .context("running gh release download")?;
-    if !got.success() {
-        bail!("could not download install.sh for {latest}");
-    }
-    let mut installer = Command::new("bash");
-    installer
-        .arg(dir.join("install.sh"))
-        .env("BUNGKUS_MC_VERSION", &latest);
-    if let Ok(exe) = std::env::current_exe().and_then(std::fs::canonicalize) {
-        installer.env("BUNGKUS_CURRENT_BIN", exe);
-    }
-    let status = installer.status().context("running the installer")?;
-    // reason: a leftover temp dir is harmless.
-    let _ = std::fs::remove_dir_all(&dir);
-    if !status.success() {
-        bail!("the installer failed");
-    }
+    install(&latest, false)?;
     Ok(format!("updated bungkus-mc to {latest}"))
 }
 

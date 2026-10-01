@@ -75,6 +75,9 @@ pub(crate) enum AppEvent {
     HostGone,
     /// A newer release exists (the daily check).
     UpdateAvailable(String),
+    /// The `U` update finished: the installed tag, `None` when already
+    /// latest, or why it failed.
+    Updated(Result<Option<String>, String>),
     /// A deadline passed: animation frame, sync flush or stop grace.
     Tick,
 }
@@ -156,7 +159,7 @@ struct Hooks {
 ///
 /// Returns the I/O error if the terminal cannot be set up, drawn to or read
 /// from. Saving, scanning or spawn errors are shown in the UI instead.
-pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<()> {
+pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<bool> {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         release_host_modes();
@@ -215,7 +218,7 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<()> {
             Some(at) => match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
                 Ok(event) => event,
                 Err(RecvTimeoutError::Timeout) => AppEvent::Tick,
-                Err(RecvTimeoutError::Disconnected) => return Ok(()),
+                Err(RecvTimeoutError::Disconnected) => return Ok(false),
             },
             None => rx
                 .recv()
@@ -237,7 +240,7 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<()> {
             match run_cmd(&mut model, env, hooks.as_ref(), &tx, uid, cmd) {
                 Next::Quit => {
                     save_state(&mut model, env);
-                    return Ok(());
+                    return Ok(model.restart);
                 }
                 Next::Redraw => terminal.clear()?,
                 Next::Continue => {}
@@ -335,6 +338,14 @@ fn run_cmd(
             }
         }
         Cmd::SaveWorkspaces => save_workspaces(model, env),
+        Cmd::Update => {
+            let tx = tx.clone();
+            thread::spawn(move || {
+                let result = crate::update::check_and_install().map_err(|e| e.to_string());
+                // reason: mc may have quit meanwhile.
+                let _ = tx.send(AppEvent::Updated(result));
+            });
+        }
         Cmd::KittyFocus(side) => kitty_focus(side),
         Cmd::NewProject(path, agent_files) => new_project(model, &path, agent_files),
         Cmd::TrashProject(paths) => trash_projects(model, &paths),
