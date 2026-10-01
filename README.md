@@ -20,7 +20,7 @@ One small Rust binary, no daemon. A sibling of
 [bungkus-cli](https://github.com/osbrjp/bungkus-cli): same release
 pipeline, same "Daun Pisang" design language.
 
-> **Status:** beta (`0.1.0-beta.3`). Milestones M1–M8 are built; model
+> **Status:** beta (`0.1.0-beta.4`). Milestones M1–M8 are built; model
 > routing (M9) is not.
 
 **Contents:** [Install](#install) · [First run](#first-run) ·
@@ -434,7 +434,8 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
 cargo deny check
 ```
 
-**Releases:** bump `version` in `Cargo.toml`, then merge the release PR
+**Releases:** run `scripts/bump-version.sh` (the next beta or patch; or
+pass a version) and merge that through a PR, then merge the release PR
 (`main` → `release`, opened automatically). The release workflow builds
 darwin/linux × arm64/amd64 and publishes `v<version>`.
 

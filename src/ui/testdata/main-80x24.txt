@@ -1,4 +1,4 @@
- bungkus-mc  pasar-mobile › projects                              v0.1.0-beta.3
+ bungkus-mc  pasar-mobile › projects                              v0.1.0-beta.4
 ┏ [1] projects ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃ / search                                                                     ┃
 ┃   1 kedai-web                                                                ┃

@@ -208,7 +208,8 @@ has none. Coverage is not a target.
 
 - Conventional commits (`feat:`, `fix:`, `test:`, `chore:`, `docs:`,
   `refactor:`); `main` = canary, `release` = stable (release PRs from
-  `git-pr-release`; the version is bumped in `Cargo.toml`); the promotion
+  `git-pr-release`; the version is bumped with `scripts/bump-version.sh`,
+  never by hand); the promotion
   PR is merged with a merge commit, never squashed.
 - Branch `i{issue#}-{date}-{seq}`, created by the "Start Pull Request"
   workflow on issue assignment.
