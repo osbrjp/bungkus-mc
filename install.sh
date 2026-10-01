@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Installs bungkus-mc from a GitHub release.
 #
-# bungkus-cli's install.sh with REPO/BIN_NAME changed (ARCHITECTURE §11).
-# The repository is private, so the release is read with the user's
-# authenticated gh CLI; plain curl is used only when gh is missing and the
-# repository is public. The binary is verified against the release's
-# checksums.txt before it is installed.
+# bungkus-cli's install.sh with REPO/BIN_NAME changed (ARCHITECTURE §11):
+#   curl -fsSL https://raw.githubusercontent.com/osbrjp/bungkus-mc/main/install.sh | bash
+# It reads the latest release from the public GitHub API, downloads the
+# binary and checksums.txt with curl and verifies the binary before it is
+# installed. BUNGKUS_MC_VERSION picks a release (`bungkus-mc update` sets it).
 #
 # Never requires sudo for a fresh install (like uv, rustup, bun, deno and
 # Claude Code). The folder is, in order:
@@ -57,15 +57,9 @@ sha256_of() {
   fi
 }
 
-have_gh() {
-  command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1
-}
-
 resolve_tag() {
   if [ -n "${BUNGKUS_MC_VERSION:-}" ]; then
     echo "$BUNGKUS_MC_VERSION"
-  elif have_gh; then
-    gh release view --repo "$REPO" --json tagName --jq .tagName
   else
     curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
       | grep -m1 '"tag_name":' \
@@ -75,12 +69,8 @@ resolve_tag() {
 
 download() {
   local tag="$1" asset="$2" dir="$3"
-  if have_gh; then
-    gh release download "$tag" --repo "$REPO" --pattern "$asset" --pattern checksums.txt --dir "$dir"
-  else
-    curl -fsSL "https://github.com/${REPO}/releases/download/${tag}/${asset}" -o "${dir}/${asset}"
-    curl -fsSL "https://github.com/${REPO}/releases/download/${tag}/checksums.txt" -o "${dir}/checksums.txt"
-  fi
+  curl -fSL "https://github.com/${REPO}/releases/download/${tag}/${asset}" -o "${dir}/${asset}"
+  curl -fSL "https://github.com/${REPO}/releases/download/${tag}/checksums.txt" -o "${dir}/checksums.txt"
 }
 
 # Prints $1 with every symlink in its last component resolved.
@@ -196,13 +186,13 @@ main() {
     printf 'dir=%s\nsudo=%s\nshadowed=%s\n' "$INSTALL_DIR" "$USE_SUDO" "$SHADOWED"
     exit 0
   fi
-  have_gh || command -v curl >/dev/null 2>&1 || err "install gh (and run gh auth login) or curl"
+  command -v curl >/dev/null 2>&1 || err "required command not found: curl"
 
   local os arch tag asset tmp expected actual dest
   os=$(detect_os)
   arch=$(detect_arch)
   tag=$(resolve_tag)
-  [ -n "$tag" ] || err "could not resolve the release (is gh logged in to an account that can see ${REPO}?)"
+  [ -n "$tag" ] || err "could not resolve the latest release (is there a published release?)"
 
   asset="${BIN_NAME}-${os}-${arch}"
   tmp=$(mktemp -d -t "${BIN_NAME}.XXXXXX")

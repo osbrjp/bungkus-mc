@@ -113,27 +113,13 @@ arm64/amd64 on native runners (`macos-latest` for both macOS targets,
 dependency: `about.toml`, `about.hbs`) with release-drafter notes. The tag
 is semver, not the template's CalVer, because `bungkus-mc update` compares
 versions. The `release` branch must exist before the first release PR.
-`install.sh` (bungkus-cli's script with `REPO`/`BIN_NAME` changed, using
-`gh release download` while the repo is private) is attached to every
-release. `ureq` is only needed for model routing (M9): the update check
-goes through `gh`, so it adds no HTTP code.
+`install.sh` (bungkus-cli's script with `REPO`/`BIN_NAME` changed; the repo
+is public, so it downloads with `curl`) is attached to every release and
+served from `main` for the one-line install. `ureq` is only needed for
+model routing (M9): the update check and update call `curl`, which the
+installer needs anyway, so they add no HTTP code.
 
-After the GitHub release, three more jobs run, each skipped while its
-secret is unset:
-
-- **npm** (`NPM_TOKEN`): `packaging/npm-pack.sh` builds four platform
-  packages `@osbrjp/bungkus-mc-<os>-<cpu>` (the binary, gated by `os`/`cpu`)
-  and `@osbrjp/bungkus-mc`, whose `bungkus-mc`/`bkmc` bin
-  (`packaging/npm/bin/bungkus-mc.js`) runs the installed platform binary,
-  the esbuild pattern. Published `--access public`, platform packages
-  first; an already published version is skipped.
-- **Homebrew** (`HOMEBREW_TAP_TOKEN`, a token with push access to the tap;
-  `vars.HOMEBREW_TAP`, default `osbrjp/homebrew-tap`):
-  `packaging/brew-formula.sh` renders `Formula/bungkus-mc.rb` whose sources
-  are the npm platform tarballs, so `brew install osbrjp/tap/bungkus-mc`
-  works while the GitHub repo is private. Needs npm published.
-- **Slack** (`SLACK_WEBHOOK_URL`): bungkus-cli's announcement (release
-  title, notes, link) plus the install commands.
-
-Publishing to npm makes the binary publicly downloadable, even while the
-repo is private.
+After the GitHub release, the announce job posts bungkus-cli's Slack
+message (release title, notes, link, the install line) to
+`SLACK_WEBHOOK_URL`, skipped while that secret is unset. npm and Homebrew
+packaging were dropped (owner decision, 2026-10-01).
