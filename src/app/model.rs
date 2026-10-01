@@ -779,6 +779,19 @@ impl Model {
         }))
     }
 
+    /// Focuses pane `n`: 1 projects, 2 sessions, 3 output (INTERACT when
+    /// the selected session runs).
+    pub(crate) fn focus_pane(&mut self, n: u8) {
+        match n {
+            1 => self.focus = Focus::Projects,
+            2 => self.focus = Focus::Sessions,
+            _ => {
+                self.focus = Focus::Sessions;
+                self.interact();
+            }
+        }
+    }
+
     /// Opens a past session of the selected project that mc did not start:
     /// asks which agent when both are installed, then launches that agent's
     /// own list of past sessions (`claude --resume`, `codex resume`) in the
@@ -971,6 +984,7 @@ impl Model {
                     return Some(Cmd::OpenStop(StopKind::Session(self.cards[i].id)));
                 }
             }
+            Action::Pane(n) => self.focus_pane(n),
             Action::Zoom => self.zoom = !self.zoom,
             Action::Resume => {
                 if self
@@ -1203,6 +1217,25 @@ pub(crate) mod tests {
         };
         assert_eq!(req.kind, Kind::Codex);
         assert!(m.overlay.is_none());
+    }
+
+    #[test]
+    fn cmd_alt_or_ctrl_digits_focus_a_pane_even_in_interact() {
+        let chord = |ch, mods| AppEvent::Input(Event::Key(KeyEvent::new(KeyCode::Char(ch), mods)));
+        let mut m = sample(&["a"]);
+        let (_id, writes) = with_session(&mut m, "s");
+        assert_eq!(m.focus, Focus::Output);
+        m.update(chord('1', KeyModifiers::SUPER));
+        assert_eq!(m.focus, Focus::Projects, "cmd-1 leaves INTERACT");
+        m.update(chord('2', KeyModifiers::ALT));
+        assert_eq!(m.focus, Focus::Sessions);
+        m.update(chord('3', KeyModifiers::CONTROL));
+        assert_eq!(m.focus, Focus::Output);
+        assert!(writes.try_recv().is_err(), "nothing reached the agent");
+        assert_eq!(
+            m.selected, 0,
+            "plain digits still jump projects, chords do not"
+        );
     }
 
     #[test]

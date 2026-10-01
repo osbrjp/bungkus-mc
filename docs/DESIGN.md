@@ -1150,6 +1150,7 @@ acceptance and permission answers are typed. Exceptions:
 | `ctrl-\` (default)   | leave INTERACT: NORMAL with the **sessions pane** focused. Configurable: `interactExit` in config, any single chord (suggested alternate: `ctrl-^`) |
 | `ctrl-h`             | leave INTERACT to the sessions pane, as everywhere (the agent never sees it) |
 | `ctrl-l`             | swallowed: the output pane is already the rightmost (the agent never sees it) |
+| `cmd`/`alt`/`ctrl` + `1`–`3` | focus projects / sessions / output (the agent never sees them); also in NORMAL. Cmd only arrives when the terminal does not keep it for its tabs |
 | `ctrl-z`             | swallowed (a suspended agent cannot be resumed from inside a pane)  |
 | mouse click on another pane | leaves INTERACT and focuses that pane                       |
 | mouse wheel          | scrolls mc's scrollback unless the agent enabled mouse reporting  |
