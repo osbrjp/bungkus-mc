@@ -1188,4 +1188,21 @@ pub(crate) mod tests {
         model.update(crate::app::AppEvent::Tick);
         assert!(model.poke.is_none(), "the quote goes after a while");
     }
+
+    #[test]
+    fn a_stopped_session_shows_the_died_mascot_in_the_middle() {
+        use crate::app::model::tests::with_session;
+
+        let mut model = sample(PROJECTS);
+        let (_id, _w) = with_session(&mut model, "s");
+        model.cards[0].state = State::Stopped;
+        let screen = render(&mut model, 120, 40);
+        assert!(screen.contains("Stopped."), "{screen}");
+        assert!(screen.contains("r resumes it · d forgets it"), "{screen}");
+        assert!(screen.contains('x'), "died eyes");
+        assert!(
+            screen.contains("▄██████████████▄"),
+            "the full-size mascot: {screen}"
+        );
+    }
 }

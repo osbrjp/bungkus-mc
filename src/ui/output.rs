@@ -48,6 +48,13 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
     };
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    if card.state == State::Stopped {
+        let lines = [
+            Line::styled("Stopped.", theme.fg(Token::Fg)),
+            Line::styled("r resumes it · d forgets it", theme.fg(Token::FgMuted)),
+        ];
+        return draw_centred(frame, inner, theme, mascot::Pose::Died, &lines);
+    }
     let strip = super::strip_height(model.screen);
     let inner = if let Some(spot) = super::strip_mascot(area, model.screen) {
         let [top, rest] =
@@ -225,11 +232,33 @@ fn draw_message(frame: &mut Frame, inner: Rect, card: &Card, theme: Theme) {
 }
 
 /// Draws the empty state: the mascot and two lines, centred (DESIGN
-/// §5.7); the mascot is left out when the pane is too short.
+/// §5.7). A stopped session gets the same layout with the died mascot.
 fn draw_empty(frame: &mut Frame, area: Rect, theme: Theme, tick: usize) {
     let block = pane("[3] output", false, theme);
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    let lines = [
+        Line::styled("Nothing wrapped yet.", theme.fg(Token::Fg)),
+        Line::styled("n to start a session", theme.fg(Token::FgMuted)),
+    ];
+    draw_centred(
+        frame,
+        inner,
+        theme,
+        Mood::Empty.pose(tick, theme.animated()),
+        &lines,
+    );
+}
+
+/// Draws the full-size mascot in `pose` with two lines under it, centred
+/// in `inner`; the mascot is left out when `inner` is too short.
+fn draw_centred(
+    frame: &mut Frame,
+    inner: Rect,
+    theme: Theme,
+    pose: mascot::Pose,
+    lines: &[Line<'static>],
+) {
     let with_mascot = inner.height >= mascot::HEIGHT + 4;
     let height = if with_mascot { mascot::HEIGHT + 3 } else { 2 };
     let [content] = Layout::vertical([Constraint::Length(height)])
@@ -239,7 +268,6 @@ fn draw_empty(frame: &mut Frame, area: Rect, theme: Theme, tick: usize) {
         let [sprite] = Layout::horizontal([Constraint::Length(mascot::WIDTH)])
             .flex(Flex::Center)
             .areas(content);
-        let pose = Mood::Empty.pose(tick, theme.animated());
         frame.render_widget(
             Mascot {
                 theme,
@@ -256,12 +284,8 @@ fn draw_empty(frame: &mut Frame, area: Rect, theme: Theme, tick: usize) {
     } else {
         content
     };
-    let lines = vec![
-        Line::styled("Nothing wrapped yet.", theme.fg(Token::Fg)),
-        Line::styled("n to start a session", theme.fg(Token::FgMuted)),
-    ];
     frame.render_widget(
-        Paragraph::new(lines).alignment(Alignment::Center),
+        Paragraph::new(lines.to_vec()).alignment(Alignment::Center),
         text_area,
     );
 }
