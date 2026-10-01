@@ -107,6 +107,16 @@ pub(crate) const fn bg(theme: ThemeName) -> u32 {
     }
 }
 
+/// Returns the painted background of the selected row and card of `theme`
+/// (DESIGN §2.1): one shade off [`bg`], dark enough for `fg-muted` text.
+#[must_use]
+pub(crate) const fn selection_bg(theme: ThemeName) -> u32 {
+    match theme {
+        ThemeName::Dark => 0x27_3a2e,
+        ThemeName::Light => 0xe2_e8c4,
+    }
+}
+
 /// Returns the declared values of `token` in `theme` (DESIGN §2.1, §2.2).
 #[must_use]
 pub(crate) const fn spec(theme: ThemeName, token: Token) -> TokenSpec {
@@ -324,6 +334,17 @@ impl Theme {
             Color::Reset
         };
         Style::new().bg(bg).fg(self.color(Token::Fg))
+    }
+
+    /// Returns the background of the selected row and card, only where mc
+    /// paints its own background; elsewhere the markers alone say it.
+    #[must_use]
+    pub(crate) const fn selection(self) -> Option<Style> {
+        if self.painted() {
+            Some(Style::new().bg(rgb(selection_bg(self.name))))
+        } else {
+            None
+        }
     }
 
     /// Returns a style with `token` as the foreground.

@@ -45,7 +45,16 @@ Rules:
    colours, and it answers the agent's OSC 10/11 queries with them, so the
    agent's screen blends in and it picks its dark (or light) theme.
 2. Cards and surfaces are never painted separately (only the one screen
-   background); selection uses reverse video, which by definition contrasts.
+   background), with one exception (issue #122): **the selected project
+   row and the selected session card** get a second shade across the whole
+   row / block — `#273a2e` on Daun Teduh, `#e2e8c4` on Santan, chosen so
+   `fg-muted` text keeps about 4.8:1 on it. Like the screen background it
+   is painted only at TrueColor with `background: paint`; at 256/16
+   colours, on the terminal's own background and under `NO_COLOR` the
+   column-0 markers and the `accent` name stay the only sign. mc only: it
+   is not a token of the spec shared with bungkus-cli. Other selections
+   (dialogs, the `V` line selection) use reverse video, which by
+   definition contrasts.
 3. **Every state is glyph + word + colour.** Colour is never the only carrier.
 4. Colours are declared once per token in two sets. The **painted set**
    is a truecolor hex per token, used only when painting. The **fallback
