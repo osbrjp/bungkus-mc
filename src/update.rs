@@ -1,18 +1,24 @@
-//! Release check and `bungkus-mc update`.
+//! Release check, `bungkus-mc update` and `bungkus-mc uninstall`.
 //!
-//! Port of osbrjp/bungkus-cli `pkg/update.go` @68f6c2e (v1.7.0), with one
-//! change: the repo is private, so the latest tag comes from the user's
-//! authenticated `gh` CLI (`gh release view`) instead of an anonymous API
-//! call, and the installer is fetched with `gh release download` at that
-//! tag. mc never reads or stores a GitHub token (ARCHITECTURE §11,
+//! As osbrjp/bungkus-cli `pkg/update.go`: the latest tag comes from the
+//! public GitHub API and an update re-runs the install script from the
+//! repository's `main`, which verifies the binary against the release's
+//! `checksums.txt`. Both go through `curl` with a fixed argv, the tool the
+//! installer needs anyway, so mc carries no HTTP client (ARCHITECTURE §11,
 //! SECURITY.md "Update check / self-update").
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime};
 
-/// The repository releases are published to.
-const REPO: &str = "osbrjp/bungkus-mc";
+/// The latest-release endpoint of the public GitHub API.
+const LATEST_API: &str = "https://api.github.com/repos/osbrjp/bungkus-mc/releases/latest";
+
+/// The install script, as the README's one-line install uses it.
+const INSTALL_URL: &str = "https://raw.githubusercontent.com/osbrjp/bungkus-mc/main/install.sh";
+
+/// Most bytes read from the release API (64 KiB).
+const API_MAX: u64 = 64 * 1024;
 
 /// How long the release lookup may take (SECURITY.md: 3 s).
 const LOOKUP_TIMEOUT: Duration = Duration::from_secs(3);
@@ -31,14 +37,20 @@ pub(crate) fn is_newer(current: &str, latest: &str) -> bool {
     }
 }
 
-/// Runs `gh release view` and returns the latest tag, or `None` when `gh`
-/// is missing, not logged in, slow or answers something that is not a
-/// version.
+/// Asks the GitHub API for the latest release with `curl` and returns its
+/// tag, or `None` when curl is missing, offline, slow, rate-limited or the
+/// answer holds no version.
 fn latest_release() -> Option<String> {
-    let mut child = Command::new("gh")
+    use std::io::Read;
+    let mut child = Command::new("curl")
         .args([
-            "release", "view", "--repo", REPO, "--json", "tagName", "--jq", ".tagName",
+            "-fsSL",
+            "--max-time",
+            "3",
+            "-H",
+            "Accept: application/vnd.github+json",
         ])
+        .arg(LATEST_API)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -46,15 +58,28 @@ fn latest_release() -> Option<String> {
         .ok()?;
     let started = Instant::now();
     while child.try_wait().ok()?.is_none() {
-        if started.elapsed() > LOOKUP_TIMEOUT {
-            // reason: a hung gh just means no update notice this time.
+        if started.elapsed() > LOOKUP_TIMEOUT + Duration::from_secs(1) {
+            // reason: a hung lookup just means no update notice this time.
             let _ = child.kill();
             return None;
         }
         std::thread::sleep(Duration::from_millis(50));
     }
-    let out = child.wait_with_output().ok()?;
-    let tag = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+    let mut body = Vec::new();
+    child
+        .stdout
+        .take()?
+        .take(API_MAX)
+        .read_to_end(&mut body)
+        .ok()?;
+    tag_of(&body)
+}
+
+/// Returns the `tag_name` of a GitHub release JSON when it is a version.
+#[must_use]
+fn tag_of(body: &[u8]) -> Option<String> {
+    let release: serde_json::Value = serde_json::from_slice(body).ok()?;
+    let tag = release.get("tag_name")?.as_str()?.trim().to_owned();
     is_newer("0.0.0", &tag).then_some(tag)
 }
 
@@ -112,11 +137,11 @@ pub(crate) fn available(var: impl Fn(&str) -> Option<String>) -> Option<String> 
 /// Why an update could not be installed.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum UpdateError {
-    /// No release came back: none published yet, or `gh` is missing, not
-    /// logged in, or did not answer in time.
-    #[error("no release found (none published yet, or gh is missing or logged out: gh auth login)")]
+    /// No release came back: none published yet, offline, or `curl` is
+    /// missing.
+    #[error("no release found (none published yet, offline, or curl missing)")]
     NoRelease,
-    /// `gh release download` failed.
+    /// Downloading the install script failed.
     #[error("could not download install.sh for {0}")]
     Download(String),
     /// The installer exited non-zero (in mc: it may have needed sudo).
@@ -127,13 +152,13 @@ pub(crate) enum UpdateError {
     Io(#[from] std::io::Error),
 }
 
-/// Downloads the installer of release `latest` with `gh` and runs it with
-/// `bash` (the one documented shell use for updates, SECURITY.md); it
-/// verifies the binary against `checksums.txt` itself. The running
-/// binary's real path goes along as `BUNGKUS_CURRENT_BIN`, so the copy
-/// that runs is the one updated (ARCHITECTURE §11). `quiet` sends the
-/// installer's output nowhere (inside the TUI) and gives it no terminal,
-/// so a sudo prompt fails instead of hanging.
+/// Downloads the install script with `curl` and runs it with `bash` for
+/// release `latest` (the one documented shell use for updates,
+/// SECURITY.md); it verifies the binary against `checksums.txt` itself.
+/// The running binary's real path goes along as `BUNGKUS_CURRENT_BIN`, so
+/// the copy that runs is the one updated (ARCHITECTURE §11). `quiet` sends
+/// the installer's output nowhere (inside the TUI) and gives it no
+/// terminal, so a sudo prompt fails instead of hanging.
 ///
 /// # Errors
 ///
@@ -141,6 +166,7 @@ pub(crate) enum UpdateError {
 pub(crate) fn install(latest: &str, quiet: bool) -> Result<(), UpdateError> {
     let dir = std::env::temp_dir().join(format!("bungkus-mc-update-{}", std::process::id()));
     std::fs::create_dir_all(&dir)?;
+    let script = dir.join("install.sh");
     let io = || {
         if quiet {
             Stdio::null()
@@ -148,19 +174,11 @@ pub(crate) fn install(latest: &str, quiet: bool) -> Result<(), UpdateError> {
             Stdio::inherit()
         }
     };
-    let got = Command::new("gh")
-        .args([
-            "release",
-            "download",
-            latest,
-            "--repo",
-            REPO,
-            "--pattern",
-            "install.sh",
-            "--dir",
-        ])
-        .arg(&dir)
-        .stdin(io())
+    let got = Command::new("curl")
+        .args(["-fsSL", "--max-time", "30", "-o"])
+        .arg(&script)
+        .arg(INSTALL_URL)
+        .stdin(Stdio::null())
         .stdout(io())
         .stderr(io())
         .status()?;
@@ -169,7 +187,7 @@ pub(crate) fn install(latest: &str, quiet: bool) -> Result<(), UpdateError> {
     }
     let mut installer = Command::new("bash");
     installer
-        .arg(dir.join("install.sh"))
+        .arg(&script)
         .env("BUNGKUS_MC_VERSION", latest)
         .stdin(io())
         .stdout(io())
@@ -226,9 +244,87 @@ pub(crate) fn run(check_only: bool) -> anyhow::Result<String> {
     Ok(format!("updated bungkus-mc to {latest}"))
 }
 
+/// Runs `bungkus-mc uninstall [--purge] [--yes]`: removes this binary and
+/// the `bkmc` link next to it when it points here; `--purge` also removes
+/// mc's config, state (sessions, limits, debug log) and update cache. It
+/// lists what goes and asks first unless `--yes`. Agents' own files are
+/// never touched.
+///
+/// # Errors
+///
+/// A message when the binary cannot be found or a removal fails (a binary
+/// in a root-owned folder needs `sudo rm`).
+pub(crate) fn uninstall(purge: bool, yes: bool) -> anyhow::Result<String> {
+    use anyhow::Context;
+    use std::io::{BufRead, Write};
+    let exe = std::env::current_exe()
+        .and_then(std::fs::canonicalize)
+        .context("finding the installed binary")?;
+    let mut targets = vec![exe.clone()];
+    if let Some(dir) = exe.parent() {
+        let short = dir.join("bkmc");
+        if std::fs::read_link(&short)
+            .ok()
+            .map(|t| if t.is_absolute() { t } else { dir.join(t) })
+            .and_then(|t| t.canonicalize().ok())
+            .is_some_and(|t| t == exe)
+        {
+            targets.push(short);
+        }
+    }
+    if purge {
+        let var = |n: &str| std::env::var(n).ok();
+        let dirs = [
+            crate::store::config_file(var).and_then(|p| p.parent().map(Path::to_path_buf)),
+            crate::store::state::state_file(var).and_then(|p| p.parent().map(Path::to_path_buf)),
+            cache_path(var).and_then(|p| p.parent().map(Path::to_path_buf)),
+        ];
+        targets.extend(dirs.into_iter().flatten().filter(|p| p.exists()));
+    }
+    let mut out = std::io::stdout();
+    writeln!(out, "bungkus-mc uninstall will remove:")?;
+    for t in &targets {
+        writeln!(out, "  {}", t.display())?;
+    }
+    if !yes {
+        write!(out, "Remove them? [y/N] ")?;
+        out.flush()?;
+        let mut answer = String::new();
+        std::io::stdin().lock().read_line(&mut answer)?;
+        if !answer.trim().eq_ignore_ascii_case("y") {
+            return Ok("nothing removed".into());
+        }
+    }
+    for t in &targets {
+        let removed = if t.is_dir() && !t.is_symlink() {
+            std::fs::remove_dir_all(t)
+        } else {
+            std::fs::remove_file(t)
+        };
+        removed
+            .with_context(|| format!("removing {} (try: sudo rm {})", t.display(), t.display()))?;
+    }
+    Ok(if purge {
+        "bungkus-mc removed, with its config and state".into()
+    } else {
+        "bungkus-mc removed (config and sessions kept; --purge removes them)".into()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_the_tag_of_a_release_and_ignores_junk() {
+        assert_eq!(
+            tag_of(br#"{"tag_name":"v0.1.0-beta.1","name":"x"}"#).as_deref(),
+            Some("v0.1.0-beta.1")
+        );
+        assert_eq!(tag_of(br#"{"message":"Not Found"}"#), None);
+        assert_eq!(tag_of(br#"{"tag_name":"latest"}"#), None);
+        assert_eq!(tag_of(b"<html>"), None);
+    }
 
     #[test]
     fn compares_versions_like_semver() {

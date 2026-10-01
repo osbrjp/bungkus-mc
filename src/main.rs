@@ -34,6 +34,7 @@ Usage: bungkus-mc [options] [WORKSPACE]
        bungkus-mc hook        (run by agent hooks; silent)
        bungkus-mc statusline  (Claude's status line inside mc)
        bungkus-mc update [--check]
+       bungkus-mc uninstall [--purge] [--yes]
 
   WORKSPACE        folder whose child folders are projects
                    (default: the workspace in config.json; first run asks)
@@ -62,6 +63,12 @@ enum Command {
     /// The status-line wrapper Claude runs.
     StatusLine,
     /// Update to the latest release (or only check, with `--check`).
+    Uninstall {
+        /// Also remove config, state and the update cache.
+        purge: bool,
+        /// Do not ask.
+        yes: bool,
+    },
     Update {
         /// Only report whether a newer release exists.
         check: bool,
@@ -92,6 +99,17 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, lexopt:
             Value(value) if workspace.is_none() && value == "hook" => return Ok(Command::Hook),
             Value(value) if workspace.is_none() && value == "statusline" => {
                 return Ok(Command::StatusLine);
+            }
+            Value(value) if workspace.is_none() && value == "uninstall" => {
+                let (mut purge, mut yes) = (false, false);
+                while let Some(arg) = parser.next()? {
+                    match arg {
+                        Long("purge") => purge = true,
+                        Long("yes") | Short('y') => yes = true,
+                        other => return Err(other.unexpected()),
+                    }
+                }
+                return Ok(Command::Uninstall { purge, yes });
             }
             Value(value) if workspace.is_none() && value == "update" => {
                 let check = match parser.next()? {
@@ -131,22 +149,9 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, lexopt:
 fn main() -> Result<()> {
     let command = parse_args(std::env::args().skip(1)).context("reading arguments")?;
     let mut stdout = std::io::stdout();
-    let (workspace_arg, icons_arg, debug) = match command {
-        Command::Help => return stdout.write_all(HELP.as_bytes()).context("printing help"),
-        Command::Version => {
-            return writeln!(stdout, "bungkus-mc {}", env!("CARGO_PKG_VERSION"))
-                .context("printing version");
-        }
-        Command::Hook => {
-            ipc::hook::run();
-            return Ok(());
-        }
-        Command::StatusLine => std::process::exit(ipc::statusline::run()),
-        Command::Update { check } => {
-            let text = update::run(check).context("update")?;
-            return writeln!(stdout, "{text}").context("printing");
-        }
-        Command::Tui(workspace, icons, debug) => (workspace, icons, debug),
+    let Some(Command::Tui(workspace_arg, icons_arg, debug)) = run_subcommand(command, &mut stdout)?
+    else {
+        return Ok(());
     };
     if !stdout.is_terminal() {
         bail!("bungkus-mc needs a terminal on stdout");
@@ -227,6 +232,34 @@ fn main() -> Result<()> {
         restart(exe)?;
     }
     Ok(())
+}
+
+/// Runs every command but the TUI and returns `None`; the TUI command is
+/// handed back for `main` to run.
+///
+/// # Errors
+///
+/// What the subcommand reports, or a failed write to stdout.
+fn run_subcommand(command: Command, stdout: &mut std::io::Stdout) -> Result<Option<Command>> {
+    match command {
+        Command::Help => stdout.write_all(HELP.as_bytes()).context("printing help")?,
+        Command::Version => {
+            writeln!(stdout, "bungkus-mc {}", env!("CARGO_PKG_VERSION"))
+                .context("printing version")?;
+        }
+        Command::Hook => ipc::hook::run(),
+        Command::StatusLine => std::process::exit(ipc::statusline::run()),
+        Command::Uninstall { purge, yes } => {
+            let text = update::uninstall(purge, yes).context("uninstall")?;
+            writeln!(stdout, "{text}").context("printing")?;
+        }
+        Command::Update { check } => {
+            let text = update::run(check).context("update")?;
+            writeln!(stdout, "{text}").context("printing")?;
+        }
+        tui @ Command::Tui(..) => return Ok(Some(tui)),
+    }
+    Ok(None)
 }
 
 /// Starts the updated binary in place of this process (`U`), with the same
@@ -328,6 +361,20 @@ mod tests {
             (&["statusline"], Command::StatusLine),
             (&["update"], Command::Update { check: false }),
             (&["update", "--check"], Command::Update { check: true }),
+            (
+                &["uninstall"],
+                Command::Uninstall {
+                    purge: false,
+                    yes: false,
+                },
+            ),
+            (
+                &["uninstall", "--purge", "-y"],
+                Command::Uninstall {
+                    purge: true,
+                    yes: true,
+                },
+            ),
             (&["--version"], Command::Version),
         ];
         for (args, want) in cases {

@@ -1,9 +1,8 @@
 name: Release
 # A release PR (main -> release, opened by prepare-release.yml) merged into
 # `release` builds the four binaries and publishes them as v<Cargo.toml
-# version>, with checksums.txt, install.sh and THIRD-PARTY-NOTICES; then
-# publishes to npm and the Homebrew tap and announces on Slack (each skipped
-# while its secret is unset).
+# version>, with checksums.txt, install.sh and THIRD-PARTY-NOTICES, then
+# announces it on Slack (skipped while SLACK_WEBHOOK_URL is unset).
 on:
   pull_request:
     types: [closed]
@@ -92,94 +91,11 @@ jobs:
       - name: Upload assets
         run: gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
 
-  # npm: four platform packages (the binary, os/cpu-gated) and the main
-  # @osbrjp/bungkus-mc package whose `bungkus-mc`/`bkmc` bin runs the right
-  # one. Skipped while the NPM_TOKEN secret is unset.
-  npm:
-    needs: [version, build, publish]
-    runs-on: ubuntu-latest
-    env:
-      TAG: ${{ needs.version.outputs.tag }}
-      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: release
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          registry-url: https://registry.npmjs.org
-      - uses: actions/download-artifact@v4
-        with:
-          path: dist
-          merge-multiple: true
-      - name: Pack
-        run: packaging/npm-pack.sh "${TAG#v}" dist npm-out
-      - uses: actions/upload-artifact@v4
-        with:
-          name: npm-packs
-          path: npm-out/*.tgz
-      - name: Publish (platform packages first)
-        run: |
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "NPM_TOKEN not set — skipping npm publish"
-            exit 0
-          fi
-          version="${TAG#v}"
-          for tgz in npm-out/osbrjp-bungkus-mc-*-"$version".tgz npm-out/osbrjp-bungkus-mc-"$version".tgz; do
-            name=$(tar -xzOf "$tgz" package/package.json | jq -r .name)
-            if npm view "$name@$version" version >/dev/null 2>&1; then
-              echo "$name@$version already published"
-            else
-              # A prerelease (0.1.0-beta.1) goes out under the beta dist-tag,
-              # so `npm i -g @osbrjp/bungkus-mc` keeps the last stable.
-              case "$version" in
-                *-*) npm publish "$tgz" --access public --tag beta ;;
-                *) npm publish "$tgz" --access public ;;
-              esac
-            fi
-          done
-
-  # Homebrew: renders Formula/bungkus-mc.rb from the npm tarballs (brew
-  # downloads them from the npm registry) and pushes it to the tap.
-  # Skipped while the HOMEBREW_TAP_TOKEN secret is unset.
-  homebrew:
-    needs: [version, npm]
-    runs-on: ubuntu-latest
-    env:
-      TAG: ${{ needs.version.outputs.tag }}
-      TAP: ${{ vars.HOMEBREW_TAP || 'osbrjp/homebrew-tap' }}
-      TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-      NPM_PUBLISHED: ${{ secrets.NPM_TOKEN != '' }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: release
-      - uses: actions/download-artifact@v4
-        with:
-          name: npm-packs
-          path: npm-out
-      - name: Update the tap
-        run: |
-          if [ -z "$TAP_TOKEN" ] || [ "$NPM_PUBLISHED" != true ]; then
-            echo "HOMEBREW_TAP_TOKEN or NPM_TOKEN not set — skipping Homebrew"
-            exit 0
-          fi
-          packaging/brew-formula.sh "${TAG#v}" npm-out > bungkus-mc.rb
-          git clone --depth 1 "https://x-access-token:${TAP_TOKEN}@github.com/${TAP}.git" tap
-          mkdir -p tap/Formula
-          cp bungkus-mc.rb tap/Formula/bungkus-mc.rb
-          cd tap
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Formula/bungkus-mc.rb
-          git commit -m "bungkus-mc ${TAG}" || { echo "formula unchanged"; exit 0; }
-          git push
 
   # Slack, as in bungkus-cli: the release title and notes to
   # SLACK_WEBHOOK_URL. Skipped while the secret is unset.
   announce:
-    needs: [version, publish, npm, homebrew]
+    needs: [version, publish]
     runs-on: ubuntu-latest
     steps:
       - name: Post release announcement
@@ -203,7 +119,7 @@ jobs:
           if [ -n "$title" ] && [ "$title" != "$TAG" ]; then
             header="${header} — ${title}"
           fi
-          install='`brew install osbrjp/tap/bungkus-mc` · `npm i -g @osbrjp/bungkus-mc`'
+          install='`curl -fsSL https://raw.githubusercontent.com/osbrjp/bungkus-mc/main/install.sh | bash`'
           text="${header}"$'\n\n'"${body}"$'\n\n'"${install}"$'\n'"<${url}|View release>"
 
           jq -n --arg t "$text" '{text: $t}' \

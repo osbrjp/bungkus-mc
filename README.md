@@ -17,29 +17,26 @@ routing (M9) is not.
 
 ## Install
 
-The repo is private, so install through the GitHub CLI with an account
-that has access (`gh auth login` first):
-
 ```bash
-gh release download --repo osbrjp/bungkus-mc --pattern install.sh -O - | bash
+curl -fsSL https://raw.githubusercontent.com/osbrjp/bungkus-mc/main/install.sh | bash
 bungkus-mc            # or the short command: bkmc
 bungkus-mc update     # later: install the newest release (--check only reports)
                       # or press U inside mc: update, then restart on it
-```
-
-Once published, also:
-
-```bash
-brew install osbrjp/tap/bungkus-mc
-npm install -g @osbrjp/bungkus-mc
+bungkus-mc uninstall  # remove it (--purge also removes config and sessions)
 ```
 
 The installer verifies the binary against the release's `checksums.txt`,
-installs to `~/.local/bin` without sudo (`BUNGKUS_INSTALL_DIR` to
-change; it prints the line to put that folder on `PATH` if needed), updates
-an existing install where it is, and adds `bkmc` only when no command of
-that name exists. mc checks for a newer
-release once a day through `gh`; `BUNGKUS_NO_UPDATE_CHECK=1` turns that off.
+installs to `~/.local/bin` without sudo (it prints the line to put that
+folder on `PATH` if needed), updates an existing install where it is, and
+adds `bkmc` only when no command of that name exists. Another folder:
+`curl -fsSL …/install.sh | BUNGKUS_INSTALL_DIR=/opt/bin bash` (the variable
+goes on `bash`, which runs the script). mc checks for a newer release once
+a day; `BUNGKUS_NO_UPDATE_CHECK=1` turns that off.
+
+`bungkus-mc uninstall` lists what it removes and asks first (`--yes`
+skips the question): the binary and its `bkmc` link; with `--purge` also
+`~/.config/bungkus/mc`, `~/.local/state/bungkus/mc` and the update cache.
+Your agents' own files are never touched.
 
 Needs `claude` and/or `codex` on `PATH`. Any monospace font works.
 
