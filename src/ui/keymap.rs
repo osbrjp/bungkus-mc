@@ -42,6 +42,9 @@ pub(crate) enum Action {
     /// Jump to a project by its number (digits; two when there are more
     /// than nine projects).
     Jump,
+    /// Focus pane 1, 2 or 3 (projects, sessions, output) with cmd, alt or
+    /// ctrl plus the digit, whichever the terminal passes on.
+    Pane(u8),
     /// Open the settings screen on the workspace field.
     Workspace,
     /// Open the settings screen.
@@ -104,6 +107,15 @@ const fn k(code: KeyCode) -> Key {
 /// Shorthand for a plain character key.
 const fn c(ch: char) -> Key {
     k(KeyCode::Char(ch))
+}
+
+/// The cmd / alt / ctrl chords of digit `ch`.
+const fn pane_keys(ch: char) -> [Key; 3] {
+    [
+        Key::Press(KeyCode::Char(ch), KeyModifiers::SUPER),
+        Key::Press(KeyCode::Char(ch), KeyModifiers::ALT),
+        Key::Press(KeyCode::Char(ch), KeyModifiers::CONTROL),
+    ]
 }
 
 /// Shorthand for a ctrl chord.
@@ -294,6 +306,30 @@ pub(crate) const BINDINGS: &[Binding] = &[
         label: "1-9",
         action: Action::Jump,
         help: "jump to project",
+        hint: None,
+        scope: Scope::Global,
+    },
+    Binding {
+        keys: &pane_keys('1'),
+        label: "cmd/alt-1",
+        action: Action::Pane(1),
+        help: "projects pane",
+        hint: None,
+        scope: Scope::Global,
+    },
+    Binding {
+        keys: &pane_keys('2'),
+        label: "cmd/alt-2",
+        action: Action::Pane(2),
+        help: "sessions pane",
+        hint: None,
+        scope: Scope::Global,
+    },
+    Binding {
+        keys: &pane_keys('3'),
+        label: "cmd/alt-3",
+        action: Action::Pane(3),
+        help: "output pane",
         hint: None,
         scope: Scope::Global,
     },

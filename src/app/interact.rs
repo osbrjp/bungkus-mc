@@ -32,12 +32,18 @@ pub(crate) enum Divider {
 
 impl Model {
     /// Handles a key in INTERACT: the exit chord and `ctrl-h` return to
-    /// the sessions pane, `ctrl-l` (already the rightmost pane) and `ctrl-z`
+    /// the sessions pane, cmd/alt/ctrl + 1–3 focus that pane, `ctrl-l` (already the rightmost pane) and `ctrl-z`
     /// are swallowed, everything else is encoded for the agent (and snaps
     /// its view back to the bottom).
     pub(super) fn interact_key(&mut self, key: KeyEvent) {
         if self.exit_chord.matches(&key) {
             self.focus = Focus::Sessions;
+            return;
+        }
+        if let crate::ui::keymap::Lookup::Action(crate::ui::keymap::Action::Pane(n)) =
+            crate::ui::keymap::lookup(crate::ui::keymap::Scope::Global, key, None)
+        {
+            self.focus_pane(n);
             return;
         }
         if key.modifiers == KeyModifiers::CONTROL {
