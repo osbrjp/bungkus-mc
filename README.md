@@ -84,6 +84,11 @@ title, the reverse-video mode word and the hint. The mouse wheel scrolls
 mc's scrollback; to select text, hold `shift` (kitty, Ghostty, iTerm2,
 WezTerm, Alacritty) or `option` (Terminal.app) while dragging.
 
+**If a chord does nothing**, your terminal probably keeps it (IDE terminals
+bind many `ctrl`/`cmd` chords; macOS terminals keep `cmd`-digits for tabs).
+Run mc with `BUNGKUS_MC_DEBUG_KEYS=1` and the hint line shows every key mc
+receives; a chord that never shows up there never reached mc.
+
 **If `ctrl-\` is taken** (tmux with vim-tmux-navigator, VS Code / Cursor,
 or a JIS or German keyboard), set another chord, for example
 `"interactExit": "ctrl-^"`.

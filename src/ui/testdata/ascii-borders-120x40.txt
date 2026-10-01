@@ -19,7 +19,7 @@
 |                    ||                                    ||                                                          |
 |                    ||                                    ||                                                          |
 |                    ||                                    ||                                                          |
-|                    ||                                    ||                   Warming up the wok…                    |
+|                    ||                                    ||           Wrapped. r resumes it · d forgets it           |
 |                    ||                                    ||                                                          |
 |                    ||                                    ||                                                          |
 |                    ||                                    ||                                                          |
@@ -37,5 +37,5 @@
 |                    ||                                    ||                                                          |
 |                    ||                                    ||                                                          |
 +--------------------+#====================================#+----------------------------------------------------------+
- NORMAL  enter → agent (ctrl-\ back) · n new · x stop · j/k · ! next · ? help
+ NORMAL  enter → agent · n new · x stop · r resume · / search · N quick · ? help
 cursor: hidden

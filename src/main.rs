@@ -171,6 +171,7 @@ fn main() -> Result<()> {
     model.message = message;
     model.keep.clone_from(&config.cleanup.keep);
     model.widths = config.panes;
+    model.debug_keys = var("BUNGKUS_MC_DEBUG_KEYS").is_some();
     if let Some(text) = &config.interact_exit {
         match term::keys::Chord::parse(text) {
             Some(chord) => model.exit_chord = chord,
