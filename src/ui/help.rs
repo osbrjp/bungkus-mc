@@ -14,7 +14,8 @@ const LABEL: usize = 21;
 /// Width of a help text column.
 const HELP: usize = 16;
 
-/// Draws the focused pane's bindings, then the global ones, two per row.
+/// Draws the key menu: the focused pane's and the global bindings under
+/// their [`keymap::Group`] headings, then the agent-pane keys, two per row.
 pub(super) fn draw(frame: &mut Frame, area: Rect, scope: Scope, theme: Theme) {
     let pane = match scope {
         Scope::Projects => "projects pane",
@@ -22,13 +23,19 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, scope: Scope, theme: Theme) {
         Scope::Global => "everywhere",
     };
     let mut lines = vec![Line::from("")];
-    let pane_rows = keymap::help_rows(scope);
-    if !pane_rows.is_empty() {
-        lines.extend(pairs(&pane_rows, theme));
+    for (group, rows) in keymap::help_groups(scope) {
+        lines.push(Line::styled(
+            format!("  {}", group.title()),
+            theme.fg(Token::Ok),
+        ));
+        lines.extend(pairs(&rows, theme));
         lines.push(Line::from(""));
     }
-    lines.push(Line::styled("  everywhere", theme.fg(Token::FgMuted)));
-    lines.extend(pairs(&keymap::help_rows(Scope::Global), theme));
+    lines.push(Line::styled(
+        "  agent pane & quick popup",
+        theme.fg(Token::Ok),
+    ));
+    lines.extend(pairs(&keymap::AGENT_KEYS, theme));
     lines.push(Line::from(""));
     lines.push(
         Line::styled(

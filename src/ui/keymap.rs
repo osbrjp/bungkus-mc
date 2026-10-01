@@ -407,7 +407,7 @@ pub(crate) const BINDINGS: &[Binding] = &[
         keys: &[c('w')],
         label: "w",
         action: Action::Workspace,
-        help: "workspace",
+        help: "workspaces",
         hint: None,
         scope: Scope::Global,
     },
@@ -507,15 +507,98 @@ pub(crate) fn hints(scope: Scope) -> Vec<&'static str> {
     out
 }
 
-/// Returns the `(label, help)` rows the help overlay shows for `scope`.
+/// A heading of the key menu (`?`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Group {
+    /// Moving between panes, rows and projects.
+    Navigate,
+    /// Starting, entering, stopping and resuming sessions.
+    Sessions,
+    /// Creating and removing projects.
+    Projects,
+    /// Workspaces, settings and mc itself.
+    App,
+}
+
+impl Group {
+    /// Every group, in key-menu order.
+    pub(crate) const ALL: [Self; 4] = [Self::Navigate, Self::Sessions, Self::Projects, Self::App];
+
+    /// Returns the heading the key menu shows.
+    #[must_use]
+    pub(crate) const fn title(self) -> &'static str {
+        match self {
+            Self::Navigate => "navigate",
+            Self::Sessions => "sessions",
+            Self::Projects => "projects",
+            Self::App => "workspace & app",
+        }
+    }
+}
+
+impl Action {
+    /// Returns the key-menu group the action belongs to.
+    #[must_use]
+    pub(crate) const fn group(self) -> Group {
+        match self {
+            Self::PrevPane
+            | Self::NextPane
+            | Self::Down
+            | Self::Up
+            | Self::First
+            | Self::Last
+            | Self::HalfDown
+            | Self::HalfUp
+            | Self::Filter
+            | Self::Jump
+            | Self::Pane(_)
+            | Self::NextNeedsYou
+            | Self::Zoom
+            | Self::OpenProject => Group::Navigate,
+            Self::Interact
+            | Self::NewSession
+            | Self::Stop
+            | Self::Resume
+            | Self::Forget
+            | Self::QuickSession
+            | Self::MoveQuick
+            | Self::MakeProject => Group::Sessions,
+            Self::NewProject | Self::TrashProject | Self::UndoTrash | Self::Visual => {
+                Group::Projects
+            }
+            Self::Workspace | Self::Settings | Self::Help | Self::Redraw | Self::Quit => Group::App,
+        }
+    }
+}
+
+/// Returns the key menu for `scope`: per [`Group`], the `(label, help)`
+/// rows of that pane's and the global bindings, skipping empty groups.
 #[must_use]
-pub(crate) fn help_rows(scope: Scope) -> Vec<(&'static str, &'static str)> {
-    BINDINGS
-        .iter()
-        .filter(|b| b.scope == scope)
-        .map(|b| (b.label, b.help))
+pub(crate) fn help_groups(scope: Scope) -> Vec<(Group, Vec<(&'static str, &'static str)>)> {
+    Group::ALL
+        .into_iter()
+        .map(|group| {
+            let rows = BINDINGS
+                .iter()
+                .filter(|b| {
+                    (b.scope == scope || b.scope == Scope::Global) && b.action.group() == group
+                })
+                .map(|b| (b.label, b.help))
+                .collect();
+            (group, rows)
+        })
+        .filter(|(_, rows): &(Group, Vec<_>)| !rows.is_empty())
         .collect()
 }
+
+/// Keys that work in the agent pane (INTERACT) and the quick popup, which
+/// pass everything else to the agent; listed in the key menu.
+pub(crate) const AGENT_KEYS: [(&str, &str); 4] = [
+    ("ctrl-\\", "leave · menu"),
+    ("ctrl-h", "to sessions"),
+    ("ctrl-m", "move (popup)"),
+    ("cmd/alt-1..3", "focus a pane"),
+];
 
 #[cfg(test)]
 mod tests {

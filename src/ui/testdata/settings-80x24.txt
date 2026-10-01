@@ -14,7 +14,7 @@
 ┃      ║                                                                ║      ┃
 ┃      ║                                                                ║      ┃
 ┃      ║                                                                ║      ┃
-┃      ║            tab ↑↓ field · ← → change · enter save · esc cancel ║      ┃
+┃      ║        j/k ↑↓ field · h/l ← → change · enter save · esc cancel ║      ┃
 ┃      ╚════════════════════════════════════════════════════════════════╝      ┃
 ┃                                                                              ┃
 ┃                                                                              ┃

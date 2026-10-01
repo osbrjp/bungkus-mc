@@ -88,7 +88,7 @@ pub(super) fn draw_picker(frame: &mut Frame, area: Rect, p: &Picker, theme: Them
         Line::from(""),
         Line::styled("  prompt and name are optional", theme.fg(Token::FgMuted)),
         Line::styled(
-            "enter start · tab next · esc cancel  ",
+            "enter start · j/k tab next · h/l change · esc  ",
             theme.fg(Token::FgMuted),
         )
         .alignment(Alignment::Right),
@@ -307,7 +307,7 @@ pub(super) fn draw_resume_agent(frame: &mut Frame, area: Rect, kind: Kind, theme
         ),
         Line::from(""),
         Line::styled(
-            "← → agent · enter open · esc cancel  ",
+            "h/l ← → agent · enter open · esc cancel  ",
             theme.fg(Token::FgMuted),
         )
         .alignment(Alignment::Right),

@@ -66,7 +66,8 @@ pub(super) fn draw_wizard(
     }
     draw_error(frame, error, form, theme);
     let hints = match form.field {
-        Field::Workspace => "↑↓ pick · → open · ← up · enter choose · esc skip",
+        Field::Workspace if form.typing => "type a path · enter choose · esc stop typing",
+        Field::Workspace => "j/k pick · l open · h up · / type a path · enter choose · esc skip",
         Field::Agent | Field::Theme => "← → choose · enter next · esc back",
         Field::Done => "enter start · esc back",
     };
@@ -202,10 +203,12 @@ pub(super) fn draw_settings(
     draw_error(frame, shift(error), form, theme);
     frame.render_widget(
         Line::styled(
-            if browsing {
-                "↑↓ pick · → open · ← up · enter choose · tab field · esc cancel "
+            if browsing && form.typing {
+                "type a path · enter choose · esc stop typing · tab field "
+            } else if browsing {
+                "j/k pick · l open · h up · / type a path · enter choose · tab field "
             } else {
-                "tab ↑↓ field · ← → change · enter save · esc cancel "
+                "j/k ↑↓ field · h/l ← → change · enter save · esc cancel "
             },
             theme.fg(Token::FgMuted),
         )
@@ -298,7 +301,7 @@ fn text_row(frame: &mut Frame, row: Rect, form: &Form, theme: Theme, focused: bo
         Span::styled("┃", bar),
     ]);
     frame.render_widget(line, row);
-    if focused {
+    if focused && form.typing {
         let x = row.x + LABEL_WIDTH + 1 + u16::try_from(shown.chars().count()).unwrap_or(0);
         frame.set_cursor_position(Position::new(x, row.y));
     }

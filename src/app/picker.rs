@@ -85,7 +85,8 @@ impl Picker {
 
     /// Handles one key press: `tab`/`↓` and `shift-tab`/`↑` move between
     /// rows, `←`/`→` change agent and model, typing edits name and prompt,
-    /// `enter` starts, `esc` cancels.
+    /// `enter` starts, `esc` cancels. On the agent and model rows, where
+    /// nothing is typed, `j`/`k` move between rows and `h`/`l` change.
     pub(crate) fn key(&mut self, key: KeyEvent) -> Outcome {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         match key.code {
@@ -94,6 +95,15 @@ impl Picker {
             KeyCode::Tab | KeyCode::Down => self.row = self.step(true),
             KeyCode::BackTab | KeyCode::Up => self.row = self.step(false),
             KeyCode::Left | KeyCode::Right => self.change(key.code == KeyCode::Right),
+            KeyCode::Char(c @ ('j' | 'k' | 'h' | 'l'))
+                if !ctrl && matches!(self.row, Row::Agent | Row::Model) =>
+            {
+                match c {
+                    'j' => self.row = self.step(true),
+                    'k' => self.row = self.step(false),
+                    other => self.change(other == 'l'),
+                }
+            }
             KeyCode::Char('u') if ctrl => self.edit(String::clear),
             KeyCode::Char(c) if !ctrl => self.edit(|s| s.push(c)),
             KeyCode::Backspace => self.edit(|s| {
