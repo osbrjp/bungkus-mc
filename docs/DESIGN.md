@@ -495,7 +495,7 @@ whether there is a header line.
 ┃! C #a3f1 write proposal        12m   gutter · state glyph · agent badge · #id · title · right: elapsed or state word
 ┃  needs you · permission: Bash        line 2: state word · detail (tool / prompt kind / exit line) [· model when routed]
 ┃  i110-fix · 3 changed ↑2 ↓1          git line (only in a repository): branch · `clean` or changed files · ahead/behind upstream
-┃  mcp github · slack                  MCP line (only with MCP servers): `mcp` + names; glyphs in the nerd set
+┃  mcp github · slack                  MCP line (only with MCP servers in use): `mcp` + names; glyphs in the nerd set
 ┃  499k tok · $1.42 · ctx 37%          usage line: compact usage (`-` when unknown)
 ┃  * research hooks             / 3m   one line per subagent (flat list): glyph · description · state glyph · time
 ```
@@ -507,13 +507,15 @@ whether there is a header line.
   then `clean` or `N changed` (staged, unstaged, unmerged and untracked
   files), then `↑N` / `↓N` against the upstream when not zero. The branch
   is cut short first. Read every 5 s; absent outside a repository.
-- MCP line, `fg-muted`: the MCP servers the session is configured with
-  or has used (ARCHITECTURE §5.5), sorted by name and kept current while
-  it runs; absent when there are none. ascii and unicode sets: `mcp` then the names joined by ` · `. nerd
+- MCP line, `fg-muted`: the MCP servers the session has used (a tool
+  call named them, ARCHITECTURE §5.5), sorted by name; absent until the
+  first such call. Servers that are only configured are not on it. ascii
+  and unicode sets: `mcp` then the names joined by ` · `. nerd
   set: per server its logo alone (§3), or a kind glyph or the plug and
   the name when it has none, two spaces apart. The expanded card (§6.3) shows
-  an `mcp` row with every name in all sets instead, so a glyph can always
-  be read as a word.
+  an `mcp` row with the name of every server in use in all sets instead,
+  so a glyph can always be read as a word, and an `mcp idle` row with the
+  configured servers the session has not used.
 - Gutter column: `┃` in `warn` for needs-you, `err` for failed, space otherwise.
 - Title = **the session's name**, as the agent itself knows it (decided):
   Claude's session name (set at launch with `--name`, renamed inside the

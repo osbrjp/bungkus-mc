@@ -628,10 +628,13 @@ name → first prompt line → `untitled`. Stored in `sessions.json` as
 
 ### 5.5 MCP servers on the card (`mcp.rs`)
 
-A card lists the MCP servers of its session (DESIGN §5.2). Neither agent
-reports them, so `agent/mcp.rs` combines two sources:
+A card lists the MCP servers its session has used; the expanded card
+also lists the configured ones it has not, as idle (DESIGN §5.2). Neither
+agent reports which servers are connected, so `agent/mcp.rs` combines two
+sources:
 
-**1. The agents' own config files** — what is configured.
+**1. The agents' own config files** — what is configured (the idle row,
+and the name a used server is shown under).
 
 | Agent | Files | Names |
 |-------|-------|-------|
@@ -639,8 +642,9 @@ reports them, so `agent/mcp.rs` combines two sources:
 | Codex | `config.toml` in `$CODEX_HOME`, else `~/.codex` | `[mcp_servers.<name>]` table headers (a line scan, no TOML crate) |
 
 **2. Hook events** — what is used. A `PreToolUse` whose `tool_name` is
-`mcp__<server>__<tool>` adds `<server>` (less Claude's `claude_ai_` /
-`plugin_` prefix). This is the only source for claude.ai connectors and
+`mcp__<server>__<tool>` marks `<server>` (less Claude's `claude_ai_` /
+`plugin_` prefix) as in use for the rest of the session. This is the
+only source for claude.ai connectors and
 plugin servers, which are in no config file; they show from their first
 tool call.
 

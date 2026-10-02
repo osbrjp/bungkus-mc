@@ -160,10 +160,11 @@ pub(crate) struct Card {
     /// project's `.claude/worktrees/`); a resume goes back into it.
     pub worktree: Option<String>,
     /// Names of its MCP servers, sorted: the configured ones
-    /// ([`crate::agent::mcp::servers`]) and the ones in `mcp_used`.
+    /// ([`crate::agent::mcp::servers`]) and the ones in `mcp_used`. The card
+    /// shows the ones in use ([`Card::mcp_in_use`]); the rest are idle.
     pub mcp: Vec<String>,
     /// Servers its tool calls named ([`crate::agent::mcp::used`]).
-    mcp_used: Vec<String>,
+    pub(crate) mcp_used: Vec<String>,
     /// The config files' state when `mcp` was last read from them.
     pub mcp_stamp: Option<Stamp>,
     /// Whether quitting mc stopped it, so the next start resumes it.
@@ -243,32 +244,44 @@ impl Card {
     /// Sets the configured MCP servers as read at `stamp`; the servers its
     /// tool calls named stay listed.
     pub(crate) fn set_mcp(&mut self, configured: Vec<String>, stamp: Stamp) {
-        self.mcp = configured;
         self.mcp_stamp = Some(stamp);
-        for server in self.mcp_used.clone() {
-            self.list_mcp(server);
-        }
+        self.list_mcp(configured);
     }
 
-    /// Adds `server` to the list unless a listed name is the same server
-    /// ([`mcp::same`]) or the list is full.
-    fn list_mcp(&mut self, server: String) {
-        let listed = self.mcp.iter().any(|name| mcp::same(name, &server));
-        if !listed && self.mcp.len() < mcp::SERVERS_MAX {
-            self.mcp.push(server);
-            self.mcp.sort_unstable();
-        }
+    /// Returns whether a tool call of the session named `server`
+    /// ([`mcp::same`]).
+    #[must_use]
+    pub(crate) fn mcp_in_use(&self, server: &str) -> bool {
+        self.mcp_used.iter().any(|used| mcp::same(server, used))
     }
 
-    /// Lists the MCP server of `tool` when it is one and not listed yet
-    /// (a claude.ai connector or a plugin's server is in no config file).
+    /// Rebuilds the list from `names` and the servers in `mcp_used`. A full
+    /// list ([`mcp::SERVERS_MAX`]) drops idle servers, never one in use.
+    fn list_mcp(&mut self, names: Vec<String>) {
+        let (mut list, idle): (Vec<_>, Vec<_>) =
+            names.into_iter().partition(|name| self.mcp_in_use(name));
+        for used in &self.mcp_used {
+            if !list.iter().any(|name| mcp::same(name, used)) {
+                list.push(used.clone());
+            }
+        }
+        list.extend(idle);
+        list.truncate(mcp::SERVERS_MAX);
+        list.sort_unstable();
+        self.mcp = list;
+    }
+
+    /// Marks the MCP server of `tool` as in use when it is one, and lists
+    /// it when it is not listed yet (a claude.ai connector or a plugin's
+    /// server is in no config file).
     fn note_mcp(&mut self, tool: &str) {
         let Some(server) = mcp::used(tool) else {
             return;
         };
         if self.mcp_used.len() < mcp::SERVERS_MAX && !self.mcp_used.contains(&server) {
-            self.mcp_used.push(server.clone());
-            self.list_mcp(server);
+            self.mcp_used.push(server);
+            let names = std::mem::take(&mut self.mcp);
+            self.list_mcp(names);
         }
     }
 
@@ -625,6 +638,17 @@ mod tests {
         assert_eq!(c.mcp, ["Figma", "blender", "my.server"], "one server");
         c.set_mcp((0..12).map(|n| format!("s{n:02}")).collect(), [None, None]);
         assert_eq!(c.mcp.len(), mcp::SERVERS_MAX, "a full list takes no more");
+        let in_use = |c: &Card| -> Vec<String> {
+            let used = c.mcp.iter().filter(|name| c.mcp_in_use(name));
+            used.cloned().collect()
+        };
+        assert_eq!(
+            in_use(&c),
+            ["Figma", "blender", "my_server"],
+            "idle ones go"
+        );
+        c.set_mcp(vec!["my.server".into(), "slack".into()], [None, None]);
+        assert_eq!(in_use(&c), ["Figma", "blender", "my.server"]);
     }
 
     #[test]
