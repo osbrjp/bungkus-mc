@@ -575,7 +575,9 @@ fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
     );
     let digits = visible.len().max(1).to_string().len();
     let rows = usize::from(inner.height);
-    let width = usize::from(inner.width).saturating_sub(4 + digits);
+    let bars = visible.iter().map(|p| link_count(model, &p.path));
+    let bars = bars.max().unwrap_or(0).max(1);
+    let width = usize::from(inner.width).saturating_sub(3 + digits + bars);
     let rest = model.rest();
     let rest_at = rest.map(|rest| rest.at);
     let chosen = line_of(model.selected, rest_at);
@@ -630,7 +632,7 @@ fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
             let text = truncate(label, room);
             let pad = room.saturating_sub(text.chars().count());
             let spinner = if working > 0 { spin } else { ' ' };
-            Line::from(vec![
+            let mut spans = vec![
                 Span::styled(marker.to_string(), theme.fg(Token::Ok)),
                 Span::styled(spinner.to_string(), theme.fg(Token::Ok)),
                 Span::raw(" "),
@@ -642,13 +644,16 @@ fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
                     },
                     theme.fg(Token::Ok),
                 ),
-                link_bar(model, &project.path, theme),
+            ];
+            spans.extend(link_bars(model, &project.path, bars, theme));
+            spans.extend([
                 Span::styled(branch.unwrap_or_default(), theme.fg(Token::FgMuted)),
                 Span::styled(text, name),
                 Span::raw(" ".repeat(pad)),
                 Span::styled(count, theme.fg(Token::Ok)),
                 Span::styled(badge_text, theme.fg(badge_token)),
-            ])
+            ]);
+            Line::from(spans)
         })
         .collect();
     frame.render_widget(Paragraph::new(lines), inner);
@@ -739,19 +744,54 @@ pub(crate) fn project_at(
     row_at(offset + usize::from(line), rest, len)
 }
 
-/// Returns the cell between a project's number and its name: the link
-/// bar (`│`, `|` without UTF-8) when `project` is in a group or a session
-/// of another project works in it too (`/add-dir`), else a space. The bar is in `accent` when
-/// that link is with the selected project (or the row is the selected
-/// one), else `fg-muted`.
-fn link_bar(model: &Model, project: &std::path::Path, theme: Theme) -> Span<'static> {
-    if !model.linked(project) {
-        return Span::raw(" ");
-    }
+/// The colours of the group bars, by a group's place in the workspace's
+/// `groups`; the fifth group has the first colour again.
+const GROUP_TOKENS: [Token; 4] = [Token::Accent, Token::Info, Token::Warn, Token::Ok];
+
+/// Returns how many link bars `project` carries: one per group it is in,
+/// or one when it is in none and a session of another project works in
+/// it too (`/add-dir`).
+fn link_count(model: &Model, project: &std::path::Path) -> usize {
+    let groups = model.groups_of(project).len();
+    groups.max(usize::from(model.shared(project)))
+}
+
+/// Returns the `width` cells between a project's number and its name: the
+/// link bars (`❚`, `|` without UTF-8), then spaces.
+///
+/// A project in groups carries one bar per group, in the group's colour
+/// ([`GROUP_TOKENS`]): full while the selected project is in that group,
+/// dim otherwise. A project in no group that a session of another project
+/// works in too (`/add-dir`) carries one bar: `fg` when that link is with
+/// the selected project, else `fg-muted`.
+fn link_bars(
+    model: &Model,
+    project: &std::path::Path,
+    width: usize,
+    theme: Theme,
+) -> Vec<Span<'static>> {
+    let bar = if theme.utf8 { "❚" } else { "|" };
     let chosen = model.selected_project().map(|p| p.path.as_path());
-    let near = chosen.is_some_and(|c| c == project || model.related(c, project));
-    let token = if near { Token::Accent } else { Token::FgMuted };
-    Span::styled(if theme.utf8 { "│" } else { "|" }, theme.fg(token))
+    let active = chosen.map_or_else(Vec::new, |c| model.groups_of(c));
+    let groups = model.groups_of(project);
+    let mut bars: Vec<Span> = groups
+        .iter()
+        .map(|group| {
+            let style = theme.fg(GROUP_TOKENS[group % GROUP_TOKENS.len()]);
+            if active.contains(group) {
+                Span::styled(bar, style)
+            } else {
+                Span::styled(bar, style.add_modifier(Modifier::DIM))
+            }
+        })
+        .collect();
+    if groups.is_empty() && model.shared(project) {
+        let near = chosen.is_some_and(|c| c == project || model.related(c, project));
+        let token = if near { Token::Fg } else { Token::FgMuted };
+        bars.push(Span::styled(bar, theme.fg(token)));
+    }
+    bars.push(Span::raw(" ".repeat(width.saturating_sub(bars.len()))));
+    bars
 }
 
 /// Returns the connector that ties worktree row `i` of `visible` to its
@@ -1651,9 +1691,38 @@ pub(crate) mod tests {
             "in use: it stays in view"
         );
         let screen = render(&mut model, 120, 40);
-        assert!(screen.contains(" 2│roti-docs"), "{screen}");
+        assert!(screen.contains(" 2❚roti-docs"), "{screen}");
         model.cards[0].state = State::Wrapped;
         assert!(!model.shared(&added), "only while the session runs");
+    }
+
+    #[test]
+    fn every_group_has_its_own_bar_and_the_selected_projects_groups_are_not_dim() {
+        let mut model = sample(PROJECTS);
+        model.show_rest = true;
+        let name = |i: usize| model.projects[i].name.clone();
+        model.overrides.groups = vec![vec![name(0), name(1)], vec![name(1), name(2)]];
+        let bars = |model: &Model, i: usize| -> Vec<(String, Style)> {
+            link_bars(model, &model.projects[i].path, 2, model.theme)
+                .into_iter()
+                .map(|span| (span.content.into_owned(), span.style))
+                .collect()
+        };
+        let theme = model.theme;
+        let (first, second) = (theme.fg(GROUP_TOKENS[0]), theme.fg(GROUP_TOKENS[1]));
+        let dim = |style: Style| style.add_modifier(Modifier::DIM);
+        let bar = |style| ("❚".to_owned(), style);
+        let pad = |n: usize| (" ".repeat(n), Style::default());
+        assert_eq!(model.selected, 0, "the first project is selected");
+        assert_eq!(bars(&model, 0), [bar(first), pad(1)]);
+        assert_eq!(
+            bars(&model, 1),
+            [bar(first), bar(dim(second)), pad(0)],
+            "two groups: two bars, the other group's is dim"
+        );
+        assert_eq!(bars(&model, 2), [bar(dim(second)), pad(1)]);
+        let screen = render(&mut model, 120, 40);
+        assert!(screen.contains("❚❚"), "{screen}");
     }
 
     #[test]

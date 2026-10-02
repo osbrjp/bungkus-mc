@@ -3,9 +3,10 @@
 //! `v` marks single rows and `V` selects a range; together they are the
 //! chosen rows that `d` (Trash) and `g` (group) act on. A group is a list
 //! of project folder names kept in the workspace's own
-//! `.bungkus-mc/config.json`: its members are shown with the link bar, and
-//! a session started in one of them is given the others (`--add-dir` and
-//! a line in its instructions; see [`crate::agent::instruction_args`]).
+//! `.bungkus-mc/config.json`: its members are shown with a bar in the
+//! group's colour, and a session started in one of them is given the
+//! others (`--add-dir` and a line in its instructions; see
+//! [`crate::agent::instruction_args`]). A project can be in several groups.
 //!
 //! A group can only name projects directly inside the open workspace: a
 //! name that is no project here is ignored, so a config file from
@@ -72,9 +73,9 @@ impl Model {
     /// Groups the chosen projects (`g`), and says what happened.
     ///
     /// Two or more that are exactly one existing group are ungrouped;
-    /// otherwise they become a new group, each leaving the group it was
-    /// in. A single chosen project only leaves its group. A group left
-    /// with fewer than two members is dropped.
+    /// otherwise they become a new group next to the groups they are in
+    /// already. A single chosen project leaves every group it is in, and
+    /// a group left with fewer than two members is dropped.
     ///
     /// # Returns
     ///
@@ -88,16 +89,24 @@ impl Model {
         };
         let exact = before.iter().any(same);
         let mut groups = before.clone();
-        for group in &mut groups {
-            group.retain(|name| !names.contains(name));
-        }
-        groups.retain(|group| group.len() > 1);
         let list = names.join(", ");
         self.message = Some(match (names.len(), exact) {
             (0, _) => return None,
-            (1, _) if groups == before => "Mark two or more projects to group (v marks).".into(),
-            (1, _) => format!("{list} left its group."),
-            (_, true) => format!("Ungrouped {list}."),
+            (1, _) => {
+                for group in &mut groups {
+                    group.retain(|name| !names.contains(name));
+                }
+                groups.retain(|group| group.len() > 1);
+                if groups == before {
+                    "Mark two or more projects to group (v marks).".into()
+                } else {
+                    format!("{list} left its groups.")
+                }
+            }
+            (_, true) => {
+                groups.retain(|group| !same(group));
+                format!("Ungrouped {list}.")
+            }
             (_, false) => {
                 groups.push(names);
                 format!("Grouped {list}: new and resumed sessions get the others.")
@@ -110,8 +119,26 @@ impl Model {
         Some(Cmd::SaveGroups(groups))
     }
 
+    /// Returns the groups `project` is in, as indices into the workspace's
+    /// `groups`: the ones with another member that is a project of the
+    /// open workspace too.
+    #[must_use]
+    pub(crate) fn groups_of(&self, project: &Path) -> Vec<usize> {
+        let named = self.projects.iter().find(|p| p.path == project);
+        let Some(name) = named.map(|p| &p.name) else {
+            return Vec::new();
+        };
+        let other =
+            |member: &String| member != name && self.projects.iter().any(|p| p.name == *member);
+        let groups = self.overrides.groups.iter().enumerate();
+        groups
+            .filter(|(_, group)| group.contains(name) && group.iter().any(other))
+            .map(|(at, _)| at)
+            .collect()
+    }
+
     /// Returns the folders grouped with `project`: the other members of
-    /// its group that are projects of the open workspace.
+    /// its groups that are projects of the open workspace.
     #[must_use]
     pub(crate) fn group_of(&self, project: &Path) -> Vec<PathBuf> {
         let named = |path: &Path| self.projects.iter().find(|p| p.path == path);
@@ -162,19 +189,24 @@ mod tests {
         );
         assert!(!m.choosing(), "the marks are used up");
         assert_eq!(m.group_of(&path(&m, 0)), [path(&m, 2)]);
-        assert!(m.related(&path(&m, 0), &path(&m, 2)) && m.linked(&path(&m, 2)));
-        assert!(!m.linked(&path(&m, 1)), "b is in no group");
+        assert!(m.related(&path(&m, 0), &path(&m, 2)));
+        assert_eq!(m.groups_of(&path(&m, 2)), [0]);
+        assert!(m.groups_of(&path(&m, 1)).is_empty(), "b is in no group");
 
-        let regroup = keys(&mut m, "vjvg");
-        assert_eq!(
-            regroup,
-            Some(Cmd::SaveGroups(groups(&[&["c", "d"]]))),
-            "c leaves a's group, which is dropped with one member"
-        );
+        let second = keys(&mut m, "vjvg");
+        let both = groups(&[&["a", "c"], &["c", "d"]]);
+        assert_eq!(second, Some(Cmd::SaveGroups(both)), "c is in two groups");
+        assert_eq!(m.groups_of(&path(&m, 2)), [0, 1]);
+        assert_eq!(m.group_of(&path(&m, 2)), [path(&m, 0), path(&m, 3)]);
         assert_eq!(
             keys(&mut m, "vkvg"),
+            Some(Cmd::SaveGroups(groups(&[&["a", "c"]]))),
+            "ungroup c and d: the other group stays"
+        );
+        assert_eq!(
+            keys(&mut m, "vg"),
             Some(Cmd::SaveGroups(Vec::new())),
-            "ungroup"
+            "c alone leaves its groups"
         );
         assert_eq!(keys(&mut m, "vg"), None, "one project that is in no group");
         assert!(
@@ -194,7 +226,7 @@ mod tests {
         let mut m = sample(&["a", "b"]);
         m.overrides.groups = groups(&[&["a", "../outside", "/etc", "nope"]]);
         let a = m.projects[0].path.clone();
-        assert!(m.group_of(&a).is_empty() && !m.linked(&a));
+        assert!(m.group_of(&a).is_empty() && m.groups_of(&a).is_empty());
         m.overrides.groups = groups(&[&["a", "b", "/etc"]]);
         assert_eq!(m.group_of(&a), [m.projects[1].path.clone()]);
     }

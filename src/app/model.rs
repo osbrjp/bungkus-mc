@@ -678,13 +678,6 @@ impl Model {
         a != b && (self.added(a, b) || self.added(b, a) || self.group_of(a).iter().any(|p| p == b))
     }
 
-    /// Returns whether `project` carries the link bar: it is in a group,
-    /// or a session of another project works in it ([`Model::shared`]).
-    #[must_use]
-    pub(crate) fn linked(&self, project: &Path) -> bool {
-        self.shared(project) || !self.group_of(project).is_empty()
-    }
-
     /// Returns the sessions outside mc running in `project` (or below it),
     /// or, for the empty path of [`Model::elsewhere`], in no project folder;
     /// every session mc started is left out: by pid, by a tracked
