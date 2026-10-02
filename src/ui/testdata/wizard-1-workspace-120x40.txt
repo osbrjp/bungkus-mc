@@ -8,7 +8,7 @@
 
 
                                 ▄▄
-                              ▄████▄         bungkus-mc  v0.1.0-beta.8
+                              ▄████▄         bungkus-mc  v0.1.0-beta.9
                              ████████        mission control for AI agents
                            ▄██████████▄
                          ▄██████████████▄    step 1 of 5 · workspace

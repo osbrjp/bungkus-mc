@@ -1,4 +1,4 @@
- bungkus-mc  ~/Works/OSBR › pasar-mobile                                                                  v0.1.0-beta.8
+ bungkus-mc  ~/Works/OSBR › pasar-mobile                                                                  v0.1.0-beta.9
 ┏ [1] projects ━━━━━━┓┌ [2] sessions · pasar-mobile ───────┐┌ [3] output ──────────────────────────────────────────────┐
 ┃ / search           ┃│ No sessions in pasar-mobile. n to  ││                                                   ▄██▄   │
 ┃   1 kedai-web      ┃│ start one.                         ││                                                 ▄██████▄ │
