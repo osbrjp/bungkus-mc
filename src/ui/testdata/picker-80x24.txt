@@ -9,7 +9,7 @@
 ┃            ║                                                    ║────────────┐
 ┃            ║  agent   > claude    codex (not on PATH)           ║            │
 ┃            ║  model   > default    haiku    sonnet    opus      ║            │
-┃            ║  name    ┃fix the flaky date test         ┃        ║            │
+┃            ║  name    ┃                                ┃        ║            │
 ┃            ║  prompt  ┃fix the flaky date test         ┃        ║            │
 ┃            ║                                                    ║            │
 ┃            ║  prompt and name are optional                      ║            │

@@ -599,10 +599,12 @@ with no prompt; missing agents are listed greyed with "not on PATH". The
 `model` row defaults to `auto` when routing is on (§10) and to the agent's
 default otherwise; `←`/`→` (or `h`/`l`) change it — that is the override.
 With routing off the row reads `default · haiku · sonnet · opus` (Claude)
-or `default · <ids from config>` (Codex). The `name` row is prefilled from
-the prompt as you type (first line, ≤ 40 chars, leading verbs like
-"fix"/"add" kept) and passed to Claude as `--name`; for Codex it is only
-mc's card title (no launch flag). Empty name and empty prompt → `untitled`.
+or `default · <ids from config>` (Codex). The `name` row stays empty
+unless the user types one: a typed name is passed to Claude as `--name`
+(for Codex it is only mc's card title, no launch flag); with none, no
+`--name` is passed and Claude names the session itself, the card showing
+the prompt's first line until that name arrives. Empty name and empty
+prompt → `untitled`.
 
 The quit dialog (also the `x` dialog) lists everything that will be
 stopped — sessions first, then the descendants tracked in ARCHITECTURE.md

@@ -2179,7 +2179,7 @@ pub(crate) mod tests {
         assert_eq!(req.kind, Kind::Claude);
         assert_eq!(req.project, PathBuf::from("/Users/me/Works/OSBR/kedai-web"));
         assert_eq!(req.launch.prompt.as_deref(), Some("-fix it"));
-        assert_eq!(req.launch.name.as_deref(), Some("-fix it"));
+        assert_eq!(req.launch.name, None, "the agent names the session");
     }
 
     #[test]
