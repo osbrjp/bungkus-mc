@@ -37,5 +37,5 @@
 ┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │
 ┗━━━━━━━━━━━━━━━━━━━━┛└────────────────────────────────────┘└──────────────────────────────────────────────────────────┘
- NORMAL  enter → sessions · n new · c clean · ? keys
+ NORMAL  enter → sessions · n new · c clean · e more · o edit · t term · ? keys
 cursor: hidden

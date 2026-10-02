@@ -188,7 +188,7 @@ impl Model {
             (MouseEventKind::Down(MouseButton::Left), _) => {
                 self.drag = if on(projects) {
                     Some(Divider::Projects)
-                } else if on(sessions) {
+                } else if on(sessions) && panes.output.is_some_and(|o| o.x == sessions.right()) {
                     Some(Divider::Sessions)
                 } else {
                     None
@@ -354,9 +354,7 @@ mod tests {
     fn a_click_on_a_project_row_selects_it() {
         let mut m = sample(&["a", "b", "c"]);
         m.focus = Focus::Sessions;
-        let pane = ui::panes(m.screen, m.focus, m.zoom, m.widths)
-            .projects
-            .unwrap();
+        let pane = ui::panes(m.screen, m.zoom, m.widths).projects.unwrap();
         let click = |row| {
             AppEvent::Input(Event::Mouse(MouseEvent {
                 kind: MouseEventKind::Down(MouseButton::Left),
@@ -409,9 +407,7 @@ mod tests {
         let _second = with_session(&mut m, "two");
         m.focus = Focus::Projects;
         let selected = m.card;
-        let pane = ui::panes(m.screen, m.focus, m.zoom, m.widths)
-            .sessions
-            .unwrap();
+        let pane = ui::panes(m.screen, m.zoom, m.widths).sessions.unwrap();
         let rows: Vec<Option<usize>> = (pane.y..pane.bottom())
             .map(|row| ui::session_at(pane, &m, row))
             .collect();
@@ -446,9 +442,7 @@ mod tests {
         assert_eq!((names(&m), m.selected), (vec!["b".to_owned()], 0));
         let rest = m.rest().unwrap();
         assert_eq!((rest.at, rest.count), (1, 2));
-        let pane = ui::panes(m.screen, m.focus, m.zoom, m.widths)
-            .projects
-            .unwrap();
+        let pane = ui::panes(m.screen, m.zoom, m.widths).projects.unwrap();
         let click = |row| {
             AppEvent::Input(Event::Mouse(MouseEvent {
                 kind: MouseEventKind::Down(MouseButton::Left),
@@ -479,9 +473,7 @@ mod tests {
             id,
             b"\x1b[?1000h\x1b[?1006h".to_vec(),
         )));
-        let pane = ui::panes(m.screen, m.focus, m.zoom, m.widths)
-            .output
-            .unwrap();
+        let pane = ui::panes(m.screen, m.zoom, m.widths).output.unwrap();
         let strip = ui::strip_height(m.screen);
         assert!(strip > 0, "the sample screen has a strip");
         let click = |row| {

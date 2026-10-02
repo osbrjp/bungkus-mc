@@ -40,6 +40,9 @@ const MIN_SIZE: (u16, u16) = (80, 24);
 
 /// Width from which the three panes sit side by side (DESIGN §4).
 const THREE_PANE_WIDTH: u16 = 100;
+/// Fewest rows of the sessions pane when it sits above the output pane on
+/// a narrower screen: room for one card.
+const STACKED_SESSIONS: u16 = 7;
 
 /// Smallest and largest outer width of the projects pane (DESIGN §4).
 pub(crate) const PROJECTS_RANGE: (u16, u16) = (16, 40);
@@ -139,28 +142,40 @@ pub(crate) struct Panes {
 
 /// Lays out the panes for a screen of `area` (DESIGN §4).
 ///
-/// Three side by side from [`THREE_PANE_WIDTH`] columns, otherwise only
-/// the focused pane (the single-pane stack); `zoom` gives the body to the
-/// output pane. The header and getah bar take one line each.
+/// Three side by side from [`THREE_PANE_WIDTH`] columns. On a narrower
+/// screen the projects pane keeps the left and the right column stacks
+/// the sessions pane (a third of it, [`STACKED_SESSIONS`] rows at least)
+/// over the output pane. `zoom` gives the body to the output pane. The
+/// header and getah bar take one line each.
 #[must_use]
-pub(crate) fn panes(area: Rect, focus: Focus, zoom: bool, widths: Widths) -> Panes {
+pub(crate) fn panes(area: Rect, zoom: bool, widths: Widths) -> Panes {
     let [_, body, _] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Fill(1),
         Constraint::Length(1),
     ])
     .areas(area);
-    let only = |which: Focus| Panes {
-        projects: (which == Focus::Projects).then_some(body),
-        sessions: (which == Focus::Sessions).then_some(body),
-        output: (which == Focus::Output).then_some(body),
-        terminal: None,
-    };
     if zoom {
-        return only(Focus::Output);
+        return Panes {
+            projects: None,
+            sessions: None,
+            output: Some(body),
+            terminal: None,
+        };
     }
     if area.width < THREE_PANE_WIDTH {
-        return only(focus);
+        let projects = widths.projects.clamp(PROJECTS_RANGE.0, PROJECTS_RANGE.1);
+        let [projects, right] =
+            Layout::horizontal([Constraint::Length(projects), Constraint::Fill(1)]).areas(body);
+        let sessions = (right.height / 3).max(STACKED_SESSIONS);
+        let [sessions, output] =
+            Layout::vertical([Constraint::Length(sessions), Constraint::Fill(1)]).areas(right);
+        return Panes {
+            projects: Some(projects),
+            sessions: Some(sessions),
+            output: Some(output),
+            terminal: None,
+        };
     }
     let widths = widths.fit(body.width);
     let [projects, sessions, output] = Layout::horizontal([
@@ -204,7 +219,7 @@ impl Panes {
 /// Returns the terminal pane's inner size, which its shell's PTY has.
 #[must_use]
 pub(crate) fn terminal_size(area: Rect, zoom: bool, widths: Widths) -> Size {
-    let pane = panes(area, Focus::Output, zoom, widths)
+    let pane = panes(area, zoom, widths)
         .with_terminal(true)
         .terminal
         .unwrap_or(area);
@@ -242,7 +257,7 @@ pub(crate) fn popup_size(area: Rect) -> Size {
 /// the terminal pane takes its lower third.
 #[must_use]
 pub(crate) fn output_size(area: Rect, zoom: bool, widths: Widths, terminal: bool) -> Size {
-    let pane = panes(area, Focus::Output, zoom, widths)
+    let pane = panes(area, zoom, widths)
         .with_terminal(terminal)
         .output
         .unwrap_or(area);
@@ -536,8 +551,9 @@ fn workspace_label(model: &Model) -> String {
 ///
 /// The marker is `>` on the selected row while the pane is focused and
 /// `:` (the ascii form of `▌`) while it is not. The spinner column turns
-/// while any session of the project works; the badge is the worst other
-/// state, failed > needs you > your turn, with its count.
+/// while any session of the project works, and the spinner with how many
+/// work sits at the right; after it the badge is the worst other state,
+/// failed > needs you > your turn, with its count.
 fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
     let focused = model.focus == Focus::Projects;
     let block = pane("[1] projects", focused, theme);
@@ -586,7 +602,7 @@ fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
                 .map(|i| model.cards[i].state.clone())
                 .chain(model.external_in(&project.path).iter().map(|e| e.state()))
                 .collect();
-            let working = states.iter().any(|s| matches!(s, State::Working));
+            let working = states.iter().filter(|s| **s == State::Working).count();
             let badge = [
                 State::Failed(String::new()),
                 State::NeedsYou,
@@ -599,22 +615,16 @@ fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
             });
             let badge_text = badge.map_or_else(String::new, |((g, _, _), n)| format!(" {g} {n} "));
             let badge_token = badge.map_or(Token::Fg, |((_, t, _), _)| t);
-            let branch = project.worktree_of.as_ref().map(|of| {
-                let last = visible
-                    .get(i + 1)
-                    .is_none_or(|next| next.worktree_of.as_ref() != Some(of));
-                match (theme.utf8, last) {
-                    (true, true) => "└ ",
-                    (true, false) => "├ ",
-                    (false, true) => "`-",
-                    (false, false) => "|-",
-                }
-            });
+            let gap = if badge.is_some() { "" } else { " " };
+            let count = (working > 0).then(|| format!(" {spin} {working}{gap}"));
+            let count = count.unwrap_or_default();
+            let taken = badge_text.chars().count() + count.chars().count();
+            let branch = tree_mark(&visible, i, theme.utf8);
             let label = worktree_label(project);
-            let room = width.saturating_sub(badge_text.len() + branch.map_or(0, |_| 2));
+            let room = width.saturating_sub(taken + branch.map_or(0, |_| 2));
             let text = truncate(label, room);
             let pad = room.saturating_sub(text.chars().count());
-            let spinner = if working { spin } else { ' ' };
+            let spinner = if working > 0 { spin } else { ' ' };
             Line::from(vec![
                 Span::styled(marker.to_string(), theme.fg(Token::Ok)),
                 Span::styled(spinner.to_string(), theme.fg(Token::Ok)),
@@ -630,6 +640,7 @@ fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
                 Span::styled(branch.unwrap_or_default(), theme.fg(Token::FgMuted)),
                 Span::styled(text, name),
                 Span::raw(" ".repeat(pad)),
+                Span::styled(count, theme.fg(Token::Ok)),
                 Span::styled(badge_text, theme.fg(badge_token)),
             ])
         })
@@ -720,6 +731,22 @@ pub(crate) fn project_at(
         .filter(|line| *line < rows)?;
     let offset = projects_offset(line_of(selected, rest), usize::from(rows));
     row_at(offset + usize::from(line), rest, len)
+}
+
+/// Returns the connector that ties worktree row `i` of `visible` to its
+/// repository above (the last one of a repository closes the tree), or
+/// `None` for a row that is no worktree.
+fn tree_mark(visible: &[&crate::workspace::Project], i: usize, utf8: bool) -> Option<&'static str> {
+    let of = visible.get(i)?.worktree_of.as_ref()?;
+    let last = visible
+        .get(i + 1)
+        .is_none_or(|next| next.worktree_of.as_ref() != Some(of));
+    Some(match (utf8, last) {
+        (true, true) => "└ ",
+        (true, false) => "├ ",
+        (false, true) => "`-",
+        (false, false) => "|-",
+    })
 }
 
 /// Returns the rest line of the projects list: `count` projects that are
@@ -1474,7 +1501,7 @@ pub(crate) mod tests {
         );
         let mut model = sample(PROJECTS);
         let (_id, _w) = with_session(&mut model, "s");
-        let output = panes(model.screen, model.focus, model.zoom, model.widths)
+        let output = panes(model.screen, model.zoom, model.widths)
             .output
             .unwrap();
         let spot = strip_mascot(output, model.screen).unwrap();
@@ -1512,6 +1539,23 @@ pub(crate) mod tests {
         model.now += mascot::NOTICE;
         model.update(crate::app::AppEvent::Tick);
         assert!(model.notice.is_none(), "it goes after a while");
+    }
+
+    #[test]
+    fn narrower_screens_stack_the_sessions_over_the_output() {
+        let stacked = panes(Rect::new(0, 0, 80, 24), false, Widths::default());
+        let (projects, sessions, output) = (
+            stacked.projects.unwrap(),
+            stacked.sessions.unwrap(),
+            stacked.output.unwrap(),
+        );
+        assert_eq!((sessions.x, output.x), (projects.right(), projects.right()));
+        assert_eq!((sessions.height, output.y), (7, sessions.bottom()));
+        let with = stacked.with_terminal(true);
+        let (output, terminal) = (with.output.unwrap(), with.terminal.unwrap());
+        assert_eq!((terminal.x, terminal.y), (output.x, output.bottom()));
+        let wide = panes(Rect::new(0, 0, 100, 24), false, Widths::default());
+        assert_eq!(wide.sessions.unwrap().y, wide.output.unwrap().y);
     }
 
     #[test]

@@ -230,15 +230,10 @@ impl Model {
 
     /// Returns the pane rectangles as drawn now on a screen of `area`: the
     /// terminal pane takes the lower third of the output pane while it
-    /// shows, and on a narrow screen the focused terminal brings the
-    /// output pane up with it.
+    /// shows.
     #[must_use]
     pub(crate) fn panes(&self, area: ratatui::layout::Rect) -> crate::ui::Panes {
-        let focus = match self.term_view {
-            TermView::Focused => crate::app::model::Focus::Output,
-            TermView::Hidden | TermView::Shown => self.focus,
-        };
-        crate::ui::panes(area, focus, self.zoom, self.widths).with_terminal(self.terminal_shown())
+        crate::ui::panes(area, self.zoom, self.widths).with_terminal(self.terminal_shown())
     }
 }
 
@@ -325,9 +320,7 @@ mod tests {
         m.shells.push((path.clone(), shell));
         m.term_view = TermView::Focused;
         let output = |m: &Model| m.panes(m.screen).output.unwrap();
-        let whole = crate::ui::panes(m.screen, m.focus, m.zoom, m.widths)
-            .output
-            .unwrap();
+        let whole = crate::ui::panes(m.screen, m.zoom, m.widths).output.unwrap();
         let pane = m.panes(m.screen).terminal.unwrap();
         let screen = crate::ui::tests::render(&mut m, 120, 40);
         assert!(screen.contains("terminal · ") && screen.contains(" TERMINAL "));

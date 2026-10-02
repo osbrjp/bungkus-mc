@@ -234,7 +234,7 @@ pub(crate) const BINDINGS: &[Binding] = &[
         label: "e",
         action: Action::ToggleRest,
         help: "more projects",
-        hint: None,
+        hint: Some("e more"),
         scope: Scope::Projects,
     },
     Binding {
@@ -450,7 +450,7 @@ pub(crate) const BINDINGS: &[Binding] = &[
         label: "o",
         action: Action::Editor,
         help: "open in editor",
-        hint: None,
+        hint: Some("o edit"),
         scope: Scope::Global,
     },
     Binding {
@@ -458,7 +458,7 @@ pub(crate) const BINDINGS: &[Binding] = &[
         label: "t",
         action: Action::Terminal,
         help: "terminal on/off",
-        hint: None,
+        hint: Some("t term"),
         scope: Scope::Global,
     },
     Binding {

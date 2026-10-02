@@ -1,7 +1,7 @@
  bungkus-mc  ~/Works/OSBR › kedai-web                                          x 1 failed · | 1 working · v0.1.0-beta.5
 ┌ [1] projects ──────┐┌ [2] sessions · kedai-web ──────────┐╔ [3] output · C #a3f2 · fla… · INTERACT · ctrl-\ to leave ╗
 │ / search           ││ ┃x C #a3f1 checkout redesign failed│║                ┌─────────────────────────────┐    ▄██▄   ║
-│:| 1 kedai-web  x 1 ││ ┃  exit 1 · boom                   │║                │ #a3f1 failed: exit 1 · boom │◂ ▄██████▄ ║
+│:| 1 kedai… | 1 x 1 ││ ┃  exit 1 · boom                   │║                │ #a3f1 failed: exit 1 · boom │◂ ▄██████▄ ║
 │ + 4 more (e)       ││ ┃  - tok · - · ctx -               │║                └─────────────────────────────┘    ▀  ▀   ║
 │                    ││                                    │║> fix the flaky date test                                 ║
 │                    ││: | C #a3f2 flaky payment test    0m│║  run it twice                                            ║

@@ -310,9 +310,8 @@ them to `config.json` as `"panes": {"projects": 22, "sessions": 38}`.
 
 Rows: line 1 header, lines 2…H−1 panes (outer height H−2), line H getah bar.
 
-Breakpoints: **≥ 100 columns → three panes**; **< 100 → single-pane stack**
-(one pane at a time, breadcrumb in the header, `h`/`l` move through the
-stack). Minimum size **80×24**; below that a single centred line:
+Breakpoints: **≥ 100 columns → three panes side by side**; **< 100 →
+projects left, sessions over output on the right** (§4.3). Minimum size **80×24**; below that a single centred line:
 `bungkus-mc needs at least 80×24 (now 72×20)`. No other tiers.
 
 ### 4.1 Main screen, 120×40 (sessions pane focused, agent waiting on a permission prompt)
@@ -399,39 +398,41 @@ is the **mini** 8×3 sprite (here mid-step, "working" mood). The mock is
 the zoomed view (`z`, 3 content rows shown); unzoomed, the same banner
 sits on the output pane beside the other two.
 
-### 4.3 Narrow, 80×24 (single-pane stack, sessions shown)
+### 4.3 Narrow, 80×24 (sessions stacked over the output)
 
 ```
- bungkus-mc  kedai-web › sessions                      1 needs you · 2 working 
-┏ sessions · kedai-web ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃>┃! C #a3f1 write proposal                                                 12m┃
-┃ ┃  needs you · permission: Bash                                              ┃
-┃ ┃  tokens   in 486k · out 13k                                                ┃
-┃ ┃  cache    read 402k · write 19k                                            ┃
-┃ ┃  cost     $1.42 (claude list price)                                        ┃
-┃ ┃  context  37% of 200k · 74k used                                           ┃
-┃ ┃  limits   5h 42% ↻14:00 · 7d 18% ↻Mon                                      ┃
-┃ ┃  * research hooks                                                      / 3m┃
-┃ ┃  * research codex                                                      / 3m┃
-┃ ┃  * research go tui libs                                                + 1m┃
-┃                                                                              ┃
-┃  / X #77c0 flaky date test                                                41m┃
-┃    working · shell                                                           ┃
-┃    312k tok · - · ctx 22%                                                    ┃
-┃                                                                              ┃
-┃  + C #9be2 bump deps                                                  wrapped┃
-┃    22m · 38 tools · 2 subagents                                              ┃
-┃    61k tok · $0.98 · ctx -                                                   ┃
-┃                                                                              ┃
-┃                                                                              ┃
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
- NORMAL  j/k · enter → agent (ctrl-\ back) · n new · ? help         C 42% X 10% 
+ bungkus-mc  ~/Works/OSBR › kedai-web  x 1 failed · | 1 working · v0.1.0-beta.5
+┌ [1] projects ──────┐┌ [2] sessions · kedai-web ──────────────────────────────┐
+│ / search           ││: | C #a3f2 flaky payment test                        0m│
+│:| 1 kedai… | 1 x 1 ││:   output only · live tree unavailable                 │
+│ + 4 more (e)       ││:   - tok · - · ctx -                                   │
+│                    ││                                                        │
+│                    ││  + C #a3f3 bump deps                            wrapped│
+│                    │└────────────────────────────────────────────────────────┘
+│                    │╔ [3] output · C #a3f2 · f… · INTERACT · ctrl-\ to leave ╗
+│                    │║              ┌─────────────────────────────┐    ▄██▄   ║
+│                    │║              │ #a3f1 failed: exit 1 · boom │◂ ▄██████▄ ║
+│                    │║              └─────────────────────────────┘    ▀  ▀   ║
+│                    │║> fix the flaky date test                               ║
+│                    │║  run it twice                                          ║
+│                    │║                                                        ║
+│                    │║                                                        ║
+│                    │║                                                        ║
+│                    │║                                                        ║
+│                    │║                                                        ║
+│                    │║                                                        ║
+│                    │║                                                        ║
+│                    │║                                                        ║
+└────────────────────┘╚════════════════════════════════════════════════════════╝
+ INTERACT  keys go to claude · ctrl-\ back to mc
 ```
 
-The header carries the breadcrumb (`kedai-web › sessions`); limits
-collapse to the 5-hour figure per vendor. (This mock predates the corner
-mascot; in the narrow stack the output pane is a separate screen and gets
-the same corner treatment.)
+Below 100 columns the projects pane keeps the left and the right column
+stacks the sessions pane (a third of it, at least 7 rows) over the output
+pane; the terminal pane (`t`) still takes the output pane's lower third,
+so it sits at the bottom right. Every pane stays on screen, so the header
+keeps the workspace breadcrumb; limits collapse to the 5-hour figure per
+vendor.
 
 ### 4.4 Errors: cross eyes, corner or title bar
 
@@ -558,14 +559,14 @@ Subagents use the same glyphs at one indent with `*` (`◦`); their status
 comes from `background_tasks` on Stop/SubagentStop (authoritative), else
 from SubagentStart/Stop.
 
-Sidebar row = `<marker><spinner> <name>` … `<badge>`. The marker is `>`
+Sidebar row = `<marker><spinner> <name>` … `<working> <badge>`. The marker is `>`
 when the projects pane is focused, `▌` (ascii `:`) when it is not, space
 otherwise. The **spinner column** shows the global-clock frame `| / - \`
 for a project with any running session (static `|` under `motion:
 false`), space otherwise. The **badge** is the worst *non-running* state
 among the project's sessions, precedence **failed > needs you > your
-turn**, as `<glyph> <count>`; "working" is carried by the spinner alone,
-so there is no `/ n` badge. The header tally's `/` and every card's
+turn**, as `<glyph> <count>`; before it, `<spinner> <n>` says how many
+sessions are working (nothing when none is). The header tally's `/` and every card's
 working glyph tick with the same clock.
 
 ### 5.4 Badge
