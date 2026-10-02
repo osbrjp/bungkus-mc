@@ -467,10 +467,8 @@ fn run_cmd(
         Cmd::OpenEditor(project) => open_editor(model, &env.config, &project, tx),
         Cmd::OpenFolder(project) => open_folder(model, project),
         Cmd::OpenUrl(url) => open_folder(model, PathBuf::from(url)),
-        Cmd::ListLinks(folder) => list_links(gh_dir(model, env, &folder), folder, tx.clone()),
-        Cmd::ReadLink(folder, link) => {
-            read_link(gh_dir(model, env, &folder), folder, link, tx.clone());
-        }
+        Cmd::ListLinks(folder) => list_links(gh_dir(model, env, &folder), folder, tx),
+        Cmd::ReadLink(folder, link) => read_link(gh_dir(model, env, &folder), folder, link, tx),
         Cmd::OpenTerminal(owner, dir) => open_terminal(model, &env.config, owner, &dir, tx),
         Cmd::SaveGroups(groups) => save_groups(model, &groups),
         Cmd::SaveWidths(widths) => {
@@ -563,7 +561,8 @@ fn gh_dir(model: &Model, env: &Env, folder: &Path) -> Option<PathBuf> {
 /// Lists the open pull requests and issues of the repository `folder` is
 /// in on a background thread, for the `i` popup ([`AppEvent::LinkList`]).
 /// `gh` is the workspace's `gh` config folder ([`gh_dir`]).
-fn list_links(gh: Option<PathBuf>, folder: PathBuf, tx: SyncSender<AppEvent>) {
+fn list_links(gh: Option<PathBuf>, folder: PathBuf, tx: &SyncSender<AppEvent>) {
+    let tx = tx.clone();
     thread::spawn(move || {
         let list = links::list(&folder, gh.as_deref());
         // reason: mc may have quit meanwhile.
@@ -574,7 +573,8 @@ fn list_links(gh: Option<PathBuf>, folder: PathBuf, tx: SyncSender<AppEvent>) {
 /// Reads the text of `link` in `folder` on a background thread, for the
 /// popup's text view ([`AppEvent::LinkBody`]). `gh` is the workspace's `gh`
 /// config folder ([`gh_dir`]).
-fn read_link(gh: Option<PathBuf>, folder: PathBuf, link: links::Link, tx: SyncSender<AppEvent>) {
+fn read_link(gh: Option<PathBuf>, folder: PathBuf, link: links::Link, tx: &SyncSender<AppEvent>) {
+    let tx = tx.clone();
     thread::spawn(move || {
         let text = links::body(&folder, gh.as_deref(), &link);
         // reason: mc may have quit meanwhile.
