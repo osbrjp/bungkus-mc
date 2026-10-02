@@ -222,6 +222,14 @@ pub(crate) struct Model {
     pub theme: Theme,
     /// Whether the host terminal's background is light (OSC 11), if known.
     pub host_light: Option<bool>,
+    /// Whether the `auto` icon choice means the `nerd` set here: a Nerd
+    /// Font is installed, the locale is UTF-8 and this is not SSH.
+    pub nerd_font: bool,
+    /// The `icons` value in `config.json`, for the first-run wizard to keep.
+    pub icons_saved: crate::ui::icons::IconChoice,
+    /// `--icons`: the icon choice for this run, until the settings screen
+    /// changes it. It is never saved.
+    pub icons_flag: Option<crate::ui::icons::IconChoice>,
     /// Home directory, for `~` in paths.
     pub home: Option<PathBuf>,
     /// Applied settings; `None` until the first-run wizard finishes.
@@ -394,6 +402,9 @@ impl Model {
         Self {
             theme,
             host_light: None,
+            nerd_font: false,
+            icons_saved: crate::ui::icons::IconChoice::Auto,
+            icons_flag: None,
             home,
             settings: None,
             projects: Vec::new(),
@@ -468,7 +479,11 @@ impl Model {
     #[must_use]
     pub(crate) fn view_theme(&self) -> Theme {
         match &self.overlay {
-            Some(Overlay::Form(form)) => self.theme.with_name(form.theme.resolve(self.host_light)),
+            Some(Overlay::Form(form)) => {
+                let mut theme = self.theme.with_name(form.theme.resolve(self.host_light));
+                theme.icons = form.icons.resolve(|| self.nerd_font);
+                theme
+            }
             _ => self.theme,
         }
     }
@@ -741,12 +756,25 @@ impl Model {
             .min()
     }
 
+    /// Returns `settings` as they are to be saved. A form left on the
+    /// `--icons` choice keeps the saved icon set, so the flag is not
+    /// written to `config.json`; any other choice ends the flag.
+    fn keep_saved_icons(&mut self, mut settings: Settings) -> Settings {
+        if self.icons_flag == Some(settings.icons) {
+            settings.icons = self.settings.as_ref().map_or(self.icons_saved, |s| s.icons);
+        } else {
+            self.icons_flag = None;
+        }
+        settings
+    }
+
     /// Opens the settings screen (or, before first run, the wizard).
     pub(crate) fn open_form(&mut self, kind: FormKind, field: Field) {
         let current = self.settings.clone().unwrap_or_else(|| Settings {
             workspace: PathBuf::new(),
             theme: ThemeChoice::Auto,
             default_agent: Kind::Claude,
+            icons: self.icons_saved,
             editor: None,
         });
         let mut form = Form::new(
@@ -758,6 +786,8 @@ impl Model {
             self.home.clone(),
         );
         form.field = field;
+        form.nerd_font = self.nerd_font;
+        form.icons = self.icons_flag.unwrap_or(current.icons);
         if let (FormKind::Settings, Some(agent)) = (kind, self.overrides.default_agent) {
             (form.agent, form.scope) = (agent, AgentScope::Workspace);
         }
@@ -1165,7 +1195,9 @@ impl Model {
                     None
                 }
                 Outcome::Cancel => None,
-                Outcome::Submit(settings) => Some(Cmd::Apply(settings, form.scope)),
+                Outcome::Submit(settings) => {
+                    Some(Cmd::Apply(self.keep_saved_icons(settings), form.scope))
+                }
                 Outcome::Quit => Some(self.request_quit()),
             },
             Overlay::Picker(mut p) => match p.key(key) {
@@ -1754,6 +1786,8 @@ impl Model {
         self.theme = self
             .theme
             .with_name(settings.theme.resolve(self.host_light));
+        let icons = self.icons_flag.unwrap_or(settings.icons);
+        self.theme.icons = icons.resolve(|| self.nerd_font);
         let (projects, error) = match scan {
             Ok(projects) => (projects, None),
             Err(e) => (Vec::new(), Some(e.to_string())),
@@ -1786,6 +1820,63 @@ pub(crate) mod tests {
     use crate::term::session::{Colors, Session, Size};
     use crate::ui::theme::{Background, Profile, ThemeName};
 
+    #[test]
+    fn applied_settings_choose_the_icon_set_and_the_form_previews_it() {
+        use crate::ui::icons::{IconChoice, IconSet};
+        let mut model = sample(&["a"]);
+        assert_eq!(
+            model.theme.icons,
+            IconSet::Ascii,
+            "auto without a Nerd Font"
+        );
+        let mut settings = model.settings.clone().unwrap();
+        settings.icons = IconChoice::Nerd;
+        model.apply(settings.clone(), Ok(Vec::new()), Path::new("/"));
+        assert_eq!(model.theme.icons, IconSet::Nerd);
+        settings.icons = IconChoice::Auto;
+        model.nerd_font = true;
+        model.apply(settings, Ok(Vec::new()), Path::new("/"));
+        assert_eq!(model.theme.icons, IconSet::Nerd, "auto with a Nerd Font");
+        model.open_form(FormKind::Settings, Field::Icons);
+        let Some(Overlay::Form(form)) = model.overlay.as_mut() else {
+            panic!("the settings form is open");
+        };
+        form.icons = IconChoice::Unicode;
+        assert_eq!(model.view_theme().icons, IconSet::Unicode);
+        assert_eq!(model.theme.icons, IconSet::Nerd, "not applied until saved");
+    }
+
+    #[test]
+    fn the_icons_flag_is_for_one_run_and_never_saved() {
+        use crate::ui::icons::{IconChoice, IconSet};
+        let mut model = sample(&["a"]);
+        let mut saved = model.settings.clone().unwrap();
+        saved.icons = IconChoice::Nerd;
+        model.icons_flag = Some(IconChoice::Unicode);
+        model.apply(saved.clone(), Ok(Vec::new()), Path::new("/"));
+        assert_eq!(model.theme.icons, IconSet::Unicode, "the flag wins");
+        assert_eq!(model.settings.as_ref().unwrap().icons, IconChoice::Nerd);
+        model.open_form(FormKind::Settings, Field::Icons);
+        let Some(Overlay::Form(form)) = model.overlay.take() else {
+            panic!("the settings form is open");
+        };
+        assert_eq!(form.icons, IconChoice::Unicode, "the form shows the flag");
+        let mut shown = saved.clone();
+        shown.icons = form.icons;
+        assert_eq!(model.keep_saved_icons(shown).icons, IconChoice::Nerd);
+        assert_eq!(model.icons_flag, Some(IconChoice::Unicode));
+        let mut changed = saved;
+        changed.icons = IconChoice::Ascii;
+        assert_eq!(model.keep_saved_icons(changed).icons, IconChoice::Ascii);
+        assert_eq!(model.icons_flag, None, "a new choice ends the flag");
+
+        let mut first_run = sample(&["a"]);
+        first_run.settings = None;
+        first_run.icons_saved = IconChoice::Unicode;
+        first_run.start_wizard("");
+        assert_eq!(first_run.view_theme().icons, IconSet::Unicode);
+    }
+
     /// A model with `names` as projects of `/Users/me/Works/OSBR`, as the
     /// view tests and goldens use it.
     pub(crate) fn sample(names: &[&str]) -> Model {
@@ -1809,6 +1900,7 @@ pub(crate) mod tests {
             workspace,
             theme: ThemeChoice::Dark,
             default_agent: Kind::Claude,
+            icons: crate::ui::icons::IconChoice::Auto,
             editor: None,
         };
         model.apply(settings, Ok(projects), Path::new("/"));

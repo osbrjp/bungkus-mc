@@ -1,8 +1,9 @@
 //! The settings form behind both the first-run wizard and the settings
-//! screen: workspace, default agent, theme and editor.
+//! screen: workspace, default agent, theme, icons and editor.
 //!
 //! The wizard shows one field per step (then a summary) and can be skipped
-//! with defaults; the settings screen shows all four at once. Either way
+//! with defaults (it leaves the icon set alone); the settings screen shows
+//! all five at once. Either way
 //! the result is a [`Settings`] the caller saves to `config.json`.
 
 use std::path::{Path, PathBuf};
@@ -12,6 +13,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use crate::agent::{Kind, find_on_path};
 use crate::app::browser::Browser;
 use crate::store::config::{AgentScope, Settings, expand, tilde};
+use crate::ui::icons::IconChoice;
 use crate::ui::theme::ThemeChoice;
 
 /// Which of the two screens the form is.
@@ -32,6 +34,8 @@ pub(crate) enum Field {
     Agent,
     /// The theme choice.
     Theme,
+    /// The icon set choice (settings screen only).
+    Icons,
     /// The editor `o` opens a project with: a choice, or a typed command.
     Editor,
     /// The wizard's summary step.
@@ -67,6 +71,10 @@ pub(crate) struct Form {
     pub scope: AgentScope,
     /// Chosen theme.
     pub theme: ThemeChoice,
+    /// Chosen icon set.
+    pub icons: IconChoice,
+    /// Whether `auto` means the `nerd` set here ([`IconChoice::resolve`]).
+    pub nerd_font: bool,
     /// Where each agent was found on `PATH`, in [`Kind::ALL`] order.
     pub found: [Option<String>; 2],
     /// The editors to choose from ([`crate::app::tools::editors`]).
@@ -130,6 +138,8 @@ impl Form {
             agent: settings.default_agent,
             scope: AgentScope::Global,
             theme: settings.theme,
+            icons: settings.icons,
+            nerd_font: false,
             found,
             editors,
             editor,
@@ -344,6 +354,12 @@ impl Form {
                 let step = if forward { 1 } else { all.len() - 1 };
                 self.theme = all[(i + step) % all.len()];
             }
+            Field::Icons => {
+                let all = IconChoice::ALL;
+                let i = all.iter().position(|c| *c == self.icons).unwrap_or(0);
+                let step = if forward { 1 } else { all.len() - 1 };
+                self.icons = all[(i + step) % all.len()];
+            }
             Field::Editor => {
                 let count = self.editors.len() + 1;
                 let step = if forward { 1 } else { count - 1 };
@@ -430,8 +446,9 @@ impl Form {
     fn move_field(&mut self, forward: bool) {
         self.field = match (self.field, forward) {
             (Field::Workspace, true) | (Field::Theme, false) => Field::Agent,
-            (Field::Agent, true) | (Field::Editor, false) => Field::Theme,
-            (Field::Theme, true) | (Field::Workspace, false) => Field::Editor,
+            (Field::Agent, true) | (Field::Icons, false) => Field::Theme,
+            (Field::Theme, true) | (Field::Editor, false) => Field::Icons,
+            (Field::Icons, true) | (Field::Workspace, false) => Field::Editor,
             (Field::Editor | Field::Done, true) | (Field::Agent | Field::Done, false) => {
                 Field::Workspace
             }
@@ -450,7 +467,7 @@ impl Form {
                 }
             },
             Field::Agent => Field::Theme,
-            Field::Theme => Field::Editor,
+            Field::Theme | Field::Icons => Field::Editor,
             Field::Editor => match self.validated_editor() {
                 Ok(_) => Field::Done,
                 Err(e) => {
@@ -473,7 +490,7 @@ impl Form {
             }
             Field::Agent => Field::Workspace,
             Field::Theme => Field::Agent,
-            Field::Editor => Field::Theme,
+            Field::Editor | Field::Icons => Field::Theme,
             Field::Done => Field::Editor,
         };
         Outcome::Continue
@@ -500,6 +517,7 @@ impl Form {
             workspace,
             theme: self.theme,
             default_agent: self.agent,
+            icons: self.icons,
             editor,
         }
     }
@@ -569,6 +587,7 @@ mod tests {
             workspace: PathBuf::new(),
             theme: ThemeChoice::Auto,
             default_agent: Kind::Claude,
+            icons: IconChoice::Auto,
             editor: None,
         };
         Form::new(
@@ -605,6 +624,7 @@ mod tests {
             workspace: tmp,
             theme: ThemeChoice::Dark,
             default_agent: Kind::Codex,
+            icons: IconChoice::Auto,
             editor: Some("code".into()),
         };
         assert_eq!(form.key(press(KeyCode::Enter)), Outcome::Submit(want));
@@ -670,6 +690,7 @@ mod tests {
             workspace: std::env::temp_dir(),
             theme: ThemeChoice::Auto,
             default_agent: Kind::Claude,
+            icons: IconChoice::Auto,
             editor: Some(editor.into()),
         };
         let open = |editor: &str| {
@@ -714,6 +735,7 @@ mod tests {
             workspace: root.clone(),
             theme: ThemeChoice::Auto,
             default_agent: Kind::Claude,
+            icons: IconChoice::Auto,
             editor: None,
         };
         let mut form = Form::new(
@@ -748,6 +770,7 @@ mod tests {
             workspace: std::env::temp_dir(),
             theme: ThemeChoice::Auto,
             default_agent: Kind::Claude,
+            icons: IconChoice::Auto,
             editor: None,
         };
         let mut form = Form::new(
@@ -784,6 +807,7 @@ mod tests {
             workspace: std::env::temp_dir(),
             theme: ThemeChoice::Dark,
             default_agent: Kind::Claude,
+            icons: IconChoice::Auto,
             editor: None,
         };
         let found = [Some("claude".into()), Some("codex".into())];
@@ -823,6 +847,7 @@ mod tests {
             workspace: std::env::temp_dir(),
             theme: ThemeChoice::Light,
             default_agent: Kind::Claude,
+            icons: IconChoice::Auto,
             editor: None,
         };
         let mut form = Form::new(
@@ -847,6 +872,14 @@ mod tests {
             Field::Theme,
             "q is not typed outside the text field"
         );
+        form.key(press(KeyCode::Tab));
+        assert_eq!(form.field, Field::Icons);
+        form.key(press(KeyCode::Left));
+        assert_eq!(form.icons, IconChoice::Nerd, "wraps round to the last set");
+        let Outcome::Submit(saved) = form.key(press(KeyCode::Enter)) else {
+            panic!("enter saves");
+        };
+        assert_eq!(saved.icons, IconChoice::Nerd);
         assert_eq!(form.key(press(KeyCode::Esc)), Outcome::Cancel);
         let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
         assert_eq!(form.key(ctrl_c), Outcome::Quit);
