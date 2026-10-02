@@ -253,6 +253,9 @@ pub(crate) struct Model {
     pub limits_at: [Option<Instant>; 2],
     /// Wall-clock time in unix seconds, for stale limit windows.
     pub unix_now: u64,
+    /// What the open workspace's own `.bungkus-mc/config.json` sets
+    /// instead of the global config.
+    pub overrides: crate::store::config::Overrides,
     /// `cleanup.keep`: extra process names that start as `[keep]`.
     pub keep: Vec<String>,
     /// When the next background process scan is due.
@@ -386,6 +389,7 @@ impl Model {
             limits: [Vec::new(), Vec::new()],
             limits_at: [None, None],
             unix_now: 0,
+            overrides: crate::store::config::Overrides::default(),
             keep: Vec::new(),
             next_scan: None,
             state_dirty: false,
@@ -541,6 +545,16 @@ impl Model {
             self.selected = row;
         }
         row.is_some()
+    }
+
+    /// Returns the agent new sessions start with: the open workspace's
+    /// own choice, else the one from settings.
+    #[must_use]
+    pub(crate) fn default_agent(&self) -> Kind {
+        let settings = self.settings.as_ref();
+        self.overrides
+            .default_agent
+            .unwrap_or_else(|| settings.map_or(Kind::Claude, |s| s.default_agent))
     }
 
     /// Returns the selected project, if any is visible.
@@ -1327,10 +1341,7 @@ impl Model {
     /// Opens the `n` picker for the selected project, preselecting the
     /// default agent.
     fn open_picker(&mut self) {
-        let agent = self
-            .settings
-            .as_ref()
-            .map_or(Kind::Claude, |s| s.default_agent);
+        let agent = self.default_agent();
         let project = self
             .selected_project()
             .map(|p| p.name.clone())
@@ -1366,10 +1377,7 @@ impl Model {
         {
             return None;
         }
-        let default = self
-            .settings
-            .as_ref()
-            .map_or(Kind::Claude, |s| s.default_agent);
+        let default = self.default_agent();
         match self.installed() {
             [true, true] => {
                 self.overlay = Some(Overlay::ResumeAgent(default));

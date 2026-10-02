@@ -83,10 +83,7 @@ impl Model {
     /// Starts a quick session with the default agent at the workspace root.
     pub(crate) fn quick_session(&mut self) -> Option<Cmd> {
         let project = self.root()?.to_path_buf();
-        let kind = self
-            .settings
-            .as_ref()
-            .map_or(Kind::Claude, |s| s.default_agent);
+        let kind = self.default_agent();
         Some(Cmd::Launch(LaunchRequest {
             project,
             kind,

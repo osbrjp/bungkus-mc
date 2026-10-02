@@ -199,6 +199,7 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<bool> {
     let (tx, rx) = mpsc::sync_channel::<AppEvent>(CHANNEL_CAPACITY);
     let uid = rustix::process::getuid().as_raw();
     let (hooks, _listener) = start_background(&mut model, &tx, uid);
+    load_overrides(&mut model, env);
     if env.quick
         && let Some(cmd) = model.quick_session()
     {
@@ -224,7 +225,8 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<bool> {
             .map_or(0, |d| d.as_secs());
         resize_sessions(&mut model);
         terminal.draw(|frame| ui::draw(frame, &mut model))?;
-        announce(&mut model, env.config.notify, &mut title);
+        let notify = model.overrides.notify.unwrap_or(env.config.notify);
+        announce(&mut model, notify, &mut title);
         if model.state_dirty {
             save_state(&mut model, env);
         }
@@ -588,7 +590,28 @@ fn apply(model: &mut Model, env: &Env, settings: config::Settings) {
     model.remember_workspace(&settings.workspace);
     save_workspaces(model, env);
     model.apply(settings, scan, &env.cwd);
+    load_overrides(model, env);
     recolour(model);
+}
+
+/// Reads the open workspace's own `.bungkus-mc/config.json` over the
+/// global config: an unset key keeps the global value, and a file that
+/// cannot be used sets nothing and says why.
+fn load_overrides(model: &mut Model, env: &Env) {
+    let loaded = model.root().map(config::load_overrides).transpose();
+    model.overrides = match loaded {
+        Ok(overrides) => overrides.unwrap_or_default(),
+        Err(e) => {
+            model.message = Some(format!("{}/{e}; ignored.", config::WORKSPACE_DIR));
+            config::Overrides::default()
+        }
+    };
+    let keep = model
+        .overrides
+        .cleanup
+        .as_ref()
+        .unwrap_or(&env.config.cleanup);
+    model.keep.clone_from(&keep.keep);
 }
 
 /// Points running sessions at the theme now in effect: the OSC 10/11
@@ -666,7 +689,7 @@ fn launch(
         ));
         return;
     };
-    let extra_args = worktree_args(&agent.args, worktree.as_deref());
+    let extra_args = extra_args(model, &agent.args, kind, worktree.as_deref());
     card.worktree = worktree;
     let argv = agent::argv(kind, &program, &extra_args, &launch);
     let id = launch.id.0.hyphenated().to_string();
@@ -834,10 +857,23 @@ fn worktree_for(
             .iter()
             .any(|c| c.running() && c.project == project && Some(c.id) != request.replaces);
     let fresh = request.launch.resume.is_none() && !request.launch.pick;
-    (env.config.worktrees && shared && fresh && has_commit(project)).then(|| {
+    let worktrees = model.overrides.worktrees.unwrap_or(env.config.worktrees);
+    (worktrees && shared && fresh && has_commit(project)).then(|| {
         let name = request.launch.name.as_deref().unwrap_or_default();
         worktree_name(name, request.launch.id)
     })
+}
+
+/// Returns what goes between the agent's program and mc's own arguments,
+/// for a new session and a resumed one alike: the configured `args`,
+/// `--worktree <name>` if any, and the open workspace's own instructions
+/// (`.bungkus-mc/CLAUDE.md`, `.bungkus-mc/AGENTS.md`; see
+/// [`agent::instruction_args`]).
+fn extra_args(model: &Model, args: &[String], kind: Kind, worktree: Option<&str>) -> Vec<String> {
+    let instructions = model.root().map_or_else(Vec::new, |root| {
+        agent::instruction_args(kind, &root.join(config::WORKSPACE_DIR))
+    });
+    [worktree_args(args, worktree), instructions].concat()
 }
 
 /// Returns the agent's extra arguments plus `--worktree <name>`, if any.
