@@ -107,6 +107,10 @@ pub(crate) struct LaunchRequest {
     pub replaces: Option<SessionId>,
 }
 
+/// How many projects the recent group of the projects list holds; more
+/// only when more of them have a running session (DESIGN §8.2).
+const RECENT_MAX: usize = 5;
+
 /// The line of the projects list that shows or hides the projects that
 /// are not recent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -442,10 +446,13 @@ impl Model {
     ///
     /// The `quick` row (number 0) leads while quick sessions exist, and the
     /// [`Model::elsewhere`] row ends the list while an outside session runs
-    /// in no project folder. Between them, recent projects come first: the
-    /// ones with a session (of mc's, running or finished, or an outside
-    /// one), a repository and its worktrees counting together. The rest
-    /// hide behind the rest line until [`Model::show_rest`].
+    /// in no project folder. Between them, recent projects come first, up
+    /// to [`RECENT_MAX`] (a repository and its worktrees counting as one):
+    /// the ones a session runs in now (mc's or an outside one), then the
+    /// most recently used by their latest session start. Every project
+    /// with a running session is recent, even past that number, so a
+    /// session that needs the user never folds away. The rest hide behind
+    /// the rest line until [`Model::show_rest`].
     ///
     /// Nothing is grouped while a search is typed (it finds every
     /// project), or when no project or every project is recent.
@@ -460,14 +467,24 @@ impl Model {
             .iter()
             .any(|c| self.is_quick(c))
             .then_some(&self.quick_row);
-        let recent: std::collections::HashSet<&str> = self
-            .projects
+        // Per family: whether a session runs in it now, and its latest start.
+        let mut used = std::collections::HashMap::<&str, (bool, Option<Instant>)>::new();
+        for project in &self.projects {
+            let cards = || self.cards.iter().filter(|c| c.project == project.path);
+            let live = cards().any(Card::running) || !self.external_in(&project.path).is_empty();
+            let latest = cards().map(|c| c.started).max();
+            if live || latest.is_some() {
+                let entry = used.entry(family(project)).or_default();
+                *entry = (entry.0 || live, entry.1.max(latest));
+            }
+        }
+        let mut ranked: Vec<(&str, (bool, Option<Instant>))> = used.into_iter().collect();
+        ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+        let recent: std::collections::HashSet<&str> = ranked
             .iter()
-            .filter(|p| {
-                self.cards.iter().any(|c| c.project == p.path)
-                    || !self.external_in(&p.path).is_empty()
-            })
-            .map(family)
+            .enumerate()
+            .filter(|(rank, (_, (live, _)))| *rank < RECENT_MAX || *live)
+            .map(|(_, (name, _))| *name)
             .collect();
         let (first, rest): (Vec<&Project>, Vec<&Project>) = self
             .projects
