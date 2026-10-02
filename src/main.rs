@@ -185,18 +185,20 @@ fn main() -> Result<()> {
         .map(|kind| find_on_path(kind.command(), &path_var).map(|p| tilde(&p, home.as_deref())));
     let fallback = default_workspace(home.as_deref(), &cwd);
     let utf8 = utf8_locale(var);
-    // Over SSH the fonts on this host are not the ones the terminal draws with.
-    let icons = args.icons.unwrap_or(config.icons).resolve(|| {
-        utf8 && var("SSH_CONNECTION").is_none()
-            && icons::nerd_font_installed(&icons::font_dirs(home.as_deref()))
-    });
+    let nerd_font = utf8 && nerd_font_here(var, home.as_deref());
+    let icons = args.icons.unwrap_or(config.icons).resolve(|| nerd_font);
     let theme = Theme::new(ThemeName::Dark, Profile::detect(var), config.background).with_view(
         icons,
         utf8,
         config.motion,
     );
     let mut model = Model::new(theme, home.clone(), found, fallback);
+    model.nerd_font = nerd_font;
+    (model.icons_saved, model.icons_flag) = (config.icons, args.icons);
     model.message = message;
+    model.editors = app::tools::editors(app::user_editor().as_deref(), |name| {
+        find_on_path(name, &path_var).is_some()
+    });
     model.keep.clone_from(&config.cleanup.keep);
     model.widths = config.panes;
     model.workspaces = config
@@ -355,6 +357,13 @@ fn default_workspace(home: Option<&Path>, cwd: &Path) -> PathBuf {
         .unwrap_or_else(|| cwd.to_path_buf())
 }
 
+/// Returns whether a Nerd Font is installed for the terminal mc runs in.
+/// Over SSH the fonts on this host are not the ones the terminal draws
+/// with, so the answer is no.
+fn nerd_font_here(var: impl Fn(&str) -> Option<String>, home: Option<&Path>) -> bool {
+    var("SSH_CONNECTION").is_none() && icons::nerd_font_installed(&icons::font_dirs(home))
+}
+
 /// Applies the config's settings on `workspace` and scans it.
 fn apply(model: &mut Model, config: &Config, workspace: PathBuf, cwd: &Path) {
     let scan = workspace::scan(&workspace);
@@ -362,6 +371,8 @@ fn apply(model: &mut Model, config: &Config, workspace: PathBuf, cwd: &Path) {
         workspace,
         theme: config.theme,
         default_agent: config.default_agent,
+        icons: config.icons,
+        editor: config.editor.clone(),
     };
     model.remember_workspace(&settings.workspace);
     model.apply(settings, scan, cwd);

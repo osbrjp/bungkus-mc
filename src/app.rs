@@ -9,6 +9,7 @@
 
 pub(crate) mod browser;
 pub(crate) mod form;
+pub(crate) mod groups;
 mod interact;
 pub(crate) mod model;
 pub(crate) mod picker;
@@ -55,6 +56,11 @@ const TICK: Duration = Duration::from_millis(350);
 
 /// Capacity of the event channel: 64 PTY reads of 32 KiB (ARCHITECTURE §3).
 const CHANNEL_CAPACITY: usize = 64;
+
+/// How long `O` waits before the desktop's opener runs. The opener takes
+/// the focus, and a terminal that loses it while Shift is still down never
+/// sees the release: every later key then arrives shifted, until a click.
+const FOLDER_DELAY: Duration = Duration::from_millis(300);
 
 /// How often sessions outside mc are listed (ARCHITECTURE §3.4).
 const EXTERNAL_EVERY: Duration = Duration::from_secs(5);
@@ -203,6 +209,7 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<bool> {
     let uid = rustix::process::getuid().as_raw();
     let (hooks, _listener) = start_background(&mut model, &tx, uid);
     load_overrides(&mut model, env);
+    resume_sessions(&mut model, env, hooks.as_ref(), &tx, uid);
     if env.quick
         && let Some(cmd) = model.quick_session()
     {
@@ -272,6 +279,32 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<bool> {
             }
         }
     }
+}
+
+/// Resumes the sessions the last quit stopped ([`Model::auto_resume`]).
+/// Launching selects and focuses each session, so the project and focus
+/// mc started with are put back: the project by its folder, since the
+/// resumed sessions reorder the recent group of the list.
+fn resume_sessions(
+    model: &mut Model,
+    env: &Env,
+    hooks: Option<&Hooks>,
+    tx: &SyncSender<AppEvent>,
+    uid: u32,
+) {
+    let resumes = model.auto_resume();
+    if resumes.is_empty() {
+        return;
+    }
+    let selected = model.selected_project().map(|p| p.path.clone());
+    let focus = model.focus;
+    for cmd in resumes {
+        run_cmd(model, env, hooks, tx, uid, cmd);
+    }
+    if let Some(path) = selected {
+        model.select_project(&path);
+    }
+    (model.card, model.focus) = (0, focus);
 }
 
 /// Starts the hook socket and the daily update check; returns what
@@ -359,14 +392,14 @@ fn run_cmd(
     match cmd {
         Cmd::Quit => return Next::Quit,
         Cmd::Redraw => return Next::Redraw,
-        Cmd::Apply(settings) => apply(model, env, settings),
+        Cmd::Apply(settings, scope) => apply(model, env, settings, Some(scope)),
         Cmd::Launch(request) => launch(model, env, hooks, request, tx),
         Cmd::WatchRollout(id, path) => watch_rollout(model, id, &path, tx),
         Cmd::SwitchWorkspace(workspace, session) => {
             if let Some(mut settings) = model.settings.clone() {
                 crate::debug_log!("switch workspace to {}", workspace.display());
                 settings.workspace = workspace;
-                apply(model, env, settings);
+                apply(model, env, settings, None);
                 if let Some(id) = session {
                     model.select_session(id);
                 }
@@ -408,14 +441,9 @@ fn run_cmd(
         Cmd::RemoveWorktree(project, name) => forget_worktree(model, &project, &name, tx),
         Cmd::CleanWorktrees(project) => clean_worktrees(model, &project, tx),
         Cmd::OpenEditor(project) => open_editor(model, &project, tx),
-        Cmd::OpenTerminal(dir) => {
-            let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
-            let size = ui::terminal_size(model.screen, model.zoom, model.widths);
-            if let Some(tool) = spawn_tool(model, &[shell], &dir, size, tx) {
-                model.shells.push((dir, tool));
-                model.term_view = TermView::Focused;
-            }
-        }
+        Cmd::OpenFolder(project) => open_folder(model, project),
+        Cmd::OpenTerminal(owner, dir) => open_terminal(model, owner, &dir, tx),
+        Cmd::SaveGroups(groups) => save_groups(model, &groups),
         Cmd::SaveWidths(widths) => {
             if let Some(path) = &env.config_path
                 && let Err(e) = config::save_widths(path, widths)
@@ -616,7 +644,19 @@ fn save_workspaces(model: &mut Model, env: &Env) {
 }
 
 /// Saves settings, rescans the workspace and recolours running sessions.
-fn apply(model: &mut Model, env: &Env, settings: config::Settings) {
+/// A `scope` (a submit of the settings screen) first puts the default
+/// agent where it says ([`save_agent_scope`]); a workspace switch has none
+/// and leaves the workspace's own choice alone.
+fn apply(
+    model: &mut Model,
+    env: &Env,
+    settings: config::Settings,
+    scope: Option<config::AgentScope>,
+) {
+    let settings = match scope {
+        Some(scope) => save_agent_scope(model, settings, scope),
+        None => settings,
+    };
     if let Some(path) = &env.config_path
         && let Err(e) = config::save(path, &settings)
     {
@@ -628,6 +668,41 @@ fn apply(model: &mut Model, env: &Env, settings: config::Settings) {
     model.apply(settings, scan, &env.cwd);
     load_overrides(model, env);
     recolour(model);
+}
+
+/// Saves the default agent of submitted `settings` where `scope` says and
+/// returns the settings to save globally.
+///
+/// For the workspace only: it goes into the workspace's
+/// `.bungkus-mc/config.json` and the global default agent stays what it
+/// was. For all workspaces: the workspace's own `defaultAgent` is removed,
+/// so the global one applies there again. A file that cannot be written
+/// leaves the settings as submitted and says why.
+fn save_agent_scope(
+    model: &mut Model,
+    settings: config::Settings,
+    scope: config::AgentScope,
+) -> config::Settings {
+    let (here, global) = match scope {
+        config::AgentScope::Workspace => {
+            let before = model.settings.as_ref().map(|s| s.default_agent);
+            (
+                Some(settings.default_agent),
+                before.unwrap_or(settings.default_agent),
+            )
+        }
+        config::AgentScope::Global => (None, settings.default_agent),
+    };
+    match config::save_workspace_agent(&settings.workspace, here) {
+        Ok(()) => config::Settings {
+            default_agent: global,
+            ..settings
+        },
+        Err(e) => {
+            model.message = Some(format!("{}/{e}; not changed.", config::WORKSPACE_DIR));
+            settings
+        }
+    }
 }
 
 /// Reads the open workspace's own `.bungkus-mc/config.json` over the
@@ -730,7 +805,7 @@ fn launch(
         ));
         return;
     };
-    let extra_args = extra_args(model, &agent.args, kind, worktree.as_deref());
+    let extra_args = extra_args(model, &env.config, (kind, &project), worktree.as_deref());
     card.worktree = worktree;
     let argv = agent::argv(kind, &program, &extra_args, &launch);
     let id = launch.id.0.hyphenated().to_string();
@@ -826,45 +901,103 @@ fn spawn_tool(
     }
 }
 
-/// Opens `project` in the user's editor (`$VISUAL`, else `$EDITOR`; see
-/// [`tools::opener`]): vim in the popup with the folder as its argument,
-/// anything else started on its own (argv, no shell) and left alone.
-fn open_editor(model: &mut Model, project: &Path, tx: &SyncSender<AppEvent>) {
-    let editor = ["VISUAL", "EDITOR"]
+/// Starts the terminal pane's shell (`$SHELL`, else `/bin/sh`) for `owner`
+/// in `dir` and gives it the keys.
+fn open_terminal(
+    model: &mut Model,
+    owner: crate::app::tools::Owner,
+    dir: &Path,
+    tx: &SyncSender<AppEvent>,
+) {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
+    let size = ui::terminal_size(model.screen, model.zoom, model.widths);
+    if let Some(tool) = spawn_tool(model, &[shell], dir, size, tx) {
+        model.shells.push((owner, tool));
+        model.term_view = TermView::Focused;
+    }
+}
+
+/// Returns the user's own editor: `$VISUAL`, else `$EDITOR`, when set.
+pub(crate) fn user_editor() -> Option<String> {
+    ["VISUAL", "EDITOR"]
         .iter()
         .filter_map(|name| std::env::var(name).ok())
-        .find(|value| !value.trim().is_empty());
-    match tools::opener(editor.as_deref()) {
+        .find(|value| !value.trim().is_empty())
+}
+
+/// Opens `project` in the user's editor (the `editor` setting, else
+/// `$VISUAL`, else `$EDITOR`; see [`tools::opener`]): vim in the popup with
+/// the folder as its argument (also when none is set and one is on
+/// `PATH`), anything else started on its own and left alone.
+fn open_editor(model: &mut Model, project: &Path, tx: &SyncSender<AppEvent>) {
+    let editor = model
+        .settings
+        .as_ref()
+        .and_then(|s| s.editor.clone())
+        .or_else(user_editor);
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let installed = |name: &str| find_on_path(name, &path).is_some();
+    match tools::opener(editor.as_deref(), installed) {
         Opener::Popup(mut command) => {
             command.push(".".into());
             let size = ui::popup_size(model.screen);
             model.editor = spawn_tool(model, &command, project, size, tx);
         }
-        Opener::Detached(command) => {
-            use std::os::unix::process::CommandExt;
-            let Some((program, args)) = command.split_first() else {
-                return;
-            };
-            let spawned = std::process::Command::new(program)
-                .args(args)
-                .arg(project)
-                .current_dir(project)
-                .process_group(0)
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn();
-            match spawned {
-                Ok(mut child) => {
-                    model.message = Some(format!("Opened in {program}."));
-                    thread::spawn(move || {
-                        // reason: reaps the child; its exit status does not matter.
-                        let _ = child.wait();
-                    });
-                }
-                Err(e) => model.message = Some(format!("Could not start {program}: {e}")),
-            }
+        Opener::Detached(command) => open_detached(model, &command, project),
+    }
+}
+
+/// Opens `project` with the desktop's opener ([`tools::desktop_opener`])
+/// after [`FOLDER_DELAY`], off the UI thread; a missing opener goes to the
+/// message line.
+fn open_folder(model: &mut Model, project: PathBuf) {
+    use std::os::unix::process::CommandExt;
+    let opener = tools::desktop_opener();
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    if find_on_path(opener, &path).is_none() {
+        model.message = Some(format!("{opener} not found on PATH."));
+        return;
+    }
+    model.message = Some(format!("Opened in {opener}."));
+    thread::spawn(move || {
+        thread::sleep(FOLDER_DELAY);
+        // reason: the opener shows its own errors; its status does not matter.
+        let _ = std::process::Command::new(opener)
+            .arg(&project)
+            .process_group(0)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    });
+}
+
+/// Starts `command` (argv, no shell) with `project` as its last argument
+/// and leaves it alone: its own process group, no terminal; the outcome
+/// goes to the message line.
+fn open_detached(model: &mut Model, command: &[String], project: &Path) {
+    use std::os::unix::process::CommandExt;
+    let Some((program, args)) = command.split_first() else {
+        return;
+    };
+    let spawned = std::process::Command::new(program)
+        .args(args)
+        .arg(project)
+        .current_dir(project)
+        .process_group(0)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+    match spawned {
+        Ok(mut child) => {
+            model.message = Some(format!("Opened in {program}."));
+            thread::spawn(move || {
+                // reason: reaps the child; its exit status does not matter.
+                let _ = child.wait();
+            });
         }
+        Err(e) => model.message = Some(format!("Could not start {program}: {e}")),
     }
 }
 
@@ -908,14 +1041,42 @@ fn worktree_for(
 
 /// Returns what goes between the agent's program and mc's own arguments,
 /// for a new session and a resumed one alike: the configured `args`,
-/// `--worktree <name>` if any, and the open workspace's own instructions
-/// (`.bungkus-mc/CLAUDE.md`, `.bungkus-mc/AGENTS.md`; see
-/// [`agent::instruction_args`]).
-fn extra_args(model: &Model, args: &[String], kind: Kind, worktree: Option<&str>) -> Vec<String> {
-    let instructions = model.root().map_or_else(Vec::new, |root| {
-        agent::instruction_args(kind, &root.join(config::WORKSPACE_DIR))
-    });
-    [worktree_args(args, worktree), instructions].concat()
+/// `--worktree <name>` if any, `--add-dir <folder>` for every project
+/// grouped with `project` ([`Model::group_of`]), and the instructions (the
+/// built-in rules unless `instructions` is off in the config, the related
+/// folders, then the open workspace's `.bungkus-mc/CLAUDE.md` /
+/// `AGENTS.md`; see [`agent::instruction_args`]).
+fn extra_args(
+    model: &Model,
+    config: &config::Config,
+    (kind, project): (Kind, &Path),
+    worktree: Option<&str>,
+) -> Vec<String> {
+    let dir = model.root().map(|root| root.join(config::WORKSPACE_DIR));
+    let related = model.group_of(project);
+    let shared = related
+        .iter()
+        .filter_map(|folder| folder.to_str())
+        .flat_map(|folder| ["--add-dir".to_owned(), folder.to_owned()])
+        .collect();
+    let instructions = agent::instruction_args(kind, dir.as_deref(), config.instructions, &related);
+    [
+        worktree_args(&config.agents.get(kind).args, worktree),
+        shared,
+        instructions,
+    ]
+    .concat()
+}
+
+/// Writes the workspace's project groups to its `.bungkus-mc/config.json`
+/// (`g`); a failure is said, and the groups stay in effect for this run.
+fn save_groups(model: &mut Model, groups: &[Vec<String>]) {
+    let saved = model
+        .root()
+        .map(|root| config::save_workspace_groups(root, groups));
+    if let Some(Err(e)) = saved {
+        model.message = Some(format!("{}/{e}; groups not saved.", config::WORKSPACE_DIR));
+    }
 }
 
 /// Returns the agent's extra arguments plus `--worktree <name>`, if any.
@@ -1358,6 +1519,63 @@ pub(crate) fn absolute(path: &str, cwd: &Path, home: Option<&Path>) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_session_in_a_grouped_project_is_given_the_other_folders() {
+        let mut model = crate::app::model::tests::sample(&["api", "web", "docs"]);
+        let config = config::Config {
+            instructions: false,
+            ..config::Config::default()
+        };
+        let path = |i: usize| model.projects[i].path.clone();
+        let (api, web, docs) = (path(0), path(1), path(2));
+        for kind in Kind::ALL {
+            assert!(extra_args(&model, &config, (kind, &api), None).is_empty());
+        }
+        model.overrides.groups = vec![vec!["web".into(), "api".into()]];
+        for kind in Kind::ALL {
+            let args = extra_args(&model, &config, (kind, &api), None);
+            assert_eq!(args[..2], ["--add-dir", web.to_str().unwrap()], "{kind:?}");
+            assert!(args[3].contains("Related folders") && args[3].contains(web.to_str().unwrap()));
+            assert!(extra_args(&model, &config, (kind, &docs), None).is_empty());
+        }
+    }
+
+    #[test]
+    fn the_settings_screen_saves_the_agent_for_one_workspace_or_all() {
+        use crate::store::config::{AgentScope, Settings, load_overrides};
+
+        let root = std::env::temp_dir().join(format!("mc-scope-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let mut model = crate::app::model::tests::sample(&["a"]);
+        let submitted = Settings {
+            workspace: root.clone(),
+            default_agent: Kind::Codex,
+            ..model.settings.clone().unwrap()
+        };
+        let global = save_agent_scope(&mut model, submitted.clone(), AgentScope::Workspace);
+        assert_eq!(global.default_agent, Kind::Claude, "the global one stays");
+        assert_eq!(
+            load_overrides(&root).unwrap().default_agent,
+            Some(Kind::Codex)
+        );
+        let global = save_agent_scope(&mut model, submitted, AgentScope::Global);
+        assert_eq!(global.default_agent, Kind::Codex);
+        assert_eq!(load_overrides(&root).unwrap().default_agent, None);
+        model.overrides.default_agent = Some(Kind::Codex);
+        model.open_form(
+            crate::app::form::FormKind::Settings,
+            crate::app::form::Field::Agent,
+        );
+        let Some(crate::app::model::Overlay::Form(form)) = &model.overlay else {
+            panic!("the settings screen");
+        };
+        assert_eq!(
+            (form.agent, form.scope),
+            (Kind::Codex, AgentScope::Workspace)
+        );
+        std::fs::remove_dir_all(&root).unwrap();
+    }
 
     #[test]
     fn only_a_fresh_claude_session_joining_a_busy_repository_gets_a_worktree() {

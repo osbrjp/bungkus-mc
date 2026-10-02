@@ -2,7 +2,8 @@
 //! (PROPOSAL §6 item 23, ARCHITECTURE §3.4).
 //!
 //! Claude Code lists its own live sessions with `claude agents --json`
-//! (pid, cwd, name, `busy`/`idle`); Codex has no such list, so a running
+//! (pid, cwd, name, `busy`/`idle`; its `background` rows, the agents its
+//! own daemon runs without a terminal, are left out); Codex has no such list, so a running
 //! `codex` process of this user and its working folder stand in for one.
 //! mc never types into these sessions, never signals them and never reads
 //! their transcripts: it only shows that they exist and what they report.
@@ -73,6 +74,7 @@ impl External {
 #[serde(rename_all = "camelCase")]
 struct ClaudeRow {
     pid: Option<i32>,
+    kind: Option<String>,
     cwd: Option<PathBuf>,
     session_id: Option<String>,
     name: Option<String>,
@@ -81,12 +83,15 @@ struct ClaudeRow {
 }
 
 /// Parses `claude agents --json`; a malformed row is skipped and a
-/// malformed listing yields nothing.
+/// malformed listing yields nothing. A `background` row is skipped too:
+/// Claude's daemon runs it without a terminal, so nobody could quit it
+/// there for a take-over.
 #[must_use]
 pub(crate) fn parse_claude(bytes: &[u8]) -> Vec<External> {
     let rows: Vec<serde_json::Value> = serde_json::from_slice(bytes).unwrap_or_default();
     rows.into_iter()
         .filter_map(|v| serde_json::from_value::<ClaudeRow>(v).ok())
+        .filter(|r| r.kind.as_deref() != Some("background"))
         .filter_map(|r| {
             Some(External {
                 kind: Kind::Claude,
@@ -222,6 +227,7 @@ mod tests {
             {"pid": 98780, "cwd": "/w/nrha", "kind": "interactive", "startedAt": 1790744521640,
              "sessionId": "a8e34add-0962-4129-bd62-670f74813675", "name": "nrha-c8", "status": "idle"},
             {"pid": 13255, "cwd": "/w/mc", "name": "\u001b]0;evil\u0007mc-7c", "status": "busy"},
+            {"pid": 23643, "cwd": "/w/mc", "kind": "background", "name": "fork", "status": "idle"},
             {"cwd": "/w/no-pid"},
             {"pid": "x"}
         ]"#;

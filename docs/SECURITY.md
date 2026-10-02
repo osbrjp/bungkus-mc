@@ -60,7 +60,7 @@ agents already store.** No `tool_input` beyond a 200-char description, no
 | **Model routing (opt-in)** | Prompt text leaves the machine; a prompt that contains a secret; API key leakage; a compromised or spoofed routing service influencing which model runs; a key command that prompts or hangs | Off by default; requires `routing.enabled` **and** a recorded consent (`consent.json` in the state dir, written only after the dialog). Only the `n` start prompt is ever sent — never resume, never INTERACT bytes, never cwd, project name, env or history — as `{"prompt": <sanitised, ≤ 4 KiB>}` plus the Jev model id and the fixed question. Prompts matching common secret shapes (`sk-`, `ghp_`, `github_pat_`, `AKIA`, `xox[bp]-`, `-----BEGIN`) are not sent at all (`default · not routed`). Response body capped at 64 KiB (ureq body limit / `Read::take`); `confidence` must be within `[0, 1]`; the `choice` can only select one of the configured model ids (anything else → fallback) and cannot change argv beyond the `--model`/`-m` value. HTTPS only, ureq/rustls defaults, no redirects, 1.5 s timeout, no retries. API key from `TYPESAFE_API_KEY` or `routing.apiKeyCommand` (argv, no shell) — the command runs once per mc process, lazily, in its own process group (`CommandExt::process_group(0)`, no `pre_exec`), `Stdio::null()` stdin, stderr discarded, a 10 s timeout after which the group is killed, stdout capped at 4 KiB and trimmed; the key is held in memory for the process lifetime, never written to config, state or logs, and `TYPESAFE_API_KEY` is unset in every child's environment; the debug log records "routed: tier/confidence" only |
 | Environment passthrough | Leaking mc vars (the routing key); stripping vars the agents need | Children inherit `std::env::vars_os()` plus `BUNGKUS_MC_*`, with `TERM`/`COLORTERM` set, host-terminal identity vars unset, and **`TYPESAFE_API_KEY` unset** (test). mc never reads, logs or displays the environment |
 | **Inherited agent session markers** | An agent started from *inside* a Claude Code or Codex session inherits that session's marker variables and misbehaves — the spike's child inherited `CLAUDE_CODE_CHILD_SESSION` and **stopped saving its transcript**; markers can also carry a messaging socket/token of the parent session | An explicit denylist is unset in every child (ARCHITECTURE.md §3.1): `CLAUDECODE`, `CLAUDE_CODE_CHILD_SESSION`, `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_CODE_EXECPATH`, `CLAUDE_CODE_MESSAGING_SOCKET`, `CLAUDE_CODE_MESSAGING_TOKEN`, `CLAUDE_CODE_SESSION_ATTENDED`, `CLAUDE_CODE_SESSION_ID`, `CLAUDE_EFFORT`, `CLAUDE_PID`, plus any `CODEX_*` marker found at M3/M6. User configuration (`CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_PROJECT_DIR_NAME`, `CODEX_HOME`, deliberate `CLAUDE_CODE_*` settings) is kept — a denylist, not a wildcard. A test asserts both lists. Values are never read or logged |
-| Config and state files | Tampering; world-readable | JSON under `~/.config/bungkus/mc` and `~/.local/state/bungkus/mc`, dirs 0700, files 0600, atomic writes. Values validated on load; a bad config is reported and replaced by defaults in memory. mc writes `config.json` only from the settings screen and wizard, and only the keys `workspace`, `defaultAgent`, `theme` (round-tripped `serde_json::Value`, other keys kept, a malformed file never replaced); consent is recorded in the state dir (`consent.json`) |
+| Config and state files | Tampering; world-readable | JSON under `~/.config/bungkus/mc` and `~/.local/state/bungkus/mc`, dirs 0700, files 0600, atomic writes. Values validated on load; a bad config is reported and replaced by defaults in memory. mc writes `config.json` only from the settings screen and wizard, and only the keys `workspace`, `defaultAgent`, `theme`, `editor` (round-tripped `serde_json::Value`, other keys kept, a malformed file never replaced); consent is recorded in the state dir (`consent.json`) |
 | Hook trust bypass | Running untrusted hooks | **Never pass `--dangerously-bypass-hook-trust`** or any `--dangerously-*` flag to either agent |
 | Update check / self-update | MITM, tampered binary | The release tag comes from the public GitHub API through `curl` (fixed argv, 3 s, 64 KiB cap, hourly; `BUNGKUS_NO_UPDATE_CHECK` disables; skipped silently offline). No token is used, read or stored. Cached tag validated as semver before display (cache 0600). `bungkus-mc update` and `U` download `install.sh` from `main` over HTTPS and run it with `bash`; it verifies the binary's SHA-256 against the release's `checksums.txt`. Control: TLS + integrity checksum; no signature (as bungkus-cli) |
 | Debug log | Secrets in logs | Off by default; `--debug` writes a 0600 file with event names, sizes, errors, routing tier — no payload bodies, no prompts, no env, no keys |
@@ -79,16 +79,23 @@ agents already store.** No `tool_input` beyond a 200-char description, no
 - No shell in `std::process::Command` for anything mc decides. Exceptions,
   each fixed and reviewed: `update` (the installer pipeline, ported from
   bungkus-cli) and the `statusline` wrapper running the user's own command.
-  `o` splits `$VISUAL`/`$EDITOR` on whitespace into an argv (no shell), and
+  `o` splits the `editor` setting (global `config.json` only, never a
+  workspace's) or `$VISUAL`/`$EDITOR` on whitespace into an argv (no shell), and
   `t` runs `$SHELL` itself as the interactive terminal the user asked for;
   both come from the user's own environment, the same trust as the user.
 - A workspace's `.bungkus-mc/config.json` can come from elsewhere (a
   clone, a shared drive), so it may only set `defaultAgent`, `worktrees`,
   `notify` and `cleanup.keep`; agent commands and arguments are read from
-  the user's own `config.json` only. Its `CLAUDE.md`/`AGENTS.md` reach the
-  agents as instructions, the same trust as the instruction files the
-  agents already read from the projects in that workspace; the Codex text
-  is passed as one TOML-quoted argv value, never through a shell.
+  the user's own `config.json` only. Its `groups` name projects by folder
+  name; a name that is no project directly inside that workspace is
+  ignored, so the file cannot make mc pass an agent any other path with
+  `--add-dir`. Grouping does give sessions write access to the other
+  members, which is what the user asks for with `g`. Its `CLAUDE.md`/`AGENTS.md` reach the
+  agents as instructions (after mc's built-in rules), the same trust as
+  the instruction files the agents already read from the projects in that
+  workspace. The text is one argv value for Claude and one TOML-quoted
+  argv value for Codex, never through a shell; argv is visible to the
+  user's other processes, so instruction files must hold no secret.
 - No raw agent bytes reach stdout (`print_stdout` is a denied lint; the
   emulator yields cells, and only printable cells + SGR reach the ratatui
   buffer); no string from a hook, prompt, directory name, process table or

@@ -25,7 +25,7 @@ One small Rust binary, no daemon. A sibling of
 [bungkus-cli](https://github.com/osbrjp/bungkus-cli): same release
 pipeline, same "Daun Pisang" design language.
 
-> **Status:** beta (`0.1.0-beta.6`). Milestones M1–M8 are built; model
+> **Status:** beta (`0.1.0-beta.7`). Milestones M1–M8 are built; model
 > routing (M9) is not.
 
 **Contents:** [Install](#install) · [First run](#first-run) ·
@@ -130,13 +130,15 @@ pane; press one to run it.
 |------|------|
 | `j` `k` · `↓` `↑` · `gg` `G` | move |
 | `ctrl-h` · `ctrl-l` | pane left · right, also from inside INTERACT |
-| `cmd`/`alt`/`ctrl` + `1` `2` `3` | projects · sessions · output pane, also from inside INTERACT (`cmd` needs a [terminal mapping](#cmd--1-2-3-on-macos)) |
+| `cmd`/`alt`/`ctrl` + `1` `2` `3` `4` | projects · sessions · output · terminal pane, also from inside INTERACT (`cmd` needs a [terminal mapping](#cmd--1-2-3-on-macos)) |
 | `1`–`9` | jump to project N; type the next digit quickly for two digits (`1` `6` → 16) |
 | `/` | search projects (`↑` `↓` pick, `enter` open, `esc` clear) |
 | `!` · `ctrl-]` | jump to the next session that needs you, in any project |
 | `ctrl-j` `ctrl-k` · `ctrl-n` `ctrl-p` | down · up in every dialog, list and the `/` search (same as `↓` `↑`) |
 | `z` | zoom the output pane |
 | `R` | redraw |
+| `t` | show / hide the terminal pane `[4]`: your `$SHELL` below the output pane, one shell per session, started in the folder the session works in (its worktree when it has one); with no session selected, one for the project. A card with a shell shows `>_`; the shell is closed when its session ends. The wheel scrolls it; while it is hidden a `[4] terminal` marker shows at the bottom of the output pane |
+| `T` | close the selected session's shell (`exit` or `ctrl-d` inside it does the same) |
 
 ### Sessions
 
@@ -322,6 +324,7 @@ key back with `kitten @ focus-window --match neighbor:…`.
   "workspace": "/Users/me/Works",
   "defaultAgent": "claude",
   "theme": "auto",
+  "editor": "nvim",
   "background": "paint",
   "icons": "auto",
   "motion": true,
@@ -341,8 +344,9 @@ key back with `kitten @ focus-window --match neighbor:…`.
 
 | Key | Values |
 |-----|--------|
+| `editor` | the command `o` opens a project with (`nvim`, `code --wait`, a full path); unset: `$VISUAL`, then `$EDITOR`, then an installed `nvim`/`vim`/`vi`. `O` opens the folder in Finder / the file manager |
 | `background` | `paint` · `terminal` keeps your terminal's own background (mc paints its green only on TrueColor terminals anyway) |
-| `icons` | `auto` (default: `nerd` when a Nerd Font is installed, else `ascii`) · `ascii` · `unicode` · `nerd` (also `--icons`). mc cannot see which font your terminal uses: if the glyphs show as boxes, set `ascii` |
+| `icons` | `auto` (default: `nerd` when a Nerd Font is installed, else `ascii`) · `ascii` · `unicode` · `nerd` (also `--icons`, and the `icons` row of the settings screen, which shows the glyphs before you save). mc cannot see which font your terminal uses: if the glyphs show as boxes, choose `ascii`; if your terminal draws Nerd glyphs without an installed font (kitty does), choose `nerd` |
 | `notify` | `bell` (default) · `desktop` (plus OSC 9/99/777) · `off` |
 | `interactExit` | the chord that leaves INTERACT (default `ctrl-\`) |
 | `cleanup.keep` | process names the quit dialog starts as `[keep]` |
@@ -350,7 +354,7 @@ key back with `kitten @ focus-window --match neighbor:…`.
 | `panes` | pane widths: projects 16–40, sessions 28–72, output keeps 40 |
 
 **Who writes what:** the settings screen writes `workspace`,
-`defaultAgent` and `theme`; dragging a pane's right border with the mouse
+`defaultAgent`, `theme`, `icons` and `editor`; dragging a pane's right border with the mouse
 writes `panes`. Everything else is kept as you wrote it.
 
 ### Worktrees
@@ -386,7 +390,7 @@ never what you type, prompts or agent output.
 | **Structure** (working / your turn / needs you, subagents) | the agents' own hooks, injected per launch (`claude --settings`, `codex -c hooks.*`) |
 | **Claude usage** | Claude's status line; your own status line keeps rendering (mc runs it for you) |
 | **Codex usage** | `token_count` records in Codex's own session log, and nothing else |
-| **MCP servers** on a card | the server names in the agents' config (`.mcp.json` in the project and `.claude.json` for Claude, `config.toml` for Codex), checked every 5 s, plus the servers the session's tool calls name (so connectors and plugin servers show once used). Names only. With the `nerd` icon set a known server shows as its logo; the selected card lists the names |
+| **MCP servers** on a card | the servers the session's tool calls name, so a server shows once the session has used it (connectors and plugin servers too). The selected card lists them by name and, on an `mcp idle` row, the servers that are configured but not used yet: the names in the agents' config (`.mcp.json` in the project and `.claude.json` for Claude, `config.toml` for Codex), checked every 5 s. Names only. With the `nerd` icon set a known server shows as its logo |
 
 - **Nothing is written to your agent config**, so there is nothing to
   remove; your own hooks keep running.

@@ -23,7 +23,7 @@ use crate::app::tools::{TermView, Tool};
 use crate::external::External;
 use crate::ipc::Wire;
 use crate::proc::Proc;
-use crate::store::config::Settings;
+use crate::store::config::{AgentScope, Settings};
 use crate::term::keys::Chord;
 use crate::term::session::Session;
 use crate::term::{PtyEvent, SessionId};
@@ -107,6 +107,28 @@ pub(crate) struct LaunchRequest {
     pub replaces: Option<SessionId>,
 }
 
+/// Returns the launch that resumes finished `card` in its folder and
+/// replaces it, or `None` when it has no id to resume.
+fn resume_cmd(card: &Card) -> Option<Cmd> {
+    let launch = Launch {
+        id: SessionId::new(),
+        model: None,
+        name: Some(card.name.clone()),
+        prompt: None,
+        settings: None,
+        hook_args: Vec::new(),
+        resume: Some(card.resume_id()?),
+        pick: false,
+        fork: false,
+    };
+    Some(Cmd::Launch(LaunchRequest {
+        project: card.project.clone(),
+        kind: card.kind,
+        launch,
+        replaces: Some(card.id),
+    }))
+}
+
 /// How many projects the recent group of the projects list holds; more
 /// only when more of them have a running session (DESIGN §8.2).
 const RECENT_MAX: usize = 5;
@@ -137,8 +159,9 @@ pub(crate) enum Cmd {
     Quit,
     /// Clear the terminal and draw everything again.
     Redraw,
-    /// Save these settings and rescan the workspace.
-    Apply(Settings),
+    /// Save these settings (the default agent where the scope says) and
+    /// rescan the workspace.
+    Apply(Settings, AgentScope),
     /// Start a session.
     Launch(LaunchRequest),
     /// Start the Codex usage reader on this session's rollout file.
@@ -151,8 +174,12 @@ pub(crate) enum Cmd {
     Scan,
     /// Open this project folder in the user's editor (`o`).
     OpenEditor(PathBuf),
-    /// Start the terminal pane's shell in this folder (`t`).
-    OpenTerminal(PathBuf),
+    /// Open this project folder with the desktop's opener (`O`).
+    OpenFolder(PathBuf),
+    /// Start the terminal pane's shell for this owner in this folder (`t`).
+    OpenTerminal(crate::app::tools::Owner, PathBuf),
+    /// Write the workspace's project groups to its `.bungkus-mc/config.json`.
+    SaveGroups(Vec<Vec<String>>),
     /// Write the dragged pane widths to `config.json`.
     SaveWidths(crate::ui::Widths),
     /// Switch to this workspace (saved first in the list), then select this
@@ -197,6 +224,14 @@ pub(crate) struct Model {
     pub theme: Theme,
     /// Whether the host terminal's background is light (OSC 11), if known.
     pub host_light: Option<bool>,
+    /// Whether the `auto` icon choice means the `nerd` set here: a Nerd
+    /// Font is installed, the locale is UTF-8 and this is not SSH.
+    pub nerd_font: bool,
+    /// The `icons` value in `config.json`, for the first-run wizard to keep.
+    pub icons_saved: crate::ui::icons::IconChoice,
+    /// `--icons`: the icon choice for this run, until the settings screen
+    /// changes it. It is never saved.
+    pub icons_flag: Option<crate::ui::icons::IconChoice>,
     /// Home directory, for `~` in paths.
     pub home: Option<PathBuf>,
     /// Applied settings; `None` until the first-run wizard finishes.
@@ -229,6 +264,8 @@ pub(crate) struct Model {
     pub message: Option<String>,
     /// Where each agent was found on `PATH`, in `Kind::ALL` order.
     pub found: [Option<String>; 2],
+    /// The editors the settings offer ([`crate::app::tools::editors`]).
+    pub editors: Vec<String>,
     /// Workspace used when the wizard is skipped with an empty field.
     pub fallback_workspace: PathBuf,
     /// Rows the projects list shows, for half-page moves.
@@ -301,6 +338,8 @@ pub(crate) struct Model {
     pub last_trash: Vec<(PathBuf, PathBuf)>,
     /// The other end of the projects pane's line selection (`V`), when on.
     pub visual: Option<usize>,
+    /// The projects marked with `v`, by folder (chosen like the `V` range).
+    pub marks: Vec<PathBuf>,
     /// The quick session whose popup shows (keys go to it).
     pub popup: Option<SessionId>,
     /// Whether the popup's menu (`ctrl-\`: hide, move, new project) is open.
@@ -309,9 +348,10 @@ pub(crate) struct Model {
     pub show_rest: bool,
     /// The editor whose popup shows (`o`; every key goes to it).
     pub editor: Option<Tool>,
-    /// The terminal pane's shells (`t`), one per folder it was opened in
-    /// (a project, or the workspace root); they keep running while hidden.
-    pub shells: Vec<(PathBuf, Tool)>,
+    /// The terminal pane's shells (`t`), one per session it was opened on
+    /// (or per folder, with no session selected); they keep running while
+    /// hidden.
+    pub shells: Vec<(crate::app::tools::Owner, Tool)>,
     /// How the terminal pane shows.
     pub term_view: TermView,
     /// The `quick` row that leads the projects list while quick sessions
@@ -366,6 +406,9 @@ impl Model {
         Self {
             theme,
             host_light: None,
+            nerd_font: false,
+            icons_saved: crate::ui::icons::IconChoice::Auto,
+            icons_flag: None,
             home,
             settings: None,
             projects: Vec::new(),
@@ -382,6 +425,7 @@ impl Model {
             overlay: None,
             message: None,
             found,
+            editors: Vec::new(),
             fallback_workspace: fallback,
             list_rows: 10,
             widths: crate::ui::Widths::default(),
@@ -414,6 +458,7 @@ impl Model {
             known: std::collections::HashSet::new(),
             kitty: false,
             visual: None,
+            marks: Vec::new(),
             popup_menu: false,
             show_rest: false,
             editor: None,
@@ -439,7 +484,11 @@ impl Model {
     #[must_use]
     pub(crate) fn view_theme(&self) -> Theme {
         match &self.overlay {
-            Some(Overlay::Form(form)) => self.theme.with_name(form.theme.resolve(self.host_light)),
+            Some(Overlay::Form(form)) => {
+                let mut theme = self.theme.with_name(form.theme.resolve(self.host_light));
+                theme.icons = form.icons.resolve(|| self.nerd_font);
+                theme
+            }
             _ => self.theme,
         }
     }
@@ -451,7 +500,8 @@ impl Model {
     /// [`Model::elsewhere`] row ends the list while an outside session runs
     /// in no project folder. Between them, recent projects come first, up
     /// to [`RECENT_MAX`] (a repository and its worktrees counting as one):
-    /// the ones a session runs in now (mc's or an outside one), then the
+    /// the ones a session runs in now (mc's or an outside one, or one of
+    /// another project that added the folder with `/add-dir`), then the
     /// most recently used by their latest session start. Every project
     /// with a running session is recent, even past that number, so a
     /// session that needs the user never folds away. The rest hide behind
@@ -474,7 +524,9 @@ impl Model {
         let mut used = std::collections::HashMap::<&str, (bool, Option<Instant>)>::new();
         for project in &self.projects {
             let cards = || self.cards.iter().filter(|c| c.project == project.path);
-            let live = cards().any(Card::running) || !self.external_in(&project.path).is_empty();
+            let live = cards().any(Card::running)
+                || !self.external_in(&project.path).is_empty()
+                || self.shared(&project.path);
             let latest = cards().map(|c| c.started).max();
             if live || latest.is_some() {
                 let entry = used.entry(family(project)).or_default();
@@ -589,6 +641,48 @@ impl Model {
     pub(crate) fn project_cards(&self) -> Vec<usize> {
         self.selected_project()
             .map_or_else(Vec::new, |p| sessions::order(&self.cards, &p.path))
+    }
+
+    /// Returns whether a running session of `home` added `folder` (or a
+    /// folder inside it) to its workspace (`/add-dir`), per its last
+    /// status line.
+    fn added(&self, home: &Path, folder: &Path) -> bool {
+        let sessions = self
+            .cards
+            .iter()
+            .filter(|c| c.running() && c.project == home);
+        sessions
+            .filter_map(|c| c.usage.as_ref())
+            .flat_map(|u| &u.added_dirs)
+            .any(|dir| dir.starts_with(folder))
+    }
+
+    /// Returns whether a running session of another project added
+    /// `project` to its workspace: the row then carries the link bar and
+    /// counts as in use. Only a project of the workspace can be shared,
+    /// not the `quick` row (the workspace root holds every project) or
+    /// the elsewhere row.
+    #[must_use]
+    pub(crate) fn shared(&self, project: &Path) -> bool {
+        let homes = || self.projects.iter().map(|p| p.path.as_path());
+        homes().any(|p| p == project)
+            && homes()
+                .filter(|home| *home != project)
+                .any(|home| self.added(home, project))
+    }
+
+    /// Returns whether projects `a` and `b` are linked: a session of one
+    /// added the other, or they are in one group.
+    #[must_use]
+    pub(crate) fn related(&self, a: &Path, b: &Path) -> bool {
+        a != b && (self.added(a, b) || self.added(b, a) || self.group_of(a).iter().any(|p| p == b))
+    }
+
+    /// Returns whether `project` carries the link bar: it is in a group,
+    /// or a session of another project works in it ([`Model::shared`]).
+    #[must_use]
+    pub(crate) fn linked(&self, project: &Path) -> bool {
+        self.shared(project) || !self.group_of(project).is_empty()
     }
 
     /// Returns the sessions outside mc running in `project` (or below it),
@@ -712,21 +806,41 @@ impl Model {
             .min()
     }
 
+    /// Returns `settings` as they are to be saved. A form left on the
+    /// `--icons` choice keeps the saved icon set, so the flag is not
+    /// written to `config.json`; any other choice ends the flag.
+    fn keep_saved_icons(&mut self, mut settings: Settings) -> Settings {
+        if self.icons_flag == Some(settings.icons) {
+            settings.icons = self.settings.as_ref().map_or(self.icons_saved, |s| s.icons);
+        } else {
+            self.icons_flag = None;
+        }
+        settings
+    }
+
     /// Opens the settings screen (or, before first run, the wizard).
     pub(crate) fn open_form(&mut self, kind: FormKind, field: Field) {
         let current = self.settings.clone().unwrap_or_else(|| Settings {
             workspace: PathBuf::new(),
             theme: ThemeChoice::Auto,
             default_agent: Kind::Claude,
+            icons: self.icons_saved,
+            editor: None,
         });
         let mut form = Form::new(
             kind,
             &current,
             self.found.clone(),
+            self.editors.clone(),
             self.fallback_workspace.clone(),
             self.home.clone(),
         );
         form.field = field;
+        form.nerd_font = self.nerd_font;
+        form.icons = self.icons_flag.unwrap_or(current.icons);
+        if let (FormKind::Settings, Some(agent)) = (kind, self.overrides.default_agent) {
+            (form.agent, form.scope) = (agent, AgentScope::Workspace);
+        }
         self.overlay = Some(Overlay::Form(form));
     }
 
@@ -847,6 +961,7 @@ impl Model {
                 let now = self.now;
                 self.state_dirty = true;
                 let selected = self.selected_card().map(|i| self.cards[i].id) == Some(id);
+                self.close_shell_of(id);
                 if let Some(card) = self.card_mut(id) {
                     card.exited(code, now);
                     if let State::Failed(reason) = &card.state {
@@ -1039,8 +1154,7 @@ impl Model {
             return Some(Cmd::KittyFocus(side));
         }
         if self.focus == Focus::Output && self.overlay.is_none() {
-            self.interact_key(key);
-            return None;
+            return self.interact_key(key);
         }
         self.message = None;
         if let Some(overlay) = self.overlay.take() {
@@ -1050,16 +1164,20 @@ impl Model {
             self.filter_key(nav_alias(key));
             return None;
         }
-        if self.visual.is_some() && self.focus == Focus::Projects {
+        if self.choosing() && self.focus == Focus::Projects {
             match key.code {
                 KeyCode::Esc => {
-                    self.visual = None;
+                    self.clear_chosen();
                     return None;
                 }
                 KeyCode::Char('d') if key.modifiers.is_empty() => {
                     self.pending = None;
                     self.ask_trash();
                     return None;
+                }
+                KeyCode::Char('g') if key.modifiers.is_empty() => {
+                    self.pending = None;
+                    return self.group_chosen();
                 }
                 _ => {}
             }
@@ -1131,7 +1249,9 @@ impl Model {
                     None
                 }
                 Outcome::Cancel => None,
-                Outcome::Submit(settings) => Some(Cmd::Apply(settings)),
+                Outcome::Submit(settings) => {
+                    Some(Cmd::Apply(self.keep_saved_icons(settings), form.scope))
+                }
                 Outcome::Quit => Some(self.request_quit()),
             },
             Overlay::Picker(mut p) => match p.key(key) {
@@ -1190,6 +1310,7 @@ impl Model {
                     .iter()
                     .find(|c| c.id == id)
                     .and_then(|c| Some((c.project.clone(), c.worktree.clone()?)));
+                self.close_shell_of(id);
                 self.cards.retain(|c| c.id != id);
                 self.card = self.card.min(self.project_cards().len().saturating_sub(1));
                 self.state_dirty = true;
@@ -1236,27 +1357,22 @@ impl Model {
         if card.running() {
             return None;
         }
-        let Some(id) = card.resume_id() else {
+        let cmd = resume_cmd(card);
+        if cmd.is_none() {
             self.message = Some("not resumable — hooks off".into());
-            return None;
-        };
-        let launch = Launch {
-            id: SessionId::new(),
-            model: None,
-            name: Some(card.name.clone()),
-            prompt: None,
-            settings: None,
-            hook_args: Vec::new(),
-            resume: Some(id),
-            pick: false,
-            fork: false,
-        };
-        Some(Cmd::Launch(LaunchRequest {
-            project: card.project.clone(),
-            kind: card.kind,
-            launch,
-            replaces: Some(card.id),
-        }))
+        }
+        cmd
+    }
+
+    /// Returns the resumes of the sessions the last quit stopped
+    /// ([`Card::auto_resume`]), for those in the open workspace's projects;
+    /// the others wait for their own workspace.
+    pub(crate) fn auto_resume(&self) -> Vec<Cmd> {
+        self.cards
+            .iter()
+            .filter(|c| c.auto_resume && self.projects.iter().any(|p| p.path == c.project))
+            .filter_map(resume_cmd)
+            .collect()
     }
 
     /// Starts the band mascot's click animation with a random quote (never
@@ -1277,19 +1393,17 @@ impl Model {
     /// `V` selection, else the highlighted one. The `quick` and `elsewhere`
     /// rows are skipped; any project with running sessions refuses all.
     fn ask_trash(&mut self) {
-        let visible = self.visible();
-        let (from, to) = match self.visual {
-            Some(anchor) => (anchor.min(self.selected), anchor.max(self.selected)),
-            None => (self.selected, self.selected),
+        let chosen = if self.choosing() {
+            self.chosen()
+        } else {
+            self.selected_project().into_iter().collect()
         };
-        let projects: Vec<Project> = visible
-            .iter()
-            .take(to + 1)
-            .skip(from)
+        let projects: Vec<Project> = chosen
+            .into_iter()
             .filter(|p| !p.path.as_os_str().is_empty() && self.root() != Some(p.path.as_path()))
-            .map(|p| (*p).clone())
+            .cloned()
             .collect();
-        self.visual = None;
+        self.clear_chosen();
         if projects.is_empty() {
             return;
         }
@@ -1351,7 +1465,7 @@ impl Model {
     /// Enters the selected row of the sessions pane: takes over an outside
     /// session, opens a quick session's popup (resuming it into the popup
     /// when it has ended), or enters INTERACT.
-    fn enter_session(&mut self) -> Option<Cmd> {
+    pub(super) fn enter_session(&mut self) -> Option<Cmd> {
         if let Some(ext) = self.selected_external().cloned() {
             return self.take_over(ext);
         }
@@ -1385,16 +1499,23 @@ impl Model {
     }
 
     /// Focuses pane `n`: 1 projects, 2 sessions, 3 output (INTERACT when
-    /// the selected session runs).
-    pub(crate) fn focus_pane(&mut self, n: u8) {
+    /// the selected session runs), 4 the terminal pane
+    /// ([`Model::focus_terminal`]).
+    ///
+    /// # Returns
+    ///
+    /// The command that starts the project's shell, for pane 4 without one.
+    pub(crate) fn focus_pane(&mut self, n: u8) -> Option<Cmd> {
         match n {
             1 => self.focus = Focus::Projects,
             2 => self.focus = Focus::Sessions,
-            _ => {
+            3 => {
                 self.focus = Focus::Sessions;
                 self.interact();
             }
+            _ => return self.focus_terminal(),
         }
+        None
     }
 
     /// Opens a past session of the selected project that mc did not start:
@@ -1619,16 +1740,19 @@ impl Model {
                 self.open_picker();
             }
             Action::Stop => return self.stop_selected(),
-            Action::Pane(n) => self.focus_pane(n),
+            Action::Pane(n) => return self.focus_pane(n),
             Action::TrashProject => self.ask_trash(),
             Action::NewProject => self.start_new_project(),
             Action::CleanWorktrees => self.ask_clean_worktrees(),
             Action::UndoTrash => return self.undo_trash(),
             Action::Visual => self.visual = self.visual.xor(Some(self.selected)),
+            Action::Mark => self.toggle_mark(),
             Action::QuickSession => return self.quick_session(),
             Action::ToggleRest => self.toggle_rest(),
             Action::Editor => return self.open_editor(),
+            Action::Folder => return self.open_folder(),
             Action::Terminal => return self.toggle_terminal(),
+            Action::CloseTerminal => self.close_terminal(),
             Action::Update => return self.start_update(),
             Action::MoveQuick => self.start_move(false),
             Action::MakeProject => self.start_move(true),
@@ -1715,6 +1839,8 @@ impl Model {
         self.theme = self
             .theme
             .with_name(settings.theme.resolve(self.host_light));
+        let icons = self.icons_flag.unwrap_or(settings.icons);
+        self.theme.icons = icons.resolve(|| self.nerd_font);
         let (projects, error) = match scan {
             Ok(projects) => (projects, None),
             Err(e) => (Vec::new(), Some(e.to_string())),
@@ -1747,6 +1873,63 @@ pub(crate) mod tests {
     use crate::term::session::{Colors, Session, Size};
     use crate::ui::theme::{Background, Profile, ThemeName};
 
+    #[test]
+    fn applied_settings_choose_the_icon_set_and_the_form_previews_it() {
+        use crate::ui::icons::{IconChoice, IconSet};
+        let mut model = sample(&["a"]);
+        assert_eq!(
+            model.theme.icons,
+            IconSet::Ascii,
+            "auto without a Nerd Font"
+        );
+        let mut settings = model.settings.clone().unwrap();
+        settings.icons = IconChoice::Nerd;
+        model.apply(settings.clone(), Ok(Vec::new()), Path::new("/"));
+        assert_eq!(model.theme.icons, IconSet::Nerd);
+        settings.icons = IconChoice::Auto;
+        model.nerd_font = true;
+        model.apply(settings, Ok(Vec::new()), Path::new("/"));
+        assert_eq!(model.theme.icons, IconSet::Nerd, "auto with a Nerd Font");
+        model.open_form(FormKind::Settings, Field::Icons);
+        let Some(Overlay::Form(form)) = model.overlay.as_mut() else {
+            panic!("the settings form is open");
+        };
+        form.icons = IconChoice::Unicode;
+        assert_eq!(model.view_theme().icons, IconSet::Unicode);
+        assert_eq!(model.theme.icons, IconSet::Nerd, "not applied until saved");
+    }
+
+    #[test]
+    fn the_icons_flag_is_for_one_run_and_never_saved() {
+        use crate::ui::icons::{IconChoice, IconSet};
+        let mut model = sample(&["a"]);
+        let mut saved = model.settings.clone().unwrap();
+        saved.icons = IconChoice::Nerd;
+        model.icons_flag = Some(IconChoice::Unicode);
+        model.apply(saved.clone(), Ok(Vec::new()), Path::new("/"));
+        assert_eq!(model.theme.icons, IconSet::Unicode, "the flag wins");
+        assert_eq!(model.settings.as_ref().unwrap().icons, IconChoice::Nerd);
+        model.open_form(FormKind::Settings, Field::Icons);
+        let Some(Overlay::Form(form)) = model.overlay.take() else {
+            panic!("the settings form is open");
+        };
+        assert_eq!(form.icons, IconChoice::Unicode, "the form shows the flag");
+        let mut shown = saved.clone();
+        shown.icons = form.icons;
+        assert_eq!(model.keep_saved_icons(shown).icons, IconChoice::Nerd);
+        assert_eq!(model.icons_flag, Some(IconChoice::Unicode));
+        let mut changed = saved;
+        changed.icons = IconChoice::Ascii;
+        assert_eq!(model.keep_saved_icons(changed).icons, IconChoice::Ascii);
+        assert_eq!(model.icons_flag, None, "a new choice ends the flag");
+
+        let mut first_run = sample(&["a"]);
+        first_run.settings = None;
+        first_run.icons_saved = IconChoice::Unicode;
+        first_run.start_wizard("");
+        assert_eq!(first_run.view_theme().icons, IconSet::Unicode);
+    }
+
     /// A model with `names` as projects of `/Users/me/Works/OSBR`, as the
     /// view tests and goldens use it.
     pub(crate) fn sample(names: &[&str]) -> Model {
@@ -1770,6 +1953,8 @@ pub(crate) mod tests {
             workspace,
             theme: ThemeChoice::Dark,
             default_agent: Kind::Claude,
+            icons: crate::ui::icons::IconChoice::Auto,
+            editor: None,
         };
         model.apply(settings, Ok(projects), Path::new("/"));
         model
@@ -2185,7 +2370,7 @@ pub(crate) mod tests {
         m.update(press(KeyCode::Right));
         assert_eq!(m.view_theme().name, ThemeName::Light, "live preview");
         assert_eq!(m.theme.name, ThemeName::Dark, "not applied yet");
-        let Some(Cmd::Apply(settings)) = m.update(press(KeyCode::Enter)) else {
+        let Some(Cmd::Apply(settings, AgentScope::Global)) = m.update(press(KeyCode::Enter)) else {
             panic!("enter saves");
         };
         assert_eq!(settings.theme, ThemeChoice::Light);

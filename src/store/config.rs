@@ -1,8 +1,8 @@
-//! `config.json`: reading the user's settings and writing back the three
+//! `config.json`: reading the user's settings and writing back the five
 //! the settings screen changes and the dragged pane widths.
 //!
 //! mc writes only the keys it owns (`workspace`, `theme`, `defaultAgent`,
-//! `panes`) and keeps every other key, and the key order, exactly as the
+//! `icons`, `editor`, `panes`, `workspaces`) and keeps every other key, and the key order, exactly as the
 //! user wrote it (ARCHITECTURE §7).
 
 use std::path::{Path, PathBuf};
@@ -16,6 +16,10 @@ use crate::ui::theme::{Background, ThemeChoice};
 /// The settings mc reads from `config.json`; every key is optional.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "independent on/off keys of the config file, not a state machine"
+)]
 pub(crate) struct Config {
     /// The folder whose children are the projects; may start with `~`.
     pub workspace: Option<String>,
@@ -25,6 +29,8 @@ pub(crate) struct Config {
     pub background: Background,
     /// The agent the `n` picker preselects.
     pub default_agent: Kind,
+    /// The command `o` opens a project with; `$VISUAL`/`$EDITOR` when unset.
+    pub editor: Option<String>,
     /// Commands and extra arguments per agent.
     pub agents: Agents,
     /// The chord that leaves INTERACT, e.g. `ctrl-^` (DESIGN §8.5).
@@ -46,6 +52,10 @@ pub(crate) struct Config {
     /// Whether a Claude session joining a project where another session
     /// runs gets its own git worktree.
     pub worktrees: bool,
+    /// Whether every session mc starts gets mc's built-in rules (session
+    /// ids, branching, worktrees); a workspace's own instruction files
+    /// apply either way.
+    pub instructions: bool,
 }
 
 /// The `cleanup` config block.
@@ -76,6 +86,7 @@ impl Default for Config {
             theme: ThemeChoice::default(),
             background: Background::default(),
             default_agent: Kind::default(),
+            editor: None,
             agents: Agents::default(),
             interact_exit: None,
             mouse: true,
@@ -86,6 +97,7 @@ impl Default for Config {
             panes: crate::ui::Widths::default(),
             workspaces: Vec::new(),
             worktrees: true,
+            instructions: true,
         }
     }
 }
@@ -130,6 +142,21 @@ pub(crate) struct Settings {
     pub theme: ThemeChoice,
     /// The agent the `n` picker preselects.
     pub default_agent: Kind,
+    /// State glyph set.
+    pub icons: crate::ui::icons::IconChoice,
+    /// The command `o` opens a project with; `None` leaves it to
+    /// `$VISUAL`/`$EDITOR`.
+    pub editor: Option<String>,
+}
+
+/// Where the settings screen saves the default agent.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum AgentScope {
+    /// The global `config.json`: every workspace without its own choice.
+    #[default]
+    Global,
+    /// The open workspace's `.bungkus-mc/config.json` only.
+    Workspace,
 }
 
 /// Why `config.json` could not be used.
@@ -169,6 +196,10 @@ pub(crate) struct Overrides {
     pub notify: Option<Notify>,
     /// Process cleanup settings.
     pub cleanup: Option<Cleanup>,
+    /// Groups of related projects, each a list of folder names (`g`). A
+    /// name that is no project of the workspace is ignored where groups
+    /// are used, so this file cannot point an agent at another folder.
+    pub groups: Vec<Vec<String>>,
 }
 
 /// Loads the overrides of the workspace at `root`; a missing file sets
@@ -185,6 +216,57 @@ pub(crate) fn load_overrides(root: &Path) -> Result<Overrides, ConfigError> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Overrides::default()),
         Err(e) => Err(e.into()),
     }
+}
+
+/// Writes or (`None`) removes `defaultAgent` in the `.bungkus-mc/config.json`
+/// of the workspace at `root`, keeping every other key and the key order.
+/// Removing from a file that does not exist does nothing; writing makes
+/// the folder and the file.
+///
+/// # Errors
+///
+/// As [`save`].
+pub(crate) fn save_workspace_agent(root: &Path, agent: Option<Kind>) -> Result<(), ConfigError> {
+    let path = root.join(WORKSPACE_DIR).join("config.json");
+    if agent.is_none() && !path.exists() {
+        return Ok(());
+    }
+    edit(&path, |keys| {
+        match agent {
+            Some(kind) => {
+                keys.insert("defaultAgent".into(), serde_json::to_value(kind)?);
+            }
+            None => {
+                keys.shift_remove("defaultAgent");
+            }
+        }
+        Ok(())
+    })
+}
+
+/// Writes `groups` into the `.bungkus-mc/config.json` of the workspace at
+/// `root` (the key is removed when there are none), keeping every other
+/// key and the key order. Nothing is written for no groups and no file.
+///
+/// # Errors
+///
+/// As [`save`].
+pub(crate) fn save_workspace_groups(
+    root: &Path,
+    groups: &[Vec<String>],
+) -> Result<(), ConfigError> {
+    let path = root.join(WORKSPACE_DIR).join("config.json");
+    if groups.is_empty() && !path.exists() {
+        return Ok(());
+    }
+    edit(&path, |keys| {
+        if groups.is_empty() {
+            keys.shift_remove("groups");
+        } else {
+            keys.insert("groups".into(), serde_json::to_value(groups)?);
+        }
+        Ok(())
+    })
 }
 
 /// Loads `config.json`; a missing file is the default config.
@@ -221,6 +303,11 @@ pub(crate) fn save(path: &Path, settings: &Settings) -> Result<(), ConfigError> 
             "defaultAgent".into(),
             serde_json::to_value(settings.default_agent)?,
         );
+        root.insert("icons".into(), serde_json::to_value(settings.icons)?);
+        match &settings.editor {
+            Some(editor) => root.insert("editor".into(), editor.as_str().into()),
+            None => root.shift_remove("editor"),
+        };
         Ok(())
     })
 }
@@ -339,6 +426,29 @@ mod tests {
             load_overrides(&root),
             Err(ConfigError::Invalid(_))
         ));
+        std::fs::write(&file, r#"{"worktrees":false}"#).unwrap();
+        save_workspace_agent(&root, Some(Kind::Codex)).unwrap();
+        let got = load_overrides(&root).unwrap();
+        assert_eq!(
+            (got.default_agent, got.worktrees),
+            (Some(Kind::Codex), Some(false))
+        );
+        save_workspace_agent(&root, None).unwrap();
+        let got = load_overrides(&root).unwrap();
+        assert_eq!(
+            (got.default_agent, got.worktrees),
+            (None, Some(false)),
+            "other keys stay"
+        );
+        let groups = vec![vec!["api".to_owned(), "web".to_owned()]];
+        save_workspace_groups(&root, &groups).unwrap();
+        let got = load_overrides(&root).unwrap();
+        assert_eq!((got.groups, got.worktrees), (groups, Some(false)));
+        save_workspace_groups(&root, &[]).unwrap();
+        assert!(load_overrides(&root).unwrap().groups.is_empty());
+        let fresh = root.join("fresh");
+        save_workspace_agent(&fresh, None).unwrap();
+        assert!(!fresh.exists(), "nothing to remove: nothing written");
         std::fs::remove_dir_all(&root).unwrap();
     }
 
@@ -372,6 +482,8 @@ mod tests {
             workspace: PathBuf::from("/w"),
             theme: ThemeChoice::Light,
             default_agent: Kind::Codex,
+            icons: crate::ui::icons::IconChoice::Nerd,
+            editor: Some("nvim".into()),
         };
         save(&path, &settings).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
@@ -387,7 +499,9 @@ mod tests {
                 "agents",
                 "alpha",
                 "workspace",
-                "defaultAgent"
+                "defaultAgent",
+                "icons",
+                "editor"
             ]
         );
         let config = load(&path).unwrap();
@@ -396,10 +510,18 @@ mod tests {
             (config.theme, config.default_agent),
             (ThemeChoice::Light, Kind::Codex)
         );
+        assert_eq!(config.icons, crate::ui::icons::IconChoice::Nerd);
+        assert_eq!(config.editor.as_deref(), Some("nvim"));
         assert!(
             text.contains(r#""command": "codex""#),
             "nested unknown keys survive"
         );
+        let unset = Settings {
+            editor: None,
+            ..settings
+        };
+        save(&path, &unset).unwrap();
+        assert_eq!(load(&path).unwrap().editor, None, "unset removes the key");
     }
 
     #[test]
@@ -434,6 +556,8 @@ mod tests {
             workspace: "/w".into(),
             theme: ThemeChoice::Auto,
             default_agent: Kind::Claude,
+            icons: crate::ui::icons::IconChoice::Auto,
+            editor: None,
         };
         assert!(save(&path, &settings).is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "{broken");

@@ -242,6 +242,7 @@ fn parse(line: &[u8]) -> Option<Usage> {
         ctx_pct,
         ctx_size: size,
         limits,
+        added_dirs: Vec::new(),
     })
 }
 

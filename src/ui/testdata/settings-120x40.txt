@@ -1,4 +1,4 @@
- bungkus-mc  ~/Works/OSBR › kedai-web                                                                     v0.1.0-beta.6
+ bungkus-mc  ~/Works/OSBR › kedai-web                                                                     v0.1.0-beta.7
 ┏ [1] projects ━━━━━━┓┌ [2] sessions · kedai-web ──────────┐┌ [3] output ──────────────────────────────────────────────┐
 ┃ / search           ┃│ No sessions in kedai-web. n to     ││                                                          │
 ┃>  1 kedai-web      ┃│ start one.                         ││                                                          │
@@ -11,20 +11,20 @@
 ┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │
-┃                    ┃│                                    ││                                                          │
-┃                    ┃│    ╔ settings ══════════════════════════════════════════════════════╗                          │
-┃                    ┃│    ║                                                                ║                          │
-┃                    ┃│    ║   workspace   ┃~/Works/OSBR                                  ┃ ║                          │
-┃                    ┃│    ║ > agent       > claude    codex (not on PATH)                  ║█                         │
-┃                    ┃│    ║   theme         auto  > dark    light                          ║██▄                       │
-┃                    ┃│    ║               + ~/.local/bin/claude   - codex not on PATH      ║████▄                     │
-┃                    ┃│    ║                                                                ║                          │
-┃                    ┃│    ║                                                                ║                          │
-┃                    ┃│    ║                                                                ║                          │
-┃                    ┃│    ║                                                                ║ed yet.                   │
-┃                    ┃│    ║        j/k ↑↓ field · h/l ← → change · enter save · esc cancel ║session                   │
-┃                    ┃│    ╚════════════════════════════════════════════════════════════════╝                          │
-┃                    ┃│                                    ││                                                          │
+┃                    ┃│╔ settings ══════════════════════════════════════════════════════════════╗                      │
+┃                    ┃│║                                                                        ║                      │
+┃                    ┃│║   workspace   ┃~/Works/OSBR                                          ┃ ║                      │
+┃                    ┃│║ > agent       > claude    codex (not on PATH)                          ║                      │
+┃                    ┃│║   theme         auto  > dark    light                                  ║                      │
+┃                    ┃│║   icons       > auto    ascii    unicode    nerd                       ║                      │
+┃                    ┃│║   editor      > other                                                  ║▄                     │
+┃                    ┃│║               + ~/.local/bin/claude   - codex not on PATH              ║                      │
+┃                    ┃│║               saved for: all workspaces · w switches                   ║                      │
+┃                    ┃│║                                                                        ║                      │
+┃                    ┃│║                                                                        ║et.                   │
+┃                    ┃│║                                                                        ║ion                   │
+┃                    ┃│║                j/k ↑↓ field · h/l ← → change · enter save · esc cancel ║                      │
+┃                    ┃│╚════════════════════════════════════════════════════════════════════════╝                      │
 ┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │

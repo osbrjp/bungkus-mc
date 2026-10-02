@@ -317,13 +317,18 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
     }
     if let (Some(rect), Some(shell)) = (layout.terminal, model.shell()) {
         let focused = model.term_view == TermView::Focused;
-        let name = model.selected_project().map_or("", |p| p.name.as_str());
+        let card = model.selected_card().map(|i| &model.cards[i]);
+        let project = model.selected_project().map_or("", |p| p.name.as_str());
+        let name = card.map_or(project, |c| c.name.as_str());
         let title = if focused {
-            format!("terminal · {name} · {} to leave", model.exit_chord.label())
+            let leave = model.exit_chord.label();
+            format!("[4] terminal · {name} · {leave} to leave")
         } else {
-            format!("terminal · {name} · t hides")
+            format!("[4] terminal · {name} · t hides · T closes")
         };
         output::draw_tool(frame, rect, &title, &shell.pty, focused, theme);
+    } else if let (Some(rect), Some(_)) = (layout.output, model.shell()) {
+        draw_hidden_terminal(frame, rect, theme);
     }
     draw_getah(frame, getah, model, theme);
     if model.popup.is_some() {
@@ -551,8 +556,8 @@ fn workspace_label(model: &Model) -> String {
 ///
 /// The marker is `>` on the selected row while the pane is focused and
 /// `:` (the ascii form of `▌`) while it is not. The spinner column turns
-/// while any session of the project works, and the spinner with how many
-/// work sits at the right; after it the badge is the worst other state,
+/// while any session of the project works; from two working sessions the
+/// spinner with their number (`|2`) sits at the right; after it the badge is the worst other state,
 /// failed > needs you > your turn, with its count.
 fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
     let focused = model.focus == Focus::Projects;
@@ -592,7 +597,7 @@ fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
                 (true, false) => '▌',
                 (false, _) => ' ',
             };
-            let name = match (selected, model.in_visual(i)) {
+            let name = match (selected, model.is_chosen(i, &project.path)) {
                 (_, true) => theme.fg(Token::Accent).add_modifier(Modifier::REVERSED),
                 (true, false) => theme.fg(Token::Accent),
                 (false, false) => theme.fg(Token::Fg),
@@ -616,7 +621,7 @@ fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
             let badge_text = badge.map_or_else(String::new, |((g, _, _), n)| format!(" {g} {n} "));
             let badge_token = badge.map_or(Token::Fg, |((_, t, _), _)| t);
             let gap = if badge.is_some() { "" } else { " " };
-            let count = (working > 0).then(|| format!(" {spin} {working}{gap}"));
+            let count = (working > 1).then(|| format!(" {spin}{working}{gap}"));
             let count = count.unwrap_or_default();
             let taken = badge_text.chars().count() + count.chars().count();
             let branch = tree_mark(&visible, i, theme.utf8);
@@ -631,12 +636,13 @@ fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
                 Span::raw(" "),
                 Span::styled(
                     if model.root() == Some(project.path.as_path()) {
-                        format!("{:>digits$} ", 0)
+                        format!("{:>digits$}", 0)
                     } else {
-                        format!("{:>digits$} ", i + 1 - quick_first)
+                        format!("{:>digits$}", i + 1 - quick_first)
                     },
                     theme.fg(Token::Ok),
                 ),
+                link_bar(model, &project.path, theme),
                 Span::styled(branch.unwrap_or_default(), theme.fg(Token::FgMuted)),
                 Span::styled(text, name),
                 Span::raw(" ".repeat(pad)),
@@ -733,6 +739,21 @@ pub(crate) fn project_at(
     row_at(offset + usize::from(line), rest, len)
 }
 
+/// Returns the cell between a project's number and its name: the link
+/// bar (`│`, `|` without UTF-8) when `project` is in a group or a session
+/// of another project works in it too (`/add-dir`), else a space. The bar is in `accent` when
+/// that link is with the selected project (or the row is the selected
+/// one), else `fg-muted`.
+fn link_bar(model: &Model, project: &std::path::Path, theme: Theme) -> Span<'static> {
+    if !model.linked(project) {
+        return Span::raw(" ");
+    }
+    let chosen = model.selected_project().map(|p| p.path.as_path());
+    let near = chosen.is_some_and(|c| c == project || model.related(c, project));
+    let token = if near { Token::Accent } else { Token::FgMuted };
+    Span::styled(if theme.utf8 { "│" } else { "|" }, theme.fg(token))
+}
+
 /// Returns the connector that ties worktree row `i` of `visible` to its
 /// repository above (the last one of a repository closes the tree), or
 /// `None` for a row that is no worktree.
@@ -802,6 +823,20 @@ fn draw_search(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
     frame.render_widget(line, area);
 }
 
+/// Marks a hidden terminal pane whose shell still runs: a label on the
+/// bottom border of the output pane `output` (DESIGN §8.1).
+fn draw_hidden_terminal(frame: &mut Frame, output: Rect, theme: Theme) {
+    let label = " [4] terminal · t shows · T closes ";
+    let width = u16::try_from(label.chars().count()).unwrap_or(u16::MAX);
+    let at = Rect {
+        x: output.x + 1,
+        y: output.bottom().saturating_sub(1),
+        width: width.min(output.width.saturating_sub(2)),
+        height: 1,
+    };
+    frame.render_widget(Span::styled(label, theme.fg(Token::FgMuted)), at);
+}
+
 /// Returns the last `max` characters of `s`, so the end of a long search
 /// stays visible.
 fn truncate_start(s: &str, max: usize) -> String {
@@ -824,7 +859,7 @@ fn draw_getah(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
         (" INTERACT ", Token::Warn)
     } else if model.filtering {
         (" FILTER ", Token::Info)
-    } else if model.visual.is_some() {
+    } else if model.choosing() {
         (" VISUAL ", Token::Info)
     } else {
         (" NORMAL ", Token::FgMuted)
@@ -860,8 +895,8 @@ fn draw_getah(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
             "keys go to {agent} · {} back to mc",
             model.exit_chord.label()
         )
-    } else if model.visual.is_some() {
-        "j/k extend · d move to Trash · esc cancel".to_owned()
+    } else if model.choosing() {
+        "v mark · j/k move · g group · d move to Trash · esc clear".to_owned()
     } else if model.filtering {
         "type to search · ↑↓ pick · enter open · esc clear".to_owned()
     } else if let Some(ch) = model.pending {
@@ -1566,6 +1601,59 @@ pub(crate) mod tests {
             assert_eq!(joined(pct, 10, true), want, "{pct}");
         }
         assert_eq!(joined(50.0, 5, false), "###--", "no UTF-8");
+    }
+
+    #[test]
+    fn a_project_row_counts_its_working_sessions_from_two() {
+        use crate::app::model::tests::with_session;
+
+        let mut model = sample(PROJECTS);
+        let _one = with_session(&mut model, "one");
+        model.cards[0].state = State::Working;
+        let row = |model: &mut Model| -> String {
+            let screen = render(model, 120, 40);
+            screen.lines().nth(3).unwrap().chars().take(22).collect()
+        };
+        assert_eq!(
+            row(&mut model),
+            "│:| 1 kedai-web      │",
+            "one: the spinner alone"
+        );
+        let _two = with_session(&mut model, "two");
+        model.cards[1].state = State::Working;
+        assert_eq!(row(&mut model), "│:| 1 kedai-web   |2 │");
+    }
+
+    #[test]
+    fn a_folder_another_projects_session_added_gets_the_link_bar() {
+        use crate::app::model::tests::with_session;
+
+        let mut model = sample(PROJECTS);
+        let _w = with_session(&mut model, "s");
+        let (home, added) = (
+            model.projects[0].path.clone(),
+            model.projects[2].path.clone(),
+        );
+        let usage = crate::agent::usage::Usage {
+            added_dirs: vec![added.join("docs"), home.clone()],
+            ..Default::default()
+        };
+        model.cards[0].usage = Some(usage);
+        assert!(model.shared(&added) && model.related(&home, &added));
+        assert!(!model.shared(&home), "its own folder is no link");
+        let root = model.root().unwrap().to_path_buf();
+        assert!(!model.shared(&root) && !model.shared(std::path::Path::new("")));
+        assert!(!model.shared(&model.projects[1].path));
+        let names: Vec<&str> = model.visible().iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["kedai-web", "roti-docs"],
+            "in use: it stays in view"
+        );
+        let screen = render(&mut model, 120, 40);
+        assert!(screen.contains(" 2│roti-docs"), "{screen}");
+        model.cards[0].state = State::Wrapped;
+        assert!(!model.shared(&added), "only while the session runs");
     }
 
     #[test]

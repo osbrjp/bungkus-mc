@@ -48,8 +48,10 @@ pub(crate) enum Action {
     TrashProject,
     /// Put the project last moved to the Trash back.
     UndoTrash,
-    /// Start or end a line selection of projects (`V`), for `d`/`dd`.
+    /// Start or end a line selection of projects (`V`), for `d` and `g`.
     Visual,
+    /// Mark or unmark the selected project (`v`), for `d` and `g`.
+    Mark,
     /// Remove the selected project's unused git worktrees (with a confirm).
     CleanWorktrees,
     /// Install a newer release and restart mc on it (`U`).
@@ -58,16 +60,20 @@ pub(crate) enum Action {
     ToggleRest,
     /// Open the selected project in the user's editor (vim in a popup).
     Editor,
+    /// Open the selected project's folder with the desktop's opener.
+    Folder,
     /// Show or hide the terminal pane below the output pane.
     Terminal,
+    /// Close the selected project's shell.
+    CloseTerminal,
     /// Start a quick session at the workspace root (a popup).
     QuickSession,
     /// Move the selected quick session into a project.
     MoveQuick,
     /// Make a new project for the selected quick session.
     MakeProject,
-    /// Focus pane 1, 2 or 3 (projects, sessions, output) with cmd, alt or
-    /// ctrl plus the digit, whichever the terminal passes on.
+    /// Focus pane 1, 2, 3 or 4 (projects, sessions, output, terminal) with
+    /// cmd, alt or ctrl plus the digit, whichever the terminal passes on.
     Pane(u8),
     /// Open the settings screen on the workspace field.
     Workspace,
@@ -194,6 +200,14 @@ pub(crate) const BINDINGS: &[Binding] = &[
         label: "V",
         action: Action::Visual,
         help: "select lines",
+        hint: None,
+        scope: Scope::Projects,
+    },
+    Binding {
+        keys: &[c('v')],
+        label: "v",
+        action: Action::Mark,
+        help: "mark · g groups",
         hint: None,
         scope: Scope::Projects,
     },
@@ -446,6 +460,14 @@ pub(crate) const BINDINGS: &[Binding] = &[
         scope: Scope::Global,
     },
     Binding {
+        keys: &pane_keys('4'),
+        label: "cmd/alt-4",
+        action: Action::Pane(4),
+        help: "terminal pane",
+        hint: None,
+        scope: Scope::Global,
+    },
+    Binding {
         keys: &[c('o')],
         label: "o",
         action: Action::Editor,
@@ -454,11 +476,27 @@ pub(crate) const BINDINGS: &[Binding] = &[
         scope: Scope::Global,
     },
     Binding {
+        keys: &[Key::Press(KeyCode::Char('O'), KeyModifiers::SHIFT), c('O')],
+        label: "O",
+        action: Action::Folder,
+        help: "open the folder",
+        hint: None,
+        scope: Scope::Global,
+    },
+    Binding {
         keys: &[c('t')],
         label: "t",
         action: Action::Terminal,
         help: "terminal on/off",
         hint: Some("t term"),
+        scope: Scope::Global,
+    },
+    Binding {
+        keys: &[Key::Press(KeyCode::Char('T'), KeyModifiers::SHIFT), c('T')],
+        label: "T",
+        action: Action::CloseTerminal,
+        help: "close terminal",
+        hint: None,
         scope: Scope::Global,
     },
     Binding {
@@ -625,7 +663,9 @@ impl Action {
             | Self::TrashProject
             | Self::UndoTrash
             | Self::Visual
+            | Self::Mark
             | Self::Editor
+            | Self::Folder
             | Self::ToggleRest
             | Self::CleanWorktrees => Group::Projects,
             Self::Workspace
@@ -634,6 +674,7 @@ impl Action {
             | Self::Redraw
             | Self::Update
             | Self::Terminal
+            | Self::CloseTerminal
             | Self::Quit => Group::App,
         }
     }
@@ -665,7 +706,7 @@ pub(crate) const AGENT_KEYS: [(&str, &str); 4] = [
     ("ctrl-\\", "leave · menu"),
     ("ctrl-h", "to sessions"),
     ("ctrl-m", "move (popup)"),
-    ("cmd/alt-1..3", "focus a pane"),
+    ("cmd/alt-1..4", "focus a pane"),
 ];
 
 #[cfg(test)]

@@ -9,10 +9,10 @@
 
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// The `icons` setting.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum IconChoice {
     /// `nerd` when a Nerd Font is installed, else `ascii`.
@@ -27,6 +27,21 @@ pub(crate) enum IconChoice {
 }
 
 impl IconChoice {
+    /// All choices, in the order the settings screen lists them.
+    pub(crate) const ALL: [Self; 4] = [Self::Auto, Self::Ascii, Self::Unicode, Self::Nerd];
+
+    /// Returns the name shown in the settings screen and written to
+    /// `config.json`.
+    #[must_use]
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Ascii => "ascii",
+            Self::Unicode => "unicode",
+            Self::Nerd => "nerd",
+        }
+    }
+
     /// Parses a `--icons` value.
     #[must_use]
     pub(crate) fn parse(text: &str) -> Option<Self> {

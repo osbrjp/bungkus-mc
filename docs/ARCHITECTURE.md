@@ -169,6 +169,11 @@ resume.**
   same dialog.
 - Each session's `agentSessionId` is in `sessions.json`; `r` runs the resume
   argv (§5) in the stored `cwd`.
+- A session that quit (or terminal close) stopped is stored with
+  `"resume": true`; the next start resumes each one whose `cwd` is a
+  project of the open workspace, with the same argv as `r`. Sessions
+  stopped with `x`, wrapped or failed stay as they are, and so does a
+  hooked session that never got a prompt (nothing was saved to resume).
 - SIGHUP/terminal close: same as quit, without the dialog, keep rule applied.
 
 Detach was considered and rejected for v0.1 (owner decision): both agents
@@ -209,7 +214,10 @@ A thread lists them every 5 s (`src/external.rs`) and sends
 - **Claude:** `claude agents --json` (fixed argv, stdin closed, stdout
   capped at 1 MiB, killed after 3 s). Each row gives pid, cwd, name,
   session id and `status`: `busy` → working, `idle` → your turn, a status
-  about waiting/input/permission → needs you.
+  about waiting/input/permission → needs you. Rows of `kind`
+  `background` are left out: Claude's own daemon runs those agents
+  (forks, background tasks) without a terminal, so there is nothing to
+  take over.
 - **Codex:** has no listing. A process of this user whose `comm` basename
   is `codex`, that is not the app-server daemon and whose parent is not
   another `codex` (the npm wrapper), counts as one session; its folder
@@ -245,16 +253,19 @@ A thread lists them every 5 s (`src/external.rs`) and sends
 ### 3.5 The user's tools: editor popup and terminal pane
 
 `o` and `t` run programs of the user's, not agents (`src/app/tools.rs`):
-vim (`$VISUAL`/`$EDITOR` when it is `vi`/`vim`/`nvim`, with `.` in the
-project) in the popup, and `$SHELL` in the terminal pane below the output
-pane, one shell per project, kept by folder. mc needs no other program
+vim (the `editor` setting, else `$VISUAL`/`$EDITOR`, when it is
+`vi`/`vim`/`nvim`, or with none set the first of `nvim`/`vim`/`vi` on
+`PATH`, with `.` in the project) in the popup, and `$SHELL` in the terminal pane below the output
+pane, one shell per session, kept by the session's id and started in the
+folder it works in (per project folder while no session is selected). mc needs no other program
 for either (no tmux, no terminal app): both use its own PTY and emulator. Each is a `Session` (same PTY, emulator, threads and scrubbed
 environment as an agent) held by the model next to the cards, not as one:
 no card, no hooks, no usage, nothing in `sessions.json`, not in the stop
 dialog. Its PTY events are told apart by id. While the terminal pane
-shows (the selected project has a shell and `t` did not hide it), the output pane and every session's PTY are a third shorter. A
-tool ends when its program exits or when mc does (the PTY closes, the
-kernel sends SIGHUP). Any other editor is spawned once with an argument
+shows (the selected session has a shell and `t` did not hide it), the output pane and every session's PTY are a third shorter. A
+tool ends when its program exits, when mc does (the PTY closes, the
+kernel sends SIGHUP), or, for a shell, on `T` or when its session ends (mc sends SIGHUP
+to its process group and forgets it once it has exited). Any other editor is spawned once with an argument
 vector, null stdio and its own process group, and left alone.
 
 ## 4. Data flow
@@ -623,10 +634,13 @@ name → first prompt line → `untitled`. Stored in `sessions.json` as
 
 ### 5.5 MCP servers on the card (`mcp.rs`)
 
-A card lists the MCP servers of its session (DESIGN §5.2). Neither agent
-reports them, so `agent/mcp.rs` combines two sources:
+A card lists the MCP servers its session has used; the expanded card
+also lists the configured ones it has not, as idle (DESIGN §5.2). Neither
+agent reports which servers are connected, so `agent/mcp.rs` combines two
+sources:
 
-**1. The agents' own config files** — what is configured.
+**1. The agents' own config files** — what is configured (the idle row,
+and the name a used server is shown under).
 
 | Agent | Files | Names |
 |-------|-------|-------|
@@ -634,8 +648,9 @@ reports them, so `agent/mcp.rs` combines two sources:
 | Codex | `config.toml` in `$CODEX_HOME`, else `~/.codex` | `[mcp_servers.<name>]` table headers (a line scan, no TOML crate) |
 
 **2. Hook events** — what is used. A `PreToolUse` whose `tool_name` is
-`mcp__<server>__<tool>` adds `<server>` (less Claude's `claude_ai_` /
-`plugin_` prefix). This is the only source for claude.ai connectors and
+`mcp__<server>__<tool>` marks `<server>` (less Claude's `claude_ai_` /
+`plugin_` prefix) as in use for the rest of the session. This is the
+only source for claude.ai connectors and
 plugin servers, which are in no config file; they show from their first
 tool call.
 
@@ -774,28 +789,39 @@ command unchanged.
 | routing consent | `${XDG_STATE_HOME:-~/.local/state}/bungkus/mc/consent.json` (`{"routing": "2026-09-30T…"}`) | 0600 |
 | debug log (`--debug` only) | `${XDG_STATE_HOME:-~/.local/state}/bungkus/mc/mc.log` | 0600 |
 | socket | `clean(${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}})/bungkus-mc-<uid>/<pid>.sock` | dir 0700, sock 0600 |
-| workspace overrides | `<workspace>/.bungkus-mc/config.json` (hand-edited, read only) | the user's |
+| workspace overrides | `<workspace>/.bungkus-mc/config.json` (hand-edited; the settings screen writes its `defaultAgent`) | the user's; 0600, dir 0700 when mc creates them |
 | workspace instructions | `<workspace>/.bungkus-mc/CLAUDE.md`, `<workspace>/.bungkus-mc/AGENTS.md` (read only) | the user's |
 | update-check cache | `${XDG_CACHE_HOME:-~/.cache}/bungkus-mc/latest-release` (macOS: `~/Library/Caches`, matching bungkus-cli's `os.UserCacheDir`) | 0600 |
 
 **The workspace's own folder.** `<workspace>/.bungkus-mc/` holds what is
-specific to one workspace; mc only reads it, at start and on every
-workspace switch. A hidden folder is never listed as a project.
+specific to one workspace; mc reads it at start and on every workspace
+switch, and writes one key there: the settings screen saves the default
+agent as `defaultAgent` when asked to keep it "for this workspace only"
+(other keys and their order are kept; choosing "all workspaces" removes
+the key). A hidden folder is never listed as a project.
 
 - `config.json` overrides the global file for that workspace, key by key:
-  `defaultAgent`, `worktrees`, `notify`, `cleanup.keep`. An unset key keeps
+  `defaultAgent`, `worktrees`, `notify`, `cleanup.keep`, and it holds the
+  workspace's `groups` (lists of project folder names, written by `g`). An unset key keeps
   the global value; a file that cannot be parsed sets nothing and the
   message line says so. Every other key is ignored there: what mc runs
   (`agents.*.command`/`args`) and what belongs to the terminal (panes,
   mouse, icons, motion, the exit chord, theme) stay global.
-- `CLAUDE.md` is appended to the system prompt of every Claude session mc
-  starts or resumes in the workspace (`--append-system-prompt-file
-  <path>`); `AGENTS.md` reaches every Codex session as the
-  `developer_instructions` config value (`-c developer_instructions=<TOML
-  string>`, the first 64 KiB, since the text travels in argv; it takes the
-  place of a `developer_instructions` in `~/.codex/config.toml`). Both add
-  to the instruction files the agents read from the project themselves.
-  Sessions started outside mc get neither.
+- **Instructions.** Every session mc starts or resumes gets one
+  instruction text: mc's built-in rules (`src/agent/instructions.md`: how
+  to find session ids, branch from the default branch, name worktrees
+  `<project-name>-<session-id>` and remove them when done), then a
+  "Related folders" section listing the other members of the project's
+  group (each also passed as `--add-dir <folder>` to Claude and Codex
+  alike), then the workspace's own file, `CLAUDE.md` for Claude and `AGENTS.md` for Codex
+  (its first 64 KiB), which has the last word. `"instructions": false` in
+  the global `config.json` leaves the built-in rules out; the workspace
+  files apply either way. Claude gets the text as `--append-system-prompt
+  <text>`, Codex as the `developer_instructions` config value (`-c
+  developer_instructions=<TOML string>`; it takes the place of a
+  `developer_instructions` in `~/.codex/config.toml`). Both add to the
+  instruction files the agents read from the project themselves. Sessions
+  started outside mc get neither.
 
 `config.json` (all keys optional; workspace can also be the first CLI argument):
 
@@ -804,6 +830,7 @@ workspace switch. A hidden folder is never listed as a project.
   "workspace": "/Users/me/Works/OSBR",
   "defaultAgent": "claude",
   "theme": "auto",
+  "editor": "nvim",
   "background": "paint",
   "motion": true,
   "icons": "auto",
@@ -811,6 +838,7 @@ workspace switch. A hidden folder is never listed as a project.
   "notify": "bell",
   "interactExit": "ctrl-\\",
   "worktrees": true,
+  "instructions": true,
   "agents": {
     "claude": { "command": "claude", "args": [] },
     "codex":  { "command": "codex",  "args": [] }
@@ -828,9 +856,11 @@ workspace switch. A hidden folder is never listed as a project.
 ```
 
 mc writes `config.json` in one place only: the setup wizard and the
-settings screen (DESIGN.md §5.8) save `workspace`, `defaultAgent` and
-`theme`. The file is read as a `serde_json::Value` (with `preserve_order`),
-those three keys are set, and it is written back atomically (temp file +
+settings screen (DESIGN.md §5.8) save `workspace`, `defaultAgent`, `theme`,
+`icons` and `editor` (removed when unset). `--icons` is for one run and is
+never saved: a save keeps the stored `icons` unless the settings screen's
+`icons` row was changed, which also ends the flag for that run. The file is read as a `serde_json::Value` (with `preserve_order`),
+those five keys are set, and it is written back atomically (temp file +
 `rename`, 0600): every other key, and the key order, survive. A file that
 is not a JSON object is never replaced; the save fails with a message.
 Consent is still recorded in the state dir, not in config. The Jev model id (`jev-latest`), the

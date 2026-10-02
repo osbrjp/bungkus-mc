@@ -3,14 +3,14 @@
           ▄████▄         bungkus-mc  v0.1.0-beta.7
          ████████        mission control for AI agents
        ▄██████████▄
-     ▄██████████████▄    step 2 of 5 · default agent
+     ▄██████████████▄    step 4 of 5 · editor
            █  █
           ▀▀ ▀▀
 
-     agent       > claude    codex (not on PATH)
+     editor      > nvim    vim    code    other
 
-                 + ~/.local/bin/claude   - codex not on PATH
-                 n starts this agent; the n picker can still switch
+                 o opens the selected project in it
+                 O opens its folder in the file manager
 
 
 

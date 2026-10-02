@@ -1,7 +1,7 @@
- bungkus-mc  ~/Works/OSBR › kedai-web  x 1 failed · | 1 working · v0.1.0-beta.6
+ bungkus-mc  ~/Works/OSBR › kedai-web  x 1 failed · | 1 working · v0.1.0-beta.7
 ┌ [1] projects ──────┐┏ [2] sessions · kedai-web ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 │ / search           │┃> | C #a3f2 flaky payment test                        0m┃
-│:| 1 kedai… | 1 x 1 │┃    output only · live tree unavailable                 ┃
+│:| 1 kedai-web  x 1 │┃    output only · live tree unavailable                 ┃
 │ + 4 more (e)       │┃    tokens   in - · out -                               ┃
 │              ╔ quit? ═════════════════════════════════════════╗              ┃
 │              ║                                                ║              ┃

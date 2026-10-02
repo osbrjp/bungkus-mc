@@ -492,10 +492,10 @@ whether there is a header line.
 ### 5.2 Card anatomy (sessions pane, inner width 36)
 
 ```
-┃! C #a3f1 write proposal        12m   gutter · state glyph · agent badge · #id · title · right: elapsed or state word
+┃! C #a3f1 write proposal        12m   gutter · state glyph · agent badge · #id · title · right: `>_` (it has a shell) · elapsed or state word
 ┃  needs you · permission: Bash        line 2: state word · detail (tool / prompt kind / exit line) [· model when routed]
 ┃  i110-fix · 3 changed ↑2 ↓1          git line (only in a repository): branch · `clean` or changed files · ahead/behind upstream
-┃  mcp github · slack                  MCP line (only with MCP servers): `mcp` + names; glyphs in the nerd set
+┃  mcp github · slack                  MCP line (only with MCP servers in use): `mcp` + names; glyphs in the nerd set
 ┃  499k tok · $1.42 · ctx 37%          usage line: compact usage (`-` when unknown)
 ┃  * research hooks             / 3m   one line per subagent (flat list): glyph · description · state glyph · time
 ```
@@ -507,13 +507,15 @@ whether there is a header line.
   then `clean` or `N changed` (staged, unstaged, unmerged and untracked
   files), then `↑N` / `↓N` against the upstream when not zero. The branch
   is cut short first. Read every 5 s; absent outside a repository.
-- MCP line, `fg-muted`: the MCP servers the session is configured with
-  or has used (ARCHITECTURE §5.5), sorted by name and kept current while
-  it runs; absent when there are none. ascii and unicode sets: `mcp` then the names joined by ` · `. nerd
+- MCP line, `fg-muted`: the MCP servers the session has used (a tool
+  call named them, ARCHITECTURE §5.5), sorted by name; absent until the
+  first such call. Servers that are only configured are not on it. ascii
+  and unicode sets: `mcp` then the names joined by ` · `. nerd
   set: per server its logo alone (§3), or a kind glyph or the plug and
   the name when it has none, two spaces apart. The expanded card (§6.3) shows
-  an `mcp` row with every name in all sets instead, so a glyph can always
-  be read as a word.
+  an `mcp` row with the name of every server in use in all sets instead,
+  so a glyph can always be read as a word, and an `mcp idle` row with the
+  configured servers the session has not used.
 - Gutter column: `┃` in `warn` for needs-you, `err` for failed, space otherwise.
 - Title = **the session's name**, as the agent itself knows it (decided):
   Claude's session name (set at launch with `--name`, renamed inside the
@@ -571,14 +573,21 @@ Subagents use the same glyphs at one indent with `*` (`◦`); their status
 comes from `background_tasks` on Stop/SubagentStop (authoritative), else
 from SubagentStart/Stop.
 
-Sidebar row = `<marker><spinner> <name>` … `<working> <badge>`. The marker is `>`
+Sidebar row = `<marker><spinner> <number><link><name>` … `<working> <badge>`. The marker is `>`
 when the projects pane is focused, `▌` (ascii `:`) when it is not, space
 otherwise. The **spinner column** shows the global-clock frame `| / - \`
 for a project with any running session (static `|` under `motion:
 false`), space otherwise. The **badge** is the worst *non-running* state
 among the project's sessions, precedence **failed > needs you > your
-turn**, as `<glyph> <count>`; before it, `<spinner> <n>` says how many
-sessions are working (nothing when none is). The header tally's `/` and every card's
+turn**, as `<glyph> <count>`; before it, `<spinner><n>` (`|2`) says how
+many sessions are working, from two (one is the spinner column alone). The
+**link** cell between the number and the name is a bar (`│`, `|` without
+UTF-8) on a project that is in a group (`g`, §8.2) or that a running
+session of another project works in too (Claude's `/add-dir`, read from
+`workspace.added_dirs` of its status line; Codex reports none): `accent`
+when the link is with the selected project, `fg-muted` otherwise, a space
+when there is none. A linked
+project counts as in use and stays in the recent group. The header tally's `/` and every card's
 working glyph tick with the same clock.
 
 ### 5.4 Badge
@@ -703,7 +712,10 @@ told, §9) shows in the same bubble for 8 s, cut to the strip's width; a
 click's quote goes first. With no session the
 pane shows the big centred empty-state mascot as before. Smaller screens
 keep the corner mascot below. Pane titles carry their `cmd`/`alt`/`ctrl`
-digit: `[1] projects`, `[2] sessions`, `[3] output`.
+digit: `[1] projects`, `[2] sessions`, `[3] output`, `[4] terminal`. While
+the terminal pane is hidden and the selected session's shell still runs,
+the output pane's bottom border carries `[4] terminal · t shows · T closes`
+in `fg-muted`.
 
 Parts and fixed brand colours (exempt from theme tokens — they are the same
 in dark, light and painted/terminal modes):
@@ -900,11 +912,12 @@ name (§5.8).
 
 ### 5.8 Setup wizard and settings screen
 
-Three settings belong to the user's first minutes and are edited in mc
-itself: the **workspace**, the **default agent** and the **theme**.
+Four settings belong to the user's first minutes and are edited in mc
+itself: the **workspace**, the **default agent**, the **theme** and the
+**editor** (`o`).
 
 **First run** (no workspace on the command line or in `config.json`): a
-four-step wizard, full screen, the static mascot beside the product name on
+five-step wizard, full screen, the static mascot beside the product name on
 every step. `enter` goes on, `esc` goes back, and `esc` on the first step
 **skips the wizard with defaults**. The workspace field is prefilled with
 **`~/Documents`** (else the parent of the git repository mc was started in,
@@ -915,8 +928,14 @@ follows), typing a path re-lists it, and a line says how many projects the
 folder holds, with each project marked. The agent step lists both agents
 with where they were found; only installed agents can be chosen (both, if
 neither is installed). The theme step **previews live**: the whole screen
-repaints in the chosen theme, with a sample of the state colours. Finishing
-(or skipping) writes the three keys to `config.json` (ARCHITECTURE §7).
+repaints in the chosen theme, with a sample of the state colours. The
+editor step offers the user's own `$VISUAL`/`$EDITOR` first, then every
+known editor found on `PATH` (`nvim`, `vim`, `vi`, `code`, `cursor`,
+`zed`), then `other`: a typed command or full path (`~` expanded), which
+must be a file or on `PATH` to go on. With none found, `other` is the only
+choice; left empty, the setting stays unset and `o` follows
+`$VISUAL`/`$EDITOR`. Finishing (or skipping) writes the four keys to
+`config.json` (ARCHITECTURE §7).
 
 Generated from the goldens in `src/ui/testdata/` (80×24, `NO_COLOR`):
 
@@ -925,7 +944,7 @@ Generated from the goldens in `src/ui/testdata/` (80×24, `NO_COLOR`):
           ▄████▄         bungkus-mc  v0.1.0
          ████████        mission control for AI agents
        ▄██████████▄
-     ▄██████████████▄    step 1 of 4 · workspace
+     ▄██████████████▄    step 1 of 5 · workspace
            █  █
           ▀▀ ▀▀
 
@@ -957,7 +976,7 @@ row saves.
           ▄████▄         bungkus-mc  v0.1.0
          ████████        mission control for AI agents
        ▄██████████▄
-     ▄██████████████▄    step 2 of 4 · default agent
+     ▄██████████████▄    step 2 of 5 · default agent
            █  █
           ▀▀ ▀▀
 
@@ -978,7 +997,7 @@ row saves.
           ▄████▄         bungkus-mc  v0.1.0
          ████████        mission control for AI agents
        ▄██████████▄
-     ▄██████████████▄    step 3 of 4 · theme
+     ▄██████████████▄    step 3 of 5 · theme
            █  █
           ▀▀ ▀▀
 
@@ -999,13 +1018,35 @@ row saves.
           ▄████▄         bungkus-mc  v0.1.0
          ████████        mission control for AI agents
        ▄██████████▄
-     ▄██████████████▄    step 4 of 4 · all set
+     ▄██████████████▄    step 4 of 5 · editor
+           █  █
+          ▀▀ ▀▀
+
+     editor      > nvim    vim    code    other
+
+                 o opens the selected project in it
+                 O opens its folder in the file manager
+
+
+
+
+
+                                         ← → choose · enter next · esc back
+```
+
+```
+            ▄▄
+          ▄████▄         bungkus-mc  v0.1.0
+         ████████        mission control for AI agents
+       ▄██████████▄
+     ▄██████████████▄    step 5 of 5 · all set
            █  █
           ▀▀ ▀▀
 
      workspace   /tmp
      agent       claude
      theme       auto
+     editor      nvim
 
                  change these any time with , (settings)
 
@@ -1016,11 +1057,20 @@ row saves.
 ```
 
 **Settings screen** — `,` in NORMAL (and `w`, which opens it on the
-workspace field). A dialog with all three fields; `tab`/`shift-tab` (and
+workspace field). A dialog with all five fields; `tab`/`shift-tab` (and
 `↑`/`↓` off the workspace field) move between them, `←`/`→` change a
-choice, and on the workspace field the same folder browser opens under it
+choice (on the editor row with `other` chosen, letters type its command
+on the line below, so `h`/`j`/`k`/`l` do not move there), and on the workspace field the same folder browser opens under it
 (`↑`/`↓` pick, `→` open, `←` up); `enter` saves and rescans, `esc` cancels
-and reverts the theme preview. Never reachable from
+and reverts the theme and icon preview. The `icons` row (`auto`, `ascii`,
+`unicode`, `nerd`; not a wizard step) applies the set to the whole screen
+while the dialog is open, and the line under the rows says what the choice
+means and shows its five state glyphs, so a set the terminal's font lacks
+shows as boxes before it is saved. On the agent row a line under the choices
+says where the default agent is saved, `saved for: all workspaces` (the
+global `config.json`) or `saved for: this workspace only` (the workspace's
+`.bungkus-mc/config.json`), and `w` switches between the two; the screen
+opens on the one in effect. Workspace and theme are always saved globally. Never reachable from
 INTERACT: every key there goes to the agent.
 
 ```
@@ -1030,18 +1080,19 @@ INTERACT: every key there goes to the agent.
 ┃   teh-cli                                                                    ┃
 ┃                                                                              ┃
 ┃                                                                              ┃
-┃      ╔ settings ══════════════════════════════════════════════════════╗      ┃
-┃      ║                                                                ║      ┃
-┃      ║   workspace   ┃~/Works/OSBR                                  ┃ ║      ┃
-┃      ║ > agent       > claude    codex (not on PATH)                  ║      ┃
-┃      ║   theme         auto  > dark    light                          ║      ┃
-┃      ║               + ~/.local/bin/claude   - codex not on PATH      ║      ┃
-┃      ║                                                                ║      ┃
-┃      ║                                                                ║      ┃
-┃      ║                                                                ║      ┃
-┃      ║                                                                ║      ┃
-┃      ║               ↑ ↓ field · ← → change · enter save · esc cancel ║      ┃
-┃      ╚════════════════════════════════════════════════════════════════╝      ┃
+┃  ╔ settings ══════════════════════════════════════════════════════════════╗  ┃
+┃  ║                                                                        ║  ┃
+┃  ║   workspace   ┃~/Works/OSBR                                          ┃ ║  ┃
+┃  ║ > agent       > claude    codex (not on PATH)                          ║  ┃
+┃  ║   theme         auto  > dark    light                                  ║  ┃
+┃  ║   icons       > auto    ascii    unicode    nerd                       ║  ┃
+┃  ║   editor      > nvim    vim    code    other                           ║  ┃
+┃  ║               + ~/.local/bin/claude   - codex not on PATH              ║  ┃
+┃  ║                                                                        ║  ┃
+┃  ║                                                                        ║  ┃
+┃  ║                                                                        ║  ┃
+┃  ║                j/k ↑↓ field · h/l ← → change · enter save · esc cancel ║  ┃
+┃  ╚════════════════════════════════════════════════════════════════════════╝  ┃
 ┃                                                                              ┃
 ┃                                                                              ┃
 ┃                                                                              ┃
@@ -1164,9 +1215,11 @@ the same frame.
 | `/`                                               | search projects: the search row at the top of the projects pane takes the text (FILTER mode: type, `↑`/`↓` pick, `enter` opens the project's sessions and keeps the search, `esc` clears). Works from the sessions pane too |
 | `1`–`9`                                           | jump to the project with that number (the numbers left of the names follow the searched list). The selection moves on every digit; a digit within 0.7 s of the previous one extends the number (`1` → 1, then `6` → 16), a number with no project leaves the last jump in place, and any other key ends the number (bungkus-cli's wizard rule) |
 | `w`                                               | settings, on the workspace field (§5.8) |
-| `,`                                               | settings: workspace, default agent, theme (§5.8) |
-| `o`                                               | open the selected project in the user's editor (`$VISUAL`, else `$EDITOR`): `vi`/`vim`/`nvim` run in a popup over the panes (mode word `EDITOR`, every key goes to it, it closes when the editor quits); any other editor is started on its own with the folder as its argument; with neither variable set, the desktop's opener (`open` / `xdg-open`) |
-| `t`                                               | show / hide the terminal pane: the user's `$SHELL` in the lower third of the output pane, in mc's own emulator (no tmux or other program). Every project has its own shell, started in its folder the first time `t` is pressed there; the pane follows the selected project and is absent on one without a shell. Showing it gives it the keys (mode word `TERMINAL`); `ctrl-\` gives them back to mc and leaves it showing; `ctrl-h` goes left to the sessions pane and `ctrl-k` up to the output pane (INTERACT), from where `ctrl-j` comes back down while the pane shows; `ctrl-j`/`ctrl-l` in the terminal stay the shell's (enter, clear screen); hiding keeps the shells running; `exit` closes one |
+| `,`                                               | settings: workspace, default agent, theme, icons, editor (§5.8) |
+| `o`                                               | open the selected project in the user's editor (the `editor` setting, else `$VISUAL`, else `$EDITOR`): `vi`/`vim`/`nvim` run in a popup over the panes (mode word `EDITOR`, every key goes to it, it closes when the editor quits); any other editor is started on its own with the folder as its argument; with none of the three set, the first of `nvim` / `vim` / `vi` on `PATH` in the same popup, else the desktop's opener (`open` / `xdg-open`) |
+| `O`                                               | open the selected project's folder with the desktop's opener (`open` / `xdg-open`): Finder or the file manager |
+| `t`                                               | show / hide the terminal pane: the user's `$SHELL` in the lower third of the output pane, in mc's own emulator (no tmux or other program). Every session has its own shell, started in the folder the session works in (its worktree when it has one) the first time `t` is pressed on it; the pane follows the selected session and is absent on one without a shell, and its title names the session. With no session of mc's selected (a project without sessions, an outside session) the shell belongs to the project folder, or to the workspace root on a row that is no folder. A session's shell does not outlive it: when the session ends (it exits, `x` stops it) or is forgotten, mc hangs up on its shell. A card whose session has a shell carries `>_` in `ok` before the right-hand word of its title line, shown or hidden. Showing it gives it the keys (mode word `TERMINAL`); `ctrl-\` gives them back to mc and leaves it showing; `ctrl-h` goes left to the sessions pane and `ctrl-k` up to the output pane (INTERACT), from where `ctrl-j` comes back down while the pane shows; `ctrl-j`/`ctrl-l` in the terminal stay the shell's (enter, clear screen), except in kitty, where they move to the kitty window below / to the right as from the other panes; `cmd`/`alt`/`ctrl` + `4` shows the pane and gives it the keys from any pane (starting the shell when there is none), and + `1`–`3` leave it for that pane; hiding keeps the shells running and leaves a `[4] terminal` marker on the output pane's bottom border; `exit` (or `ctrl-d`) closes one, and when it had the keys they go up to the output pane, as `ctrl-k` does |
+| `T`                                               | close the selected session's shell, shown or hidden: mc hangs up on it (SIGHUP), as a terminal window that closes does; the pane goes when the shell has ended |
 | `?`                                               | help                                    |
 | `R`                                               | redraw |
 | `q` · `ctrl-c`                                    | quit (confirm if anything is running)   |
@@ -1181,6 +1234,8 @@ cleared by the next key).
 | `enter`     | focus the sessions pane of the selected project               |
 | `j` `k`     | move the sidebar selection; the sessions pane switches to that project |
 | `n`         | new session for the selected project (same picker as below)   |
+| `v` · `V`   | choose rows for `d` and `g`: `v` marks the selected project (again to unmark), on any rows, not only neighbours; `V` starts a range that `j`/`k` extend. Both can be combined; the chosen rows are drawn reversed, the mode word is `VISUAL`, `esc` clears them |
+| `g` (rows chosen) | group the chosen projects as related, saved as `groups` in the workspace's `.bungkus-mc/config.json`. Chosen rows that are exactly one group are ungrouped; a project put in a new group leaves its old one; one chosen project only leaves its group. Members carry the link bar (§5.3). A session mc starts or resumes in a grouped project gets the other members with `--add-dir` and a "Related folders" section in its instructions. With nothing chosen `g` is still the first half of `gg` |
 | `e`         | show / hide the projects that are not recent. Recent projects lead the list, 5 at most (a repository and its worktrees counting as one): the ones a session runs in now, then the most recently used by their latest session start; more than 5 only when more than 5 have a running session, so one that needs you never folds away; the others fold behind the line `+ <n> more (e)` (`-` while they show). `j`/`↓` on the last recent project opens them too. With no recent project, or only recent ones, the list is not grouped; a search finds every project |
 
 `n` `enter` from the projects pane therefore starts a session for the
@@ -1249,10 +1304,10 @@ through); `ctrl-\` is not among them.
 ### 8.6 Mouse
 
 Click focuses a pane / selects a row (and exits INTERACT if the click is
-outside the output pane); a click on a project or a session selects it, a click on the
+outside the output pane); a click on a project or a session selects it, and a click on the session that is already selected enters it like `enter`, a click on the
 `+ <n> more` line shows or hides the rest of the projects; a click on the
 terminal pane gives it the keys and a click anywhere else takes them back;
-a click on the output pane focuses it, i.e. enters INTERACT; wheel scrolls the pane under the pointer. Text selection: with mouse reporting on,
+a click on the output pane focuses it, i.e. enters INTERACT; wheel scrolls the pane under the pointer (the terminal pane too: its shell's scrollback, or the event goes to a program in it that asked for the mouse). Text selection: with mouse reporting on,
 terminals need a modifier to select (kitty/Ghostty/iTerm2 `shift`-drag,
 WezTerm/Alacritty `shift`, Terminal.app `option`-drag) — shown in the help
 overlay; `--no-mouse` / `mouse: false` turns reporting off entirely.
