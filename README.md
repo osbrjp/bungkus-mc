@@ -48,8 +48,9 @@ curl -fsSL https://raw.githubusercontent.com/osbrjp/bungkus-mc/main/install.sh |
 
 [`skills/bungkus-mc-setup`](skills/bungkus-mc-setup/SKILL.md) is a Claude
 Code skill that installs and configures mc with you: it checks your
-machine, runs the installer, helps with `config.json`, the icon set and a
-workspace's `.bungkus-mc/` folder, and asks before it writes any file. Copy
+machine, runs the installer, helps with `config.json`, the icon set, a
+workspace's `.bungkus-mc/` folder and a GitHub account per workspace, and
+asks before it writes any file. Copy
 the folder to `~/.claude/skills/bungkus-mc-setup`, then ask Claude Code to
 "set up bungkus-mc".
 

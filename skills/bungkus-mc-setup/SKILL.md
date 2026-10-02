@@ -1,6 +1,6 @@
 ---
 name: bungkus-mc-setup
-description: Install and configure bungkus-mc (short command `bkmc`), the terminal mission control for Claude Code and Codex CLI sessions, on the user's machine — check prerequisites, run the installer, pick a workspace, write `config.json`, choose the icon set (Nerd Font or ASCII), add a per-workspace `.bungkus-mc/` folder, and fix common first-run problems. Use when the user asks to install, set up, configure, update, uninstall or troubleshoot bungkus-mc / bkmc / "mission control", or reports boxes instead of icons, "output only" cards, or a key that does not work in mc.
+description: Install and configure bungkus-mc (short command `bkmc`), the terminal mission control for Claude Code and Codex CLI sessions, on the user's machine — check prerequisites, run the installer, pick a workspace, write `config.json`, choose the icon set (Nerd Font or ASCII), add a per-workspace `.bungkus-mc/` folder, give each workspace its own GitHub account for `gh`, and fix common first-run problems. Use when the user asks to install, set up, configure, update, uninstall or troubleshoot bungkus-mc / bkmc / "mission control", or reports boxes instead of icons, "output only" cards, a key that does not work in mc, or `gh` acting as the wrong GitHub account in a session.
 ---
 
 # bungkus-mc-setup
@@ -148,7 +148,7 @@ A starting point (leave out what the user does not need):
 | `workspaces` | saved workspaces for the `w` switcher (mc writes this) |
 | `cleanup.keep` | process names the quit dialog starts as `[keep]`, e.g. `["postgres"]` |
 | `worktrees` | `true` (default) · `false`: a Claude session joining a project where another mc session runs gets its own git worktree |
-| `ghConfigDirs` | `{ "~/Works": "~/.config/gh-work" }`: workspace folder → `gh` config folder; children under that workspace get `GH_CONFIG_DIR`, so `gh` uses the account signed in to that folder (`GH_CONFIG_DIR=<folder> gh auth login`, run by the user) |
+| `ghConfigDirs` | `{ "~/Works": "~/.config/gh-work" }`: workspace folder → `gh` config folder, for a GitHub account per workspace; see step 7 |
 | `panes` | `{ "projects": 22, "sessions": 38 }`; projects 16–40, sessions 28–72 (mc writes this when a border is dragged) |
 
 Editing rules:
@@ -266,7 +266,105 @@ Offer this when the user wants one rule for every project in a workspace
 ("always answer in Japanese", "never push") or a different default agent
 per workspace. Ask what the instructions should say; do not invent them.
 
-## 7. Update and uninstall
+## 7. A GitHub account per workspace
+
+mc is one process for every workspace, so `gh` inside its sessions acts as
+one account everywhere unless `ghConfigDirs` says otherwise. Do this step
+only when the user has more than one GitHub account; otherwise skip it and
+say nothing needs setting up.
+
+Look first:
+
+```bash
+command -v gh
+gh auth status                     # the signed-in account names
+basename "$SHELL"                  # fish, zsh or bash, for the optional part
+bungkus-mc --version               # ghConfigDirs needs a release after 0.1.0-beta.8
+for d in ~/Works/*/; do git -C "$d" remote get-url origin 2>/dev/null; done
+```
+
+- **Needed** when `gh auth status` lists two or more accounts, or the user
+  says they use more than one, and `config.json` has more than one folder
+  in `workspaces`. One account, or one workspace: stop here.
+- The remotes hint at which account a workspace belongs to (the owner, or
+  an SSH host alias such as `github.com-work`). Show the user what you
+  found and **ask which account each workspace uses**; do not guess.
+- An older mc ignores the key without an error. Offer `bungkus-mc update`
+  first (step 8).
+- Never run `gh auth token` or `gh auth status --show-token`, and never
+  read the files inside a `gh` config folder.
+
+Set it up:
+
+1. Pick one folder per account next to gh's own, named after its use:
+   `~/.config/gh-work`, `~/.config/gh-personal`. A workspace with no entry
+   follows the user's normal `gh` account, so one of them can be left out.
+2. Merge `ghConfigDirs` into the global `config.json` under the editing
+   rules of step 4. It is read from the global file only; in a workspace's
+   `.bungkus-mc/config.json` it does nothing.
+
+   ```json
+   "ghConfigDirs": {
+     "~/Works": "~/.config/gh-work",
+     "~/Personal": "~/.config/gh-personal"
+   }
+   ```
+
+3. The user signs in once per folder, **in their own terminal** (the login
+   is interactive; do not run it for them):
+
+   ```bash
+   GH_CONFIG_DIR=~/.config/gh-work gh auth login
+   GH_CONFIG_DIR=~/.config/gh-personal gh auth login
+   ```
+
+4. Check each folder shows the account the user chose:
+
+   ```bash
+   GH_CONFIG_DIR=~/.config/gh-work gh auth status
+   ```
+
+5. The user quits and reopens mc. Sessions, the terminal pane and the
+   editor under each workspace now get that `GH_CONFIG_DIR`.
+
+This covers `gh` in what mc starts. Two things it does not change:
+
+- **git itself.** Commits and pushes use the user's SSH keys, remotes and
+  `user.email`, not `gh`. Leave those alone unless the user asks.
+- **Terminals outside mc.** Offer the matching snippet for the user's shell
+  profile (ask before you edit a profile file; show the lines first). If
+  `direnv` is installed, an `.envrc` in the workspace with
+  `export GH_CONFIG_DIR="$HOME/.config/gh-work"` does the same.
+
+  fish (`~/.config/fish/config.fish`):
+
+  ```fish
+  function __gh_account --on-variable PWD
+      if string match -q "$HOME/Works/*" "$PWD/"
+          set -gx GH_CONFIG_DIR ~/.config/gh-work
+      else
+          set -e GH_CONFIG_DIR
+      end
+  end
+  __gh_account
+  ```
+
+  zsh (`~/.zshrc`) and bash (`~/.bashrc`):
+
+  ```bash
+  _gh_account() {
+    case "$PWD/" in
+      "$HOME/Works/"*) export GH_CONFIG_DIR="$HOME/.config/gh-work" ;;
+      *) unset GH_CONFIG_DIR ;;
+    esac
+  }
+  # zsh:
+  autoload -U add-zsh-hook && add-zsh-hook chpwd _gh_account && _gh_account
+  # bash:
+  PROMPT_COMMAND="_gh_account${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
+  ```
+
+## 8. Update and uninstall
 
 ```bash
 bungkus-mc update --check    # only reports
@@ -286,7 +384,7 @@ bungkus-mc uninstall --purge    # also config, remembered sessions and the updat
 themselves rather than passing `--yes`. The agents' own files are never
 touched.
 
-## 8. Troubleshooting
+## 9. Troubleshooting
 
 | Symptom | Cause and fix |
 |---------|---------------|
@@ -298,6 +396,7 @@ touched.
 | A chord does nothing | the terminal keeps it. `BUNGKUS_MC_DEBUG_KEYS=1 bungkus-mc` shows every key mc receives in the hint line |
 | `ctrl-\` is taken (tmux + vim-tmux-navigator, VS Code / Cursor, JIS or German keyboards) | set `"interactExit": "ctrl-^"` or another chord |
 | `cmd`+`1` `2` `3` do nothing on macOS | the terminal keeps them for tabs. `alt`/`ctrl` + digit work without setup; for `cmd`, see "Terminal setup" in the README (Ghostty, kitty, WezTerm, iTerm2 mappings) |
+| `gh` in a session uses the wrong GitHub account, or a PR fails with "must be a collaborator" | step 7: map the workspace in `ghConfigDirs` and sign in to that folder. If it is mapped: the session started before the edit (restart it), mc is older than the key, or that folder is signed in as another account (`GH_CONFIG_DIR=<folder> gh auth status`) |
 | A folder is missing from the projects list | it has no `CLAUDE.md`, `AGENTS.md` or `.git`, or it is not a direct child of the workspace |
 | mc's green background is unwanted | `"background": "terminal"` |
 | Cannot select text with the mouse | hold `shift` while dragging (`option` in Terminal.app) |
@@ -306,7 +405,7 @@ touched.
 Known limits: sessions do not survive mc (resume them with `r`); two mc
 instances on one workspace share `sessions.json`, last writer wins.
 
-## 9. Finish
+## 10. Finish
 
 Tell the user what was installed and where, which files you wrote or
 changed, and the command to open mc. Point them to `?` inside mc and to
