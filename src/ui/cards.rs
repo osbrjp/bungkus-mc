@@ -498,15 +498,14 @@ fn bar_row(
 
 /// Returns the expanded usage rows of the selected card (DESIGN §6.3),
 /// each cut to `width` and in `text` style. The context (while the
-/// session runs) and every plan-limit window are [`bar_row`]s: context
-/// `warn` from 80 % and `err` from 90 %, limits `warn` from 80 % and `err`
-/// from 95 %, as in the compact line and the getah bar.
+/// session runs) is a [`bar_row`]: `warn` from 80 % and `err` from 90 %,
+/// as in the compact line. Plan limits are in the getah bar only.
 fn expanded_usage(card: &Card, width: usize, text: Style, theme: Theme) -> Vec<Vec<Span<'static>>> {
     let u = card.usage.clone().unwrap_or_default();
     let n = |v: Option<u64>| v.map_or_else(|| "-".to_owned(), tokens);
     let plain = |s: String| vec![Span::styled(truncate(&s, width), text)];
-    let level = |pct: f64, err: f64| match pct {
-        p if p >= err => Token::Err,
+    let level = |pct: f64| match pct {
+        p if p >= 90.0 => Token::Err,
         p if p >= 80.0 => Token::Warn,
         _ => Token::Ok,
     };
@@ -533,23 +532,10 @@ fn expanded_usage(card: &Card, width: usize, text: Style, theme: Theme) -> Vec<V
                 (None, Some(size)) => format!(" of {}", tokens(size)),
                 (_, None) => String::new(),
             };
-            bar_row(
-                "context  ",
-                pct,
-                &detail,
-                level(pct, 90.0),
-                (width, text),
-                theme,
-            )
+            bar_row("context  ", pct, &detail, level(pct), (width, text), theme)
         }
         None => plain("context  -".to_owned()),
     });
-    for (i, w) in u.limits.iter().enumerate() {
-        let head = if i == 0 { "limits" } else { "" };
-        let label = format!("{head:<9}{} ", w.label);
-        let fill = level(w.used_pct, 95.0);
-        rows.push(bar_row(&label, w.used_pct, "", fill, (width, text), theme));
-    }
     let names = card.mcp.iter().map(String::as_str);
     let (used, idle): (Vec<_>, Vec<_>) = names.partition(|name| card.mcp_in_use(name));
     for (label, servers) in [("mcp      ", used), ("mcp idle ", idle)] {
@@ -620,7 +606,7 @@ mod tests {
         let no_utf8 = theme.with_view(IconSet::Ascii, false, true);
         assert_eq!(row(23.0, 24, no_utf8), "context  ##-------- 23%");
         let args = (36, Style::default());
-        let spans = bar_row("limits   5h ", 96.0, "", Token::Err, args, theme);
+        let spans = bar_row("context  ", 96.0, "", Token::Err, args, theme);
         assert_eq!(spans[1].style, theme.fg(Token::Err));
         assert_eq!(spans[2].style, theme.fg(Token::FgMuted));
     }
