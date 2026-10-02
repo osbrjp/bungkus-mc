@@ -37,5 +37,5 @@
 │                    │┃                                    ┃│                                                          │
 │                    │┃                                    ┃│                                                          │
 └────────────────────┘┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛└──────────────────────────────────────────────────────────┘
- NORMAL  enter → agent · n new · x stop · o edit · t term · ? keys                         C 5h █░░░░ 6% · 7d █░░░░ 18%
+ NORMAL  ! next needs you · enter → agent · n new · x stop · o edit · t term · ? keys      C 5h █░░░░ 6% · 7d █░░░░ 18%
 cursor: hidden

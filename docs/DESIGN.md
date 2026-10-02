@@ -1290,6 +1290,7 @@ acceptance and permission answers are typed. Exceptions:
 | `ctrl-h`             | leave INTERACT to the sessions pane, as everywhere (the agent never sees it) |
 | `jj` · `jk` (fast)   | leave INTERACT to the sessions pane when the second key follows the `j` within 200 ms. The `j` has already reached the agent, so mc sends one backspace to take it back; slower pairs are ordinary typing |
 | `ctrl-l`             | swallowed: the output pane is already the rightmost (the agent never sees it) |
+| `ctrl-]`             | jump to the next needs-you session, as `!` does in NORMAL (the agent never sees it; `!` itself is typed to the agent). While another session needs you the getah bar adds `ctrl-] next needs you`; in NORMAL it leads with `! next needs you` |
 | `cmd`/`alt`/`ctrl` + `1`–`3` | focus projects / sessions / output (the agent never sees them); also in NORMAL. Cmd only arrives when the terminal does not keep it for its tabs |
 | `ctrl-z`             | swallowed (a suspended agent cannot be resumed from inside a pane)  |
 | mouse click on another pane | leaves INTERACT and focuses that pane                       |

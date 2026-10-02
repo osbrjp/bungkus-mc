@@ -384,6 +384,8 @@ pub(crate) const BINDINGS: &[Binding] = &[
             c('!'),
             Key::Press(KeyCode::Char('!'), KeyModifiers::SHIFT),
             ctrl(']'),
+            // Legacy terminals report 0x1d as ctrl-5.
+            ctrl('5'),
         ],
         label: "! ctrl-]",
         action: Action::NextNeedsYou,

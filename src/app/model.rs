@@ -1099,7 +1099,7 @@ impl Model {
 
     /// Jumps to the next session that needs you, across projects: selects
     /// its project and card and enters INTERACT (DESIGN §8.1).
-    fn next_needs_you(&mut self) -> Option<Cmd> {
+    pub(super) fn next_needs_you(&mut self) -> Option<Cmd> {
         let current = self.selected_card().map(|i| self.cards[i].id);
         let projects: Vec<PathBuf> = self.visible().iter().map(|p| p.path.clone()).collect();
         let mut found = Vec::new();
@@ -2687,6 +2687,32 @@ pub(crate) mod tests {
         m.focus = Focus::Sessions;
         m.update(press(KeyCode::Char('!')));
         assert_eq!(m.message.as_deref(), Some("nobody needs you right now"));
+    }
+
+    #[test]
+    fn ctrl_bracket_jumps_from_interact_and_bang_stays_the_agents() {
+        let mut m = sample(&["a"]);
+        let (first, _w1) = with_session(&mut m, "one");
+        let (second, w2) = with_session(&mut m, "two");
+        m.update(hook_line(
+            first,
+            r#"{"hook_event_name":"Notification","notification_type":"permission_prompt"}"#,
+        ));
+        let shown = |m: &Model| m.selected_card().map(|i| m.cards[i].id);
+        m.select_session(second);
+        m.update(press(KeyCode::Char('!')));
+        assert_eq!(shown(&m), Some(second), "! is typed to the agent");
+        assert_eq!(w2.try_iter().flatten().collect::<Vec<u8>>(), b"!");
+        for ch in [']', '5'] {
+            m.select_session(second);
+            m.update(AppEvent::Input(Event::Key(KeyEvent::new(
+                KeyCode::Char(ch),
+                KeyModifiers::CONTROL,
+            ))));
+            assert_eq!(shown(&m), Some(first), "ctrl-{ch} jumps");
+            assert_eq!(m.focus, Focus::Output);
+        }
+        assert_eq!(w2.try_iter().count(), 0, "the agent never sees the chord");
     }
 
     #[test]
