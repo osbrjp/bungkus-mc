@@ -12,9 +12,9 @@ use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
-use ratatui::text::Span;
 use serde::Deserialize;
 
+use crate::app::markdown::{self, Ink, TextLine};
 use crate::app::model::{Cmd, Model, Overlay};
 use crate::ui::keymap::Action;
 use crate::ui::sanitise::sanitise;
@@ -224,8 +224,8 @@ pub(crate) struct Viewer {
 pub(crate) struct Body {
     /// What it is the text of.
     pub link: Link,
-    /// The text, sanitised and wrapped; `None` while `gh` runs.
-    pub lines: Option<Vec<String>>,
+    /// The text, its Markdown rendered and wrapped; `None` while `gh` runs.
+    pub lines: Option<Vec<TextLine>>,
     /// The first line shown.
     pub scroll: usize,
 }
@@ -240,60 +240,78 @@ const BODY_PAGE: usize = 10;
 /// Most wrapped lines kept of one text; the browser has the rest.
 const BODY_MAX: usize = 2000;
 
-/// Longest source line kept, in characters, before wrapping.
-const BODY_LINE_MAX: usize = 4000;
-
-/// What `gh --json body` prints.
+/// What `gh --json body,comments` prints; a comment has the same shape,
+/// with its author and date and no comments of its own.
 #[derive(Debug, Deserialize)]
 struct RawBody {
     #[serde(default)]
     body: String,
+    #[serde(default)]
+    comments: Vec<RawBody>,
+    #[serde(default)]
+    author: Option<RawAuthor>,
+    #[serde(default, rename = "createdAt")]
+    created_at: String,
 }
 
-/// Reads the text of `link` with `gh issue view` / `gh pr view` in `dir`
-/// (by its URL, so one in another repository is found too); `None` when
-/// `gh` failed.
+/// Who wrote a comment; absent for a deleted account.
+#[derive(Debug, Deserialize)]
+struct RawAuthor {
+    #[serde(default)]
+    login: String,
+}
+
+/// Parses what `gh … --json body,comments` printed into the Markdown
+/// texts of the view: the description, then each comment under a rule and
+/// a line naming its author and day.
+fn parse_thread(json: &str) -> Option<Vec<String>> {
+    let raw = serde_json::from_str::<RawBody>(json).ok()?;
+    let comments = raw.comments.into_iter().map(|comment| {
+        let login = comment.author.map_or_else(String::new, |a| a.login);
+        let who = sanitise(&login, 40);
+        let who = if who.is_empty() { "ghost" } else { &who };
+        let day: String = comment.created_at.chars().take(10).collect();
+        format!("\n---\n**@{who}** · {day}\n\n{}", comment.body)
+    });
+    Some(std::iter::once(raw.body).chain(comments).collect())
+}
+
+/// Reads the description and comments of `link` with `gh issue view` /
+/// `gh pr view` in `dir` (by its URL, so one in another repository is
+/// found too), as the texts of [`parse_thread`]; `None` when `gh` failed.
+/// Review comments on a pull request's code are not read.
 #[must_use]
-pub(crate) fn body(dir: &Path, link: &Link) -> Option<String> {
+pub(crate) fn body(dir: &Path, link: &Link) -> Option<Vec<String>> {
     let what = match link.kind {
         LinkKind::Issue => "issue",
         LinkKind::Pr => "pr",
     };
-    let json = gh(dir, &[what, "view", &link.url, "--json", "body"])?;
-    Some(serde_json::from_str::<RawBody>(&json).ok()?.body)
+    let json = gh(dir, &[what, "view", &link.url, "--json", "body,comments"])?;
+    parse_thread(&json)
 }
 
-/// Sanitises `text` line by line and wraps it to [`BODY_WIDTH`] columns,
-/// at a space where the line has one; at most [`BODY_MAX`] lines. Wide
-/// characters (CJK) count two columns. The text is shown as written:
-/// Markdown is not rendered.
-fn wrap(text: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    for line in text.lines() {
-        let line = sanitise(line, BODY_LINE_MAX);
-        let (mut current, mut used, mut space) = (String::new(), 0, None);
-        for ch in line.chars() {
-            let width = Span::raw(ch.to_string()).width();
-            if used + width > BODY_WIDTH {
-                let rest = space.map_or_else(String::new, |at| current.split_off(at));
-                out.push(std::mem::replace(&mut current, rest));
-                used = Span::raw(current.as_str()).width();
-                space = None;
-            }
-            current.push(ch);
-            used += width;
-            if ch == ' ' {
-                space = Some(current.len());
-            }
-        }
-        out.push(current);
-        if out.len() >= BODY_MAX {
-            out.truncate(BODY_MAX);
-            out.push("… (the rest is in the browser: o)".to_owned());
-            break;
-        }
+/// Returns the lines of the text view for what `gh` read: each text's
+/// Markdown rendered on its own (an unclosed code fence ends with its
+/// comment) to [`BODY_WIDTH`] columns, cut at [`BODY_MAX`] lines, or one
+/// muted line saying there is no text or that the read failed.
+fn body_lines(texts: Option<&[String]>) -> Vec<TextLine> {
+    let note = |words: &str| vec![vec![(Ink::Muted, words.to_owned())]];
+    let Some(texts) = texts else {
+        return note("Could not read it (gh failed).");
+    };
+    let rendered = texts.iter().map(|text| markdown::render(text, BODY_WIDTH));
+    let mut lines: Vec<TextLine> = rendered.flatten().collect();
+    if lines
+        .iter()
+        .all(|line| line.iter().all(|(_, run)| run.trim().is_empty()))
+    {
+        return note("(no description)");
     }
-    out
+    if lines.len() > BODY_MAX {
+        lines.truncate(BODY_MAX);
+        lines.extend(note("… (the rest is in the browser: o)"));
+    }
+    lines
 }
 
 impl Model {
@@ -385,9 +403,8 @@ impl Model {
     }
 
     /// Gives the open text view what `gh` read for the link at `url`:
-    /// its text wrapped to [`BODY_WIDTH`], or a line saying there is none
-    /// or that the read failed. The first answer stays.
-    pub(super) fn set_link_body(&mut self, url: &str, text: Option<String>) {
+    /// its lines ([`body_lines`]). The first answer stays.
+    pub(super) fn set_link_body(&mut self, url: &str, text: Option<&[String]>) {
         let Some(Overlay::Links(viewer)) = &mut self.overlay else {
             return;
         };
@@ -398,11 +415,7 @@ impl Model {
         else {
             return;
         };
-        body.lines = Some(match text {
-            Some(text) if text.trim().is_empty() => vec!["(no description)".to_owned()],
-            Some(text) => wrap(&text),
-            None => vec!["Could not read it (gh failed).".to_owned()],
-        });
+        body.lines = Some(body_lines(text));
     }
 
     /// Applies a key to the popup.
@@ -613,19 +626,40 @@ mod tests {
         );
         assert!(crate::ui::tests::render(&mut m, 120, 40).contains("asking gh"));
         let text = format!("## Why\n\n{}\nlast \u{1b}[31mline", "word ".repeat(40));
-        m.update(AppEvent::LinkBody("https://other".into(), Some("x".into())));
-        m.update(AppEvent::LinkBody(url.into(), Some(text)));
+        let thread = serde_json::json!({
+            "body": text,
+            "comments": [
+                {"author": {"login": "octo"}, "createdAt": "2026-10-02T12:00:00Z",
+                 "body": "LGTM, see `main.rs`\n```\nunclosed"},
+                {"author": null, "createdAt": "", "body": "**second**"},
+            ],
+        })
+        .to_string();
+        m.update(AppEvent::LinkBody(
+            "https://other".into(),
+            Some(vec!["x".into()]),
+        ));
+        m.update(AppEvent::LinkBody(url.into(), parse_thread(&thread)));
         let screen = crate::ui::tests::render(&mut m, 120, 40);
-        assert!(screen.contains("PR #7 · title 7") && screen.contains("## Why"));
+        assert!(screen.contains("PR #7 · title 7") && screen.contains("  Why"));
+        assert!(!screen.contains("## Why"), "the heading mark is not shown");
         assert!(
-            screen.contains("last line") && screen.contains("1/6"),
+            screen.contains("last line") && screen.contains("1/17"),
             "{screen}"
         );
+        for shown in [
+            "@octo · 2026-10-02",
+            "LGTM, see main.rs",
+            "@ghost · ",
+            "  second",
+        ] {
+            assert!(screen.contains(shown), "{shown}: {screen}");
+        }
         m.update(press(KeyCode::Char('G')));
         m.update(press(KeyCode::Char('j')));
         assert!(
-            crate::ui::tests::render(&mut m, 120, 40).contains("1/6"),
-            "a short text does not scroll"
+            crate::ui::tests::render(&mut m, 120, 40).contains("8/17"),
+            "the end keeps ten lines in view"
         );
         assert_eq!(
             m.update(press(KeyCode::Char('o'))),
@@ -641,15 +675,17 @@ mod tests {
     }
 
     #[test]
-    fn wraps_text_at_spaces_and_counts_wide_characters_as_two_columns() {
-        let lines = wrap(&format!("{} tail\n\n{}", "a".repeat(68), "漢".repeat(40)));
-        let widths: Vec<usize> = lines
-            .iter()
-            .map(|l| Span::raw(l.as_str()).width())
-            .collect();
-        assert_eq!(lines[0], format!("{} ", "a".repeat(68)));
-        assert_eq!((lines[1].as_str(), lines[2].as_str()), ("tail", ""));
-        assert_eq!(widths[3..], [70, 10]);
-        assert_eq!(wrap(&"x\n".repeat(3000)).len(), BODY_MAX + 1);
+    fn a_long_text_is_cut_and_a_missing_one_says_so() {
+        assert_eq!(body_lines(Some(&["x\n".repeat(3000)])).len(), BODY_MAX + 1);
+        for (text, want) in [
+            (
+                Some(&[" \n<!-- template -->".to_owned()][..]),
+                "(no description)",
+            ),
+            (None, "Could not read"),
+        ] {
+            let lines = body_lines(text);
+            assert!(lines[0][0].1.starts_with(want) && lines.len() == 1);
+        }
     }
 }

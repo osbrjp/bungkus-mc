@@ -282,9 +282,11 @@ status: for a folder whose branch is not the one last read, and every 60 s
 for the folders of running sessions. Results are kept per folder in the
 model (not in `sessions.json`; they are read again on start) and arrive
 as `AppEvent::Links`. The `i` popup asks `gh pr list` and `gh issue list`
-(30 each) when it opens, and `gh issue view <url> --json body` (or `gh pr
-view`) when `enter` asks for a row's text, which is sanitised line by
-line, wrapped and capped at 2000 lines. `P`, `I` and `o` in the popup hand the URL to
+(30 each) when it opens, and `gh issue view <url> --json body,comments` (or `gh pr
+view`) when `enter` asks for a row's description and comments, which `src/app/markdown.rs` reads
+(sanitised line by line; headings, lists, quotes, rules, fenced code and
+inline code, bold, italic and link text; no crate), wrapped and capped at
+2000 lines. The model keeps styled runs (`Ink`); `ui` gives them colours. `P`, `I` and `o` in the popup hand the URL to
 the desktop's opener, the same path as `O`. Without `gh`, a login or a
 GitHub remote every call fails and nothing is linked.
 ### 3.7 Activity overlay (resource use, display only)

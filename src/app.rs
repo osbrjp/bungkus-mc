@@ -13,6 +13,7 @@ pub(crate) mod form;
 pub(crate) mod groups;
 mod interact;
 pub(crate) mod links;
+pub(crate) mod markdown;
 pub(crate) mod model;
 pub(crate) mod picker;
 pub(crate) mod quick;
@@ -96,9 +97,10 @@ pub(crate) enum AppEvent {
     /// The open pull requests and issues `gh` listed for the popup opened
     /// on this folder.
     LinkList(PathBuf, Vec<links::Link>),
-    /// The text `gh` read of the issue or pull request at this URL, for
+    /// The description and comments `gh` read of the issue or pull request at
+    /// this URL (see `links::body`), for
     /// the popup's text view; `None` when the read failed.
-    LinkBody(String, Option<String>),
+    LinkBody(String, Option<Vec<String>>),
     /// The host terminal went away (input closed).
     HostGone,
     /// A newer release exists (the hourly check).
