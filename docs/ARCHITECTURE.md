@@ -250,8 +250,9 @@ A thread lists them every 5 s (`src/external.rs`) and sends
 ### 3.5 The user's tools: editor popup and terminal pane
 
 `o` and `t` run programs of the user's, not agents (`src/app/tools.rs`):
-vim (`$VISUAL`/`$EDITOR` when it is `vi`/`vim`/`nvim`, with `.` in the
-project) in the popup, and `$SHELL` in the terminal pane below the output
+vim (the `editor` setting, else `$VISUAL`/`$EDITOR`, when it is
+`vi`/`vim`/`nvim`, or with none set the first of `nvim`/`vim`/`vi` on
+`PATH`, with `.` in the project) in the popup, and `$SHELL` in the terminal pane below the output
 pane, one shell per project, kept by folder. mc needs no other program
 for either (no tmux, no terminal app): both use its own PTY and emulator. Each is a `Session` (same PTY, emulator, threads and scrubbed
 environment as an agent) held by the model next to the cards, not as one:
@@ -821,6 +822,7 @@ the key). A hidden folder is never listed as a project.
   "workspace": "/Users/me/Works/OSBR",
   "defaultAgent": "claude",
   "theme": "auto",
+  "editor": "nvim",
   "background": "paint",
   "motion": true,
   "icons": "auto",
@@ -846,9 +848,9 @@ the key). A hidden folder is never listed as a project.
 ```
 
 mc writes `config.json` in one place only: the setup wizard and the
-settings screen (DESIGN.md §5.8) save `workspace`, `defaultAgent` and
-`theme`. The file is read as a `serde_json::Value` (with `preserve_order`),
-those three keys are set, and it is written back atomically (temp file +
+settings screen (DESIGN.md §5.8) save `workspace`, `defaultAgent`, `theme`
+and `editor` (removed when unset). The file is read as a `serde_json::Value` (with `preserve_order`),
+those four keys are set, and it is written back atomically (temp file +
 `rename`, 0600): every other key, and the key order, survive. A file that
 is not a JSON object is never replaced; the save fails with a message.
 Consent is still recorded in the state dir, not in config. The Jev model id (`jev-latest`), the

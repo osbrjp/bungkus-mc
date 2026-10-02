@@ -197,6 +197,9 @@ fn main() -> Result<()> {
     );
     let mut model = Model::new(theme, home.clone(), found, fallback);
     model.message = message;
+    model.editors = app::tools::editors(app::user_editor().as_deref(), |name| {
+        find_on_path(name, &path_var).is_some()
+    });
     model.keep.clone_from(&config.cleanup.keep);
     model.widths = config.panes;
     model.workspaces = config
@@ -362,6 +365,7 @@ fn apply(model: &mut Model, config: &Config, workspace: PathBuf, cwd: &Path) {
         workspace,
         theme: config.theme,
         default_agent: config.default_agent,
+        editor: config.editor.clone(),
     };
     model.remember_workspace(&settings.workspace);
     model.apply(settings, scan, cwd);

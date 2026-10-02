@@ -19,6 +19,8 @@ const WIZARD_WIDTH: u16 = 70;
 const WIZARD_HEIGHT: u16 = 22;
 /// Column where field values start, after the label.
 const LABEL_WIDTH: u16 = 12;
+/// What precedes the typed editor command on its row.
+const COMMAND: &str = "command: ";
 
 /// Draws the wizard step for `form.field`, centred on the screen.
 ///
@@ -64,12 +66,21 @@ pub(super) fn draw_wizard(
         draw_browser(frame, list, form, theme);
     } else {
         frame.render_widget(Paragraph::new(step_rows(form, theme, host_light)), body);
+        let note = Rect {
+            y: body.y + 2,
+            height: body.height.saturating_sub(2).min(1),
+            ..body
+        };
+        editor_cursor(frame, note, form);
     }
     draw_error(frame, error, form, theme);
     let hints = match form.field {
         Field::Workspace if form.typing => "type a path · enter choose · esc stop typing",
         Field::Workspace => "j/k pick · l open · h up · / type a path · enter choose · esc skip",
-        Field::Agent | Field::Theme => "← → choose · enter next · esc back",
+        Field::Editor if form.typing_editor() => {
+            "type a command · ← → choose · enter next · esc back"
+        }
+        Field::Agent | Field::Theme | Field::Editor => "← → choose · enter next · esc back",
         Field::Done => "enter start · esc back",
     };
     frame.render_widget(
@@ -84,7 +95,8 @@ fn title_lines(field: Field, theme: Theme) -> Vec<Line<'static>> {
         Field::Workspace => (1, "workspace"),
         Field::Agent => (2, "default agent"),
         Field::Theme => (3, "theme"),
-        Field::Done => (4, "all set"),
+        Field::Editor => (4, "editor"),
+        Field::Done => (5, "all set"),
     };
     vec![
         Line::from(""),
@@ -97,11 +109,11 @@ fn title_lines(field: Field, theme: Theme) -> Vec<Line<'static>> {
         ]),
         Line::styled("mission control for AI agents", theme.fg(Token::Fg)),
         Line::from(""),
-        Line::styled(format!("step {step} of 4 · {name}"), theme.fg(Token::Info)),
+        Line::styled(format!("step {step} of 5 · {name}"), theme.fg(Token::Info)),
     ]
 }
 
-/// Returns the body rows of the agent, theme and summary steps.
+/// Returns the body rows of the agent, theme, editor and summary steps.
 fn step_rows(form: &Form, theme: Theme, host_light: Option<bool>) -> Vec<Line<'static>> {
     let muted = theme.fg(Token::FgMuted);
     let value = |text: &str| vec![Span::styled(text.to_owned(), theme.fg(Token::Fg))];
@@ -119,10 +131,29 @@ fn step_rows(form: &Form, theme: Theme, host_light: Option<bool>) -> Vec<Line<'s
             indent(&theme_note(form.theme, host_light), muted),
             preview_line(theme),
         ],
+        Field::Editor => vec![
+            label_line("editor", editor_spans(form, theme, true)),
+            Line::from(""),
+            indent(&editor_note(form), muted),
+            indent(
+                if !form.typing_editor() {
+                    "O opens its folder in the file manager"
+                } else if form.editors.is_empty() {
+                    "no editor found on PATH: type its command or full path"
+                } else {
+                    "a command or full path; empty: $VISUAL/$EDITOR"
+                },
+                muted,
+            ),
+        ],
         Field::Done => vec![
             label_line("workspace", value(&form.workspace)),
             label_line("agent", value(form.agent.command())),
             label_line("theme", value(form.theme.label())),
+            label_line(
+                "editor",
+                value(form.editor_command().unwrap_or("$VISUAL / $EDITOR")),
+            ),
             Line::from(""),
             indent("change these any time with , (settings)", muted),
         ],
@@ -147,15 +178,27 @@ pub(super) fn draw_settings(
 ) {
     let browsing = form.field == Field::Workspace;
     let list_rows = if browsing { 9 } else { 0 };
-    let rect = centred(area, 66, 12 + list_rows);
+    let rect = centred(area, 74, 13 + list_rows);
     frame.render_widget(Clear, rect);
     let block = dialog("settings", theme);
     let inner = block.inner(rect);
     frame.render_widget(block, rect);
-    let [_, workspace, list, agent, theme_row, note, error, _, hint] = Layout::vertical([
+    let [
+        _,
+        workspace,
+        list,
+        agent,
+        theme_row,
+        editor,
+        note,
+        error,
+        _,
+        hint,
+    ] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Length(list_rows),
+        Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Length(1),
@@ -193,9 +236,19 @@ pub(super) fn draw_settings(
         ),
         shift(theme_row),
     );
+    frame.render_widget(focused_row(editor, Field::Editor), editor);
+    frame.render_widget(
+        label_line(
+            "editor",
+            editor_spans(form, theme, form.field == Field::Editor),
+        ),
+        shift(editor),
+    );
+    editor_cursor(frame, shift(note), form);
     let note_text = match form.field {
         Field::Agent => found_text(form),
         Field::Theme => theme_note(form.theme, host_light),
+        Field::Editor => editor_note(form),
         Field::Workspace | Field::Done => {
             "projects = folders with CLAUDE.md, AGENTS.md or .git".into()
         }
@@ -210,19 +263,25 @@ pub(super) fn draw_settings(
     }
     draw_error(frame, shift(error), form, theme);
     frame.render_widget(
-        Line::styled(
-            if browsing && form.typing {
-                "type a path · enter choose · esc stop typing · tab field "
-            } else if browsing {
-                "j/k pick · l open · h up · / type a path · enter choose · tab field "
-            } else {
-                "j/k ↑↓ field · h/l ← → change · enter save · esc cancel "
-            },
-            theme.fg(Token::FgMuted),
-        )
-        .alignment(Alignment::Right),
+        Line::styled(settings_hint(form), theme.fg(Token::FgMuted)).alignment(Alignment::Right),
         hint,
     );
+}
+
+/// Returns the settings dialog's key hints for the field in focus.
+fn settings_hint(form: &Form) -> &'static str {
+    match form.field {
+        Field::Workspace if form.typing => {
+            "type a path · enter choose · esc stop typing · tab field "
+        }
+        Field::Workspace => "j/k pick · l open · h up · / type a path · enter choose · tab field ",
+        Field::Editor if form.typing_editor() => {
+            "type a command · ← → change · ↑↓ field · enter save · esc cancel "
+        }
+        Field::Agent | Field::Theme | Field::Editor | Field::Done => {
+            "j/k ↑↓ field · h/l ← → change · enter save · esc cancel "
+        }
+    }
 }
 
 /// Draws the folder browser under the workspace field: a line saying how
@@ -343,6 +402,40 @@ fn theme_spans(form: &Form, theme: Theme, focused: bool) -> Vec<Span<'static>> {
         .collect()
 }
 
+/// Returns the editor choice row: the listed editors, then `other` for a
+/// typed command.
+fn editor_spans(form: &Form, theme: Theme, focused: bool) -> Vec<Span<'static>> {
+    let listed = form.editors.iter().map(String::as_str);
+    listed
+        .chain(std::iter::once("other"))
+        .enumerate()
+        .flat_map(|(i, name)| {
+            let chosen = i == form.editor.min(form.editors.len());
+            [choice(name, chosen, focused, theme), Span::raw("  ")]
+        })
+        .collect()
+}
+
+/// Returns the line under the editor choice: the typed command, or what
+/// `o` does with the chosen one.
+fn editor_note(form: &Form) -> String {
+    if form.typing_editor() {
+        format!("{COMMAND}{}", form.editor_text)
+    } else {
+        "o opens the selected project in it".into()
+    }
+}
+
+/// Puts the terminal cursor at the end of the typed editor command on
+/// `row` (where [`editor_note`] is drawn) while that field takes typing.
+fn editor_cursor(frame: &mut Frame, row: Rect, form: &Form) {
+    if form.field == Field::Editor && form.typing_editor() {
+        let typed = COMMAND.len() + form.editor_text.chars().count();
+        let x = row.x + LABEL_WIDTH + u16::try_from(typed).unwrap_or(0);
+        frame.set_cursor_position(Position::new(x.min(row.right()), row.y));
+    }
+}
+
 /// Returns one option of a choice row: `> name` when chosen.
 fn choice(label: &str, chosen: bool, focused: bool, theme: Theme) -> Span<'static> {
     if chosen {
@@ -440,6 +533,7 @@ mod tests {
     fn wizard_steps_match_goldens() {
         let mut model = sample(&["kedai-web"]);
         model.settings = None;
+        model.editors = vec!["nvim".into(), "vim".into(), "code".into()];
         model.start_wizard("~/Works/OSBR");
         let fixture = std::env::temp_dir().join(format!("mc-wizard-{}", std::process::id()));
         for dir in ["Works/OSBR", "kedai-web/.git", "notes", "roti-docs"] {
@@ -450,7 +544,10 @@ mod tests {
             form.browser = crate::app::browser::Browser::open(&fixture);
             form.browser.step(1);
         }
-        for (step, name) in ["workspace", "agent", "theme", "done"].iter().enumerate() {
+        for (step, name) in ["workspace", "agent", "theme", "editor", "done"]
+            .iter()
+            .enumerate()
+        {
             assert_golden(
                 &format!("wizard-{}-{name}-80x24.txt", step + 1),
                 &render(&mut model, 80, 24),

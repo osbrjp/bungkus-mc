@@ -4,19 +4,19 @@
 ┃>  1 kedai-web      ┃│                                                        │
 ┃   2 teh-cli        ┃│                                                        │
 ┃                    ┃│                                                        │
-┃      ╔ settings ══════════════════════════════════════════════════════╗      │
-┃      ║                                                                ║──────┘
-┃      ║   workspace   ┃~/Works/OSBR                                  ┃ ║──────┐
-┃      ║ > agent       > claude    codex (not on PATH)                  ║      │
-┃      ║   theme         auto  > dark    light                          ║      │
-┃      ║               + ~/.local/bin/claude   - codex not on PATH      ║      │
-┃      ║               saved for: all workspaces · w switches           ║      │
-┃      ║                                                                ║      │
-┃      ║                                                                ║      │
-┃      ║                                                                ║      │
-┃      ║        j/k ↑↓ field · h/l ← → change · enter save · esc cancel ║      │
-┃      ╚════════════════════════════════════════════════════════════════╝      │
-┃                    ┃│                                                        │
+┃  ╔ settings ══════════════════════════════════════════════════════════════╗  │
+┃  ║                                                                        ║──┘
+┃  ║   workspace   ┃~/Works/OSBR                                          ┃ ║──┐
+┃  ║ > agent       > claude    codex (not on PATH)                          ║  │
+┃  ║   theme         auto  > dark    light                                  ║  │
+┃  ║   editor      > other                                                  ║  │
+┃  ║               + ~/.local/bin/claude   - codex not on PATH              ║  │
+┃  ║               saved for: all workspaces · w switches                   ║  │
+┃  ║                                                                        ║  │
+┃  ║                                                                        ║  │
+┃  ║                                                                        ║  │
+┃  ║                j/k ↑↓ field · h/l ← → change · enter save · esc cancel ║  │
+┃  ╚════════════════════════════════════════════════════════════════════════╝  │
 ┃                    ┃│                  Nothing wrapped yet.                  │
 ┃                    ┃│                  n to start a session                  │
 ┃                    ┃│                                                        │

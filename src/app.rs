@@ -56,6 +56,11 @@ const TICK: Duration = Duration::from_millis(350);
 /// Capacity of the event channel: 64 PTY reads of 32 KiB (ARCHITECTURE §3).
 const CHANNEL_CAPACITY: usize = 64;
 
+/// How long `O` waits before the desktop's opener runs. The opener takes
+/// the focus, and a terminal that loses it while Shift is still down never
+/// sees the release: every later key then arrives shifted, until a click.
+const FOLDER_DELAY: Duration = Duration::from_millis(300);
+
 /// How often sessions outside mc are listed (ARCHITECTURE §3.4).
 const EXTERNAL_EVERY: Duration = Duration::from_secs(5);
 
@@ -435,14 +440,8 @@ fn run_cmd(
         Cmd::RemoveWorktree(project, name) => forget_worktree(model, &project, &name, tx),
         Cmd::CleanWorktrees(project) => clean_worktrees(model, &project, tx),
         Cmd::OpenEditor(project) => open_editor(model, &project, tx),
-        Cmd::OpenTerminal(dir) => {
-            let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
-            let size = ui::terminal_size(model.screen, model.zoom, model.widths);
-            if let Some(tool) = spawn_tool(model, &[shell], &dir, size, tx) {
-                model.shells.push((dir, tool));
-                model.term_view = TermView::Focused;
-            }
-        }
+        Cmd::OpenFolder(project) => open_folder(model, project),
+        Cmd::OpenTerminal(dir) => open_terminal(model, dir, tx),
         Cmd::SaveWidths(widths) => {
             if let Some(path) = &env.config_path
                 && let Err(e) = config::save_widths(path, widths)
@@ -900,45 +899,98 @@ fn spawn_tool(
     }
 }
 
-/// Opens `project` in the user's editor (`$VISUAL`, else `$EDITOR`; see
-/// [`tools::opener`]): vim in the popup with the folder as its argument,
-/// anything else started on its own (argv, no shell) and left alone.
-fn open_editor(model: &mut Model, project: &Path, tx: &SyncSender<AppEvent>) {
-    let editor = ["VISUAL", "EDITOR"]
+/// Starts the terminal pane's shell (`$SHELL`, else `/bin/sh`) in `dir`
+/// and gives it the keys.
+fn open_terminal(model: &mut Model, dir: PathBuf, tx: &SyncSender<AppEvent>) {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
+    let size = ui::terminal_size(model.screen, model.zoom, model.widths);
+    if let Some(tool) = spawn_tool(model, &[shell], &dir, size, tx) {
+        model.shells.push((dir, tool));
+        model.term_view = TermView::Focused;
+    }
+}
+
+/// Returns the user's own editor: `$VISUAL`, else `$EDITOR`, when set.
+pub(crate) fn user_editor() -> Option<String> {
+    ["VISUAL", "EDITOR"]
         .iter()
         .filter_map(|name| std::env::var(name).ok())
-        .find(|value| !value.trim().is_empty());
-    match tools::opener(editor.as_deref()) {
+        .find(|value| !value.trim().is_empty())
+}
+
+/// Opens `project` in the user's editor (the `editor` setting, else
+/// `$VISUAL`, else `$EDITOR`; see [`tools::opener`]): vim in the popup with
+/// the folder as its argument (also when none is set and one is on
+/// `PATH`), anything else started on its own and left alone.
+fn open_editor(model: &mut Model, project: &Path, tx: &SyncSender<AppEvent>) {
+    let editor = model
+        .settings
+        .as_ref()
+        .and_then(|s| s.editor.clone())
+        .or_else(user_editor);
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let installed = |name: &str| find_on_path(name, &path).is_some();
+    match tools::opener(editor.as_deref(), installed) {
         Opener::Popup(mut command) => {
             command.push(".".into());
             let size = ui::popup_size(model.screen);
             model.editor = spawn_tool(model, &command, project, size, tx);
         }
-        Opener::Detached(command) => {
-            use std::os::unix::process::CommandExt;
-            let Some((program, args)) = command.split_first() else {
-                return;
-            };
-            let spawned = std::process::Command::new(program)
-                .args(args)
-                .arg(project)
-                .current_dir(project)
-                .process_group(0)
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn();
-            match spawned {
-                Ok(mut child) => {
-                    model.message = Some(format!("Opened in {program}."));
-                    thread::spawn(move || {
-                        // reason: reaps the child; its exit status does not matter.
-                        let _ = child.wait();
-                    });
-                }
-                Err(e) => model.message = Some(format!("Could not start {program}: {e}")),
-            }
+        Opener::Detached(command) => open_detached(model, &command, project),
+    }
+}
+
+/// Opens `project` with the desktop's opener ([`tools::desktop_opener`])
+/// after [`FOLDER_DELAY`], off the UI thread; a missing opener goes to the
+/// message line.
+fn open_folder(model: &mut Model, project: PathBuf) {
+    use std::os::unix::process::CommandExt;
+    let opener = tools::desktop_opener();
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    if find_on_path(opener, &path).is_none() {
+        model.message = Some(format!("{opener} not found on PATH."));
+        return;
+    }
+    model.message = Some(format!("Opened in {opener}."));
+    thread::spawn(move || {
+        thread::sleep(FOLDER_DELAY);
+        // reason: the opener shows its own errors; its status does not matter.
+        let _ = std::process::Command::new(opener)
+            .arg(&project)
+            .process_group(0)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    });
+}
+
+/// Starts `command` (argv, no shell) with `project` as its last argument
+/// and leaves it alone: its own process group, no terminal; the outcome
+/// goes to the message line.
+fn open_detached(model: &mut Model, command: &[String], project: &Path) {
+    use std::os::unix::process::CommandExt;
+    let Some((program, args)) = command.split_first() else {
+        return;
+    };
+    let spawned = std::process::Command::new(program)
+        .args(args)
+        .arg(project)
+        .current_dir(project)
+        .process_group(0)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+    match spawned {
+        Ok(mut child) => {
+            model.message = Some(format!("Opened in {program}."));
+            thread::spawn(move || {
+                // reason: reaps the child; its exit status does not matter.
+                let _ = child.wait();
+            });
         }
+        Err(e) => model.message = Some(format!("Could not start {program}: {e}")),
     }
 }
 

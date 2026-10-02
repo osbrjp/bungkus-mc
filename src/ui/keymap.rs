@@ -58,6 +58,8 @@ pub(crate) enum Action {
     ToggleRest,
     /// Open the selected project in the user's editor (vim in a popup).
     Editor,
+    /// Open the selected project's folder with the desktop's opener.
+    Folder,
     /// Show or hide the terminal pane below the output pane.
     Terminal,
     /// Start a quick session at the workspace root (a popup).
@@ -454,6 +456,14 @@ pub(crate) const BINDINGS: &[Binding] = &[
         scope: Scope::Global,
     },
     Binding {
+        keys: &[Key::Press(KeyCode::Char('O'), KeyModifiers::SHIFT), c('O')],
+        label: "O",
+        action: Action::Folder,
+        help: "open the folder",
+        hint: None,
+        scope: Scope::Global,
+    },
+    Binding {
         keys: &[c('t')],
         label: "t",
         action: Action::Terminal,
@@ -626,6 +636,7 @@ impl Action {
             | Self::UndoTrash
             | Self::Visual
             | Self::Editor
+            | Self::Folder
             | Self::ToggleRest
             | Self::CleanWorktrees => Group::Projects,
             Self::Workspace

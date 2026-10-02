@@ -21,7 +21,7 @@
 ┃                    ║  a                    new project     V                    select lines    ║                    │
 ┃                    ║  u                    undo dd         dd                   to Trash        ║                    │
 ┃                    ║  c                    clean worktrees e                    more projects   ║                    │
-┃                    ║  o                    open in editor                                       ║.                   │
+┃                    ║  o                    open in editor  O                    open the folder ║.                   │
 ┃                    ║                                                                            ║n                   │
 ┃                    ║  workspace & app                                                           ║                    │
 ┃                    ║  U                    update+restart  t                    terminal on/off ║                    │
