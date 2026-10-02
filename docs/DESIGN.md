@@ -1163,7 +1163,7 @@ cleared by the next key).
 | `enter`     | focus the sessions pane of the selected project               |
 | `j` `k`     | move the sidebar selection; the sessions pane switches to that project |
 | `n`         | new session for the selected project (same picker as below)   |
-| `e`         | show / hide the projects that are not recent. Recent projects (the ones with a session, a repository and its worktrees together) lead the list; the others fold behind the line `+ <n> more (e)` (`-` while they show). `j`/`↓` on the last recent project opens them too. With no recent project, or only recent ones, the list is not grouped; a search finds every project |
+| `e`         | show / hide the projects that are not recent. Recent projects lead the list, 5 at most (a repository and its worktrees counting as one): the ones a session runs in now, then the most recently used by their latest session start; more than 5 only when more than 5 have a running session, so one that needs you never folds away; the others fold behind the line `+ <n> more (e)` (`-` while they show). `j`/`↓` on the last recent project opens them too. With no recent project, or only recent ones, the list is not grouped; a search finds every project |
 
 `n` `enter` from the projects pane therefore starts a session for the
 highlighted project with the default agent and no prompt.
