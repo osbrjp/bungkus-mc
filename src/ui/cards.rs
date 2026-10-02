@@ -330,8 +330,10 @@ fn card_lines(
     if let Some(repo) = repo {
         lines.push(body(&repo.label(body_width), theme.fg(Token::FgMuted)));
     }
-    if !card.mcp.is_empty() && mark != Mark::Focused {
-        let line = mcp_line(&card.mcp, theme.icons);
+    let in_use = card.mcp.iter().filter(|name| card.mcp_in_use(name));
+    let in_use: Vec<String> = in_use.cloned().collect();
+    if !in_use.is_empty() && mark != Mark::Focused {
+        let line = mcp_line(&in_use, theme.icons);
         lines.push(body(&line, theme.fg(Token::FgMuted)));
     }
     let lead = [
@@ -529,8 +531,12 @@ fn expanded_usage(card: &Card, width: usize, text: Style, theme: Theme) -> Vec<V
         let fill = level(w.used_pct, 95.0);
         rows.push(bar_row(&label, w.used_pct, "", fill, (width, text), theme));
     }
-    if !card.mcp.is_empty() {
-        rows.push(plain(format!("mcp      {}", card.mcp.join(" · "))));
+    let names = card.mcp.iter().map(String::as_str);
+    let (used, idle): (Vec<_>, Vec<_>) = names.partition(|name| card.mcp_in_use(name));
+    for (label, names) in [("mcp      ", used), ("mcp idle ", idle)] {
+        if !names.is_empty() {
+            rows.push(plain(format!("{label}{}", names.join(" · "))));
+        }
     }
     rows
 }
@@ -633,7 +639,8 @@ mod tests {
             None,
             now,
         );
-        card.mcp = vec!["github".into(), "miko".into()];
+        card.mcp = vec!["github".into(), "miko".into(), "slack".into()];
+        card.mcp_used = vec!["miko".into(), "github".into()];
         let line = |theme, mark, n: usize| {
             card_lines(&card, None, mark, 36, '*', now, theme)[n]
                 .to_string()
@@ -644,5 +651,11 @@ mod tests {
         let nerd = theme.with_view(IconSet::Nerd, true, true);
         assert_eq!(line(nerd, Mark::None, 2), "\u{f09b}  \u{f1e6} miko");
         assert_eq!(line(nerd, Mark::Focused, 6), "mcp      github · miko");
+        assert_eq!(line(nerd, Mark::Focused, 7), "mcp idle slack");
+        card.mcp_used.clear();
+        assert_eq!(
+            card_lines(&card, None, Mark::None, 36, '*', now, theme).len(),
+            3
+        );
     }
 }
