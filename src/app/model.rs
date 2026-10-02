@@ -686,17 +686,30 @@ impl Model {
     }
 
     /// Returns the sessions outside mc running in `project` (or below it),
-    /// or, for the empty path of [`Model::elsewhere`], in no project folder;
+    /// or, for the empty path of [`Model::elsewhere`], in no project folder
+    /// and in no other saved workspace (that one lists it when it is up);
     /// every session mc started is left out: by pid, by a tracked
     /// descendant's pid, or by the agent's session id.
     #[must_use]
     pub(crate) fn external_in(&self, project: &Path) -> Vec<&External> {
-        if self.root() == Some(project) {
+        let root = self.root();
+        if root == Some(project) {
             return Vec::new();
         }
+        // The workspace a folder is in: the longest of the saved ones and
+        // this one, so a workspace nested in another keeps its sessions.
+        let workspace = |cwd: &Path| {
+            self.workspaces
+                .iter()
+                .map(PathBuf::as_path)
+                .chain(root)
+                .filter(|w| cwd.starts_with(w))
+                .max_by_key(|w| w.as_os_str().len())
+        };
         let inside = |e: &External| {
             if project.as_os_str().is_empty() {
                 !self.projects.iter().any(|p| e.cwd.starts_with(&p.path))
+                    && workspace(&e.cwd).is_none_or(|w| Some(w) == root)
             } else {
                 e.cwd.starts_with(project)
             }
