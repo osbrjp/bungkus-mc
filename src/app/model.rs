@@ -495,7 +495,8 @@ impl Model {
     /// [`Model::elsewhere`] row ends the list while an outside session runs
     /// in no project folder. Between them, recent projects come first, up
     /// to [`RECENT_MAX`] (a repository and its worktrees counting as one):
-    /// the ones a session runs in now (mc's or an outside one), then the
+    /// the ones a session runs in now (mc's or an outside one, or one of
+    /// another project that added the folder with `/add-dir`), then the
     /// most recently used by their latest session start. Every project
     /// with a running session is recent, even past that number, so a
     /// session that needs the user never folds away. The rest hide behind
@@ -518,7 +519,9 @@ impl Model {
         let mut used = std::collections::HashMap::<&str, (bool, Option<Instant>)>::new();
         for project in &self.projects {
             let cards = || self.cards.iter().filter(|c| c.project == project.path);
-            let live = cards().any(Card::running) || !self.external_in(&project.path).is_empty();
+            let live = cards().any(Card::running)
+                || !self.external_in(&project.path).is_empty()
+                || self.shared(&project.path);
             let latest = cards().map(|c| c.started).max();
             if live || latest.is_some() {
                 let entry = used.entry(family(project)).or_default();
@@ -633,6 +636,41 @@ impl Model {
     pub(crate) fn project_cards(&self) -> Vec<usize> {
         self.selected_project()
             .map_or_else(Vec::new, |p| sessions::order(&self.cards, &p.path))
+    }
+
+    /// Returns whether a running session of `home` added `folder` (or a
+    /// folder inside it) to its workspace (`/add-dir`), per its last
+    /// status line.
+    fn added(&self, home: &Path, folder: &Path) -> bool {
+        let sessions = self
+            .cards
+            .iter()
+            .filter(|c| c.running() && c.project == home);
+        sessions
+            .filter_map(|c| c.usage.as_ref())
+            .flat_map(|u| &u.added_dirs)
+            .any(|dir| dir.starts_with(folder))
+    }
+
+    /// Returns whether a running session of another project added
+    /// `project` to its workspace: the row then carries the link bar and
+    /// counts as in use. Only a project of the workspace can be shared,
+    /// not the `quick` row (the workspace root holds every project) or
+    /// the elsewhere row.
+    #[must_use]
+    pub(crate) fn shared(&self, project: &Path) -> bool {
+        let homes = || self.projects.iter().map(|p| p.path.as_path());
+        homes().any(|p| p == project)
+            && homes()
+                .filter(|home| *home != project)
+                .any(|home| self.added(home, project))
+    }
+
+    /// Returns whether projects `a` and `b` are linked: a session of one
+    /// added the other.
+    #[must_use]
+    pub(crate) fn related(&self, a: &Path, b: &Path) -> bool {
+        a != b && (self.added(a, b) || self.added(b, a))
     }
 
     /// Returns the sessions outside mc running in `project` (or below it),
