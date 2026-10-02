@@ -132,9 +132,17 @@ pub(crate) fn issue_of(branch: &str) -> Option<u64> {
 
 /// Runs `gh` in `dir` and returns what it printed; `None` when it is
 /// missing, not logged in, or `dir` is in no GitHub repository.
-fn gh(dir: &Path, args: &[&str]) -> Option<String> {
+///
+/// `config` is the workspace's `gh` config folder
+/// ([`crate::store::config::Config::gh_config_dir`]), passed on as
+/// `GH_CONFIG_DIR` so the read uses the account the sessions there use.
+fn gh(dir: &Path, config: Option<&Path>, args: &[&str]) -> Option<String> {
     let args: Vec<&OsStr> = args.iter().map(OsStr::new).collect();
-    super::output("gh", dir, &args)
+    let env: Vec<_> = config
+        .iter()
+        .map(|dir| ("GH_CONFIG_DIR", dir.as_os_str()))
+        .collect();
+    super::output("gh", dir, &args, &env)
 }
 
 /// Parses the JSON array `gh pr list` / `gh issue list` print; anything
@@ -168,17 +176,17 @@ fn parse_pr(json: &str) -> (Option<Link>, Option<Link>) {
 // ponytail: `gh` has no timeout of mc's; one that hangs holds up the next
 // read (not the UI). Kill it after a deadline when that is reported.
 #[must_use]
-pub(crate) fn read(dir: &Path, branch: &str) -> Links {
+pub(crate) fn read(dir: &Path, config: Option<&Path>, branch: &str) -> Links {
     let view = [
         "pr",
         "view",
         "--json",
         "number,title,state,url,closingIssuesReferences",
     ];
-    let (pr, closes) = gh(dir, &view).map_or((None, None), |json| parse_pr(&json));
+    let (pr, closes) = gh(dir, config, &view).map_or((None, None), |json| parse_pr(&json));
     let named = issue_of(branch).and_then(|number| {
         let number = number.to_string();
-        let json = gh(dir, &["issue", "view", &number, "--json", FIELDS])?;
+        let json = gh(dir, config, &["issue", "view", &number, "--json", FIELDS])?;
         let raw = serde_json::from_str::<Raw>(&json).ok()?;
         raw.link(LinkKind::Issue)
             .filter(|link| link.url.contains("/issues/"))
@@ -194,10 +202,10 @@ pub(crate) fn read(dir: &Path, branch: &str) -> Links {
 /// Lists the open pull requests, then the open issues, of the repository
 /// `dir` is in; empty when `gh` could not say.
 #[must_use]
-pub(crate) fn list(dir: &Path) -> Vec<Link> {
+pub(crate) fn list(dir: &Path, config: Option<&Path>) -> Vec<Link> {
     let ask = |what: &str, kind| {
-        gh(dir, &[what, "list", "--json", FIELDS, "--limit", LIST_MAX])
-            .map_or_else(Vec::new, |json| parse_list(&json, kind))
+        let args = [what, "list", "--json", FIELDS, "--limit", LIST_MAX];
+        gh(dir, config, &args).map_or_else(Vec::new, |json| parse_list(&json, kind))
     };
     let mut rows = ask("pr", LinkKind::Pr);
     rows.extend(ask("issue", LinkKind::Issue));
@@ -281,13 +289,13 @@ fn parse_thread(json: &str) -> Option<Vec<String>> {
 /// found too), as the texts of [`parse_thread`]; `None` when `gh` failed.
 /// Review comments on a pull request's code are not read.
 #[must_use]
-pub(crate) fn body(dir: &Path, link: &Link) -> Option<Vec<String>> {
+pub(crate) fn body(dir: &Path, config: Option<&Path>, link: &Link) -> Option<Vec<String>> {
     let what = match link.kind {
         LinkKind::Issue => "issue",
         LinkKind::Pr => "pr",
     };
-    let json = gh(dir, &[what, "view", &link.url, "--json", "body,comments"])?;
-    parse_thread(&json)
+    let args = [what, "view", &link.url, "--json", "body,comments"];
+    parse_thread(&gh(dir, config, &args)?)
 }
 
 /// Returns the lines of the text view for what `gh` read: each text's

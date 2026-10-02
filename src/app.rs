@@ -279,7 +279,7 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<bool> {
             if matches!(event, AppEvent::External(_) | AppEvent::Worktrees(_)) {
                 rescan(&mut model);
                 scan_repos(&mut model, &tx);
-                scan_links(&mut model, &tx);
+                scan_links(&mut model, &env.config, &tx);
             }
             let Some(cmd) = model.update(event) else {
                 continue;
@@ -470,13 +470,13 @@ fn run_cmd(
         },
         Cmd::RemoveWorktree(project, name) => forget_worktree(model, &project, &name, tx),
         Cmd::CleanWorktrees(project) => clean_worktrees(model, &project, tx),
-        Cmd::OpenEditor(project) => open_editor(model, &project, None, tx),
-        Cmd::Finder(request) => finder_request(model, request, tx),
+        Cmd::OpenEditor(project) => open_editor(model, &env.config, &project, None, tx),
+        Cmd::Finder(request) => finder_request(model, &env.config, request, tx),
         Cmd::OpenFolder(project) => open_folder(model, project),
         Cmd::OpenUrl(url) => open_folder(model, PathBuf::from(url)),
-        Cmd::ListLinks(folder) => list_links(folder, tx.clone()),
-        Cmd::ReadLink(folder, link) => read_link(folder, link, tx.clone()),
-        Cmd::OpenTerminal(owner, dir) => open_terminal(model, owner, &dir, tx),
+        Cmd::ListLinks(folder) => list_links(gh_dir(model, env, &folder), folder, tx),
+        Cmd::ReadLink(folder, link) => read_link(gh_dir(model, env, &folder), folder, link, tx),
+        Cmd::OpenTerminal(owner, dir) => open_terminal(model, &env.config, owner, &dir, tx),
         Cmd::SaveGroups(groups) => save_groups(model, &groups),
         Cmd::SaveWidths(widths) => {
             if let Some(path) = &env.config_path
@@ -559,21 +559,31 @@ fn scan_repos(model: &mut Model, tx: &SyncSender<AppEvent>) {
     });
 }
 
+/// Returns the `gh` config folder of the workspace `folder` is in
+/// ([`Config::gh_config_dir`]), for mc's own `gh` reads.
+fn gh_dir(model: &Model, env: &Env, folder: &Path) -> Option<PathBuf> {
+    env.config.gh_config_dir(folder, model.home.as_deref())
+}
+
 /// Lists the open pull requests and issues of the repository `folder` is
 /// in on a background thread, for the `i` popup ([`AppEvent::LinkList`]).
-fn list_links(folder: PathBuf, tx: SyncSender<AppEvent>) {
+/// `gh` is the workspace's `gh` config folder ([`gh_dir`]).
+fn list_links(gh: Option<PathBuf>, folder: PathBuf, tx: &SyncSender<AppEvent>) {
+    let tx = tx.clone();
     thread::spawn(move || {
-        let list = links::list(&folder);
+        let list = links::list(&folder, gh.as_deref());
         // reason: mc may have quit meanwhile.
         let _ = tx.send(AppEvent::LinkList(folder, list));
     });
 }
 
 /// Reads the text of `link` in `folder` on a background thread, for the
-/// popup's text view ([`AppEvent::LinkBody`]).
-fn read_link(folder: PathBuf, link: links::Link, tx: SyncSender<AppEvent>) {
+/// popup's text view ([`AppEvent::LinkBody`]). `gh` is the workspace's `gh`
+/// config folder ([`gh_dir`]).
+fn read_link(gh: Option<PathBuf>, folder: PathBuf, link: links::Link, tx: &SyncSender<AppEvent>) {
+    let tx = tx.clone();
     thread::spawn(move || {
-        let text = links::body(&folder, &link);
+        let text = links::body(&folder, gh.as_deref(), &link);
         // reason: mc may have quit meanwhile.
         let _ = tx.send(AppEvent::LinkBody(link.url, text));
     });
@@ -585,8 +595,9 @@ fn read_link(folder: PathBuf, link: links::Link, tx: SyncSender<AppEvent>) {
 ///
 /// A folder is read when its branch is not the one its links were read
 /// for, and the folders of running sessions again every [`LINKS_EVERY`],
-/// so a pull request opened meanwhile shows up.
-fn scan_links(model: &mut Model, tx: &SyncSender<AppEvent>) {
+/// so a pull request opened meanwhile shows up. Each folder is read with
+/// its workspace's `gh` config folder ([`Config::gh_config_dir`]).
+fn scan_links(model: &mut Model, config: &Config, tx: &SyncSender<AppEvent>) {
     if model.links_scan {
         return;
     }
@@ -612,12 +623,17 @@ fn scan_links(model: &mut Model, tx: &SyncSender<AppEvent>) {
     if stale {
         model.links_at = Some(model.now);
     }
+    let home = model.home.as_deref();
+    let due: Vec<_> = due
+        .into_iter()
+        .map(|(folder, branch)| (config.gh_config_dir(&folder, home), folder, branch))
+        .collect();
     let tx = tx.clone();
     thread::spawn(move || {
         let read = due
             .into_iter()
-            .map(|(folder, branch)| {
-                let links = links::read(&folder, &branch);
+            .map(|(gh, folder, branch)| {
+                let links = links::read(&folder, gh.as_deref(), &branch);
                 (folder, links)
             })
             .collect();
@@ -893,7 +909,9 @@ fn launch(
     card.worktree = worktree;
     let argv = agent::argv(kind, &program, &extra_args, &launch);
     let id = launch.id.0.hyphenated().to_string();
+    let gh = env.config.gh_config_dir(&project, model.home.as_deref());
     let mut extra = vec![("BUNGKUS_MC_SESSION", OsStr::new(&id))];
+    extra.extend(gh.iter().map(|dir| ("GH_CONFIG_DIR", dir.as_os_str())));
     if let Some(hooks) = hooks {
         extra.push(("BUNGKUS_MC_SOCK", hooks.socket.as_os_str()));
     }
@@ -947,13 +965,15 @@ fn launch(
 }
 
 /// Starts `command` (program first, looked up on `PATH`) in a PTY of
-/// `size` in `dir`, with the same scrubbed environment as an agent.
+/// `size` in `dir`, with the same scrubbed environment as an agent and the
+/// workspace's `GH_CONFIG_DIR` ([`Config::gh_config_dir`]).
 ///
 /// # Returns
 ///
 /// The running tool, or `None` with the reason in the message line.
 fn spawn_tool(
     model: &mut Model,
+    config: &Config,
     command: &[String],
     dir: &Path,
     size: Size,
@@ -974,7 +994,12 @@ fn spawn_tool(
         .chain(command[1..].iter().map(OsString::from))
         .collect();
     let id = SessionId::new();
-    let env = child_env(std::env::vars_os(), &[]);
+    let gh = config.gh_config_dir(dir, model.home.as_deref());
+    let extra: Vec<_> = gh
+        .iter()
+        .map(|dir| ("GH_CONFIG_DIR", dir.as_os_str()))
+        .collect();
+    let env = child_env(std::env::vars_os(), &extra);
     match Session::spawn(id, &argv, dir, &env, size, colors(model.theme), tx) {
         Ok(pty) => Some(Tool { id, pty }),
         Err(e) => {
@@ -988,13 +1013,14 @@ fn spawn_tool(
 /// in `dir` and gives it the keys.
 fn open_terminal(
     model: &mut Model,
+    config: &Config,
     owner: crate::app::tools::Owner,
     dir: &Path,
     tx: &SyncSender<AppEvent>,
 ) {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
     let size = ui::terminal_size(model.screen, model.zoom, model.widths);
-    if let Some(tool) = spawn_tool(model, &[shell], dir, size, tx) {
+    if let Some(tool) = spawn_tool(model, config, &[shell], dir, size, tx) {
         model.shells.push((owner, tool));
         model.term_view = TermView::Focused;
     }
@@ -1017,6 +1043,7 @@ pub(crate) fn user_editor() -> Option<String> {
 // opens the file at its top. Add its flag (`code -g file:N`) when asked for.
 fn open_editor(
     model: &mut Model,
+    config: &Config,
     dir: &Path,
     file: Option<(&Path, Option<u32>)>,
     tx: &SyncSender<AppEvent>,
@@ -1040,7 +1067,7 @@ fn open_editor(
                 None => command.push(".".into()),
             }
             let size = ui::popup_size(model.screen);
-            model.editor = spawn_tool(model, &command, dir, size, tx);
+            model.editor = spawn_tool(model, config, &command, dir, size, tx);
         }
         Opener::Detached(command) => {
             let target = file.as_ref().map_or(dir, |(file, _)| file.as_path());
@@ -1051,11 +1078,13 @@ fn open_editor(
 
 /// Runs what the finder asked for; the search and the read go off the UI
 /// thread.
-fn finder_request(model: &mut Model, request: Request, tx: &SyncSender<AppEvent>) {
+fn finder_request(model: &mut Model, config: &Config, request: Request, tx: &SyncSender<AppEvent>) {
     match request {
         Request::Find(root, seq, pattern) => find(model, root, seq, pattern, tx),
         Request::Preview(file, line) => preview(file, line, tx),
-        Request::Open(dir, file, line) => open_editor(model, &dir, Some((&file, line)), tx),
+        Request::Open(dir, file, line) => {
+            open_editor(model, config, &dir, Some((&file, line)), tx);
+        }
     }
 }
 
@@ -1333,16 +1362,17 @@ fn worktree_name(name: &str, id: SessionId) -> String {
 /// group, so a signal that ends mc (a closed terminal) does not cut a
 /// worktree removal off halfway.
 fn git(dir: &Path, args: &[&OsStr]) -> Option<String> {
-    output("git", dir, args)
+    output("git", dir, args, &[])
 }
 
 /// Runs `program` in `dir` with fixed arguments (no shell, no input, its
-/// own process group) and returns what it printed, or `None` when it
-/// failed or is missing.
-fn output(program: &str, dir: &Path, args: &[&OsStr]) -> Option<String> {
+/// own process group) and `env` added to mc's environment, and returns
+/// what it printed, or `None` when it failed or is missing.
+fn output(program: &str, dir: &Path, args: &[&OsStr], env: &[(&str, &OsStr)]) -> Option<String> {
     use std::os::unix::process::CommandExt;
     let output = std::process::Command::new(program)
         .args(args)
+        .envs(env.iter().copied())
         .current_dir(dir)
         .process_group(0)
         .stdin(std::process::Stdio::null())
