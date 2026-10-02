@@ -166,6 +166,8 @@ pub(crate) struct Card {
     mcp_used: Vec<String>,
     /// The config files' state when `mcp` was last read from them.
     pub mcp_stamp: Option<Stamp>,
+    /// Whether quitting mc stopped it, so the next start resumes it.
+    pub auto_resume: bool,
 }
 
 impl Card {
@@ -234,6 +236,7 @@ impl Card {
             mcp: Vec::new(),
             mcp_used: Vec::new(),
             mcp_stamp: None,
+            auto_resume: false,
         }
     }
 
@@ -301,6 +304,7 @@ impl Card {
                 + self.restored_subagents,
             usage,
             worktree: self.worktree.clone(),
+            resume: self.auto_resume,
         }
     }
 
@@ -333,6 +337,7 @@ impl Card {
         card.usage.clone_from(&record.usage);
         card.prompted = true;
         card.worktree.clone_from(&record.worktree);
+        card.auto_resume = record.resume;
         Some(card)
     }
 
@@ -786,8 +791,14 @@ mod tests {
             (back.name.as_str(), back.state.clone()),
             ("fix it", State::Failed("exit 2".into()))
         );
-        let running = card(None, None);
+        let mut running = card(None, None);
         assert_eq!(running.to_record(now, 1).status, "stopped");
+        running.auto_resume = true;
+        let back = Card::from_record(&running.to_record(now, 1), now, 1).unwrap();
+        assert!(
+            back.auto_resume,
+            "a session quit stopped resumes next start"
+        );
         let bad = crate::store::state::Record {
             id: "not-a-uuid".into(),
             ..record

@@ -158,6 +158,9 @@ impl Model {
                 Target::Session(id) => {
                     if let Some(card) = self.card_mut(*id).filter(|c| c.running()) {
                         card.stop_requested = Some(now);
+                        // An empty hooked session has no conversation to resume.
+                        card.auto_resume =
+                            dialog.kind == StopKind::Quit && (card.prompted || !card.hooked);
                         if let Some(pty) = &card.pty {
                             // reason: ESRCH means it already exited; the waiter reports it.
                             let _ = pty.signal(Signal::TERM);
@@ -334,6 +337,30 @@ mod tests {
     }
 
     #[test]
+    fn x_an_empty_session_and_another_workspace_do_not_resume() {
+        let mut m = sample(&["a"]);
+        let (by_x, _w1) = with_session(&mut m, "one");
+        let (empty, _w2) = with_session(&mut m, "two");
+        let (away, _w3) = with_session(&mut m, "three");
+        let stop = |m: &mut Model, kind| {
+            m.open_stop(kind, &[], &HashMap::new());
+            let Some(Overlay::Stop(d)) = m.overlay.take() else {
+                panic!("dialog")
+            };
+            m.carry_out(&d);
+        };
+        stop(&mut m, StopKind::Session(by_x));
+        m.update(AppEvent::Pty(PtyEvent::Exited(by_x, Some(0))));
+        let card = m.card_mut(empty).unwrap();
+        (card.hooked, card.prompted) = (true, false);
+        m.card_mut(away).unwrap().project = "/elsewhere/p".into();
+        stop(&mut m, StopKind::Quit);
+        let marked = [by_x, empty, away].map(|id| m.card_mut(id).unwrap().auto_resume);
+        assert_eq!(marked, [false, false, true], "x, never prompted, quit");
+        assert!(m.auto_resume().is_empty(), "its project is not open here");
+    }
+
+    #[test]
     fn quit_waits_for_descendants_and_esc_stops_nothing() {
         let mut m = sample(&["a"]);
         let (id, _w) = with_session(&mut m, "s");
@@ -349,6 +376,12 @@ mod tests {
         );
         m.carry_out(&d);
         assert!(m.quitting.is_some());
+        assert!(m.cards[0].auto_resume, "quit marks it for the next start");
+        let Some(Cmd::Launch(req)) = m.auto_resume().pop() else {
+            panic!("resumes at the next start");
+        };
+        assert_eq!(req.replaces, Some(id));
+        assert!(req.launch.resume.is_some());
         m.update(AppEvent::Pty(PtyEvent::Exited(id, Some(0))));
         assert!(m.stopping(), "descendants still pending");
         m.now += STOP_GRACE;
