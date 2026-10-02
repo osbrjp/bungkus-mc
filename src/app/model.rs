@@ -331,8 +331,6 @@ pub(crate) struct Model {
     pub links_scan: bool,
     /// When the links of the running sessions were last read again.
     pub links_at: Option<Instant>,
-    /// Whether an MCP config scan is running.
-    pub mcp_scan: bool,
     /// Shows every key mc receives in the hint line (`BUNGKUS_MC_DEBUG_KEYS`),
     /// to find chords a terminal keeps for itself.
     pub debug_keys: bool,
@@ -478,7 +476,6 @@ impl Model {
             links: std::collections::HashMap::new(),
             links_scan: false,
             links_at: None,
-            mcp_scan: false,
             poke: None,
             notice: None,
             popup: None,
@@ -926,16 +923,6 @@ impl Model {
         cmd
     }
 
-    /// Gives each session in `changed` its configured MCP servers.
-    fn set_mcp(&mut self, changed: Vec<(SessionId, Vec<String>, crate::agent::mcp::Stamp)>) {
-        self.mcp_scan = false;
-        for (id, servers, stamp) in changed {
-            if let Some(card) = self.cards.iter_mut().find(|c| c.id == id) {
-                card.set_mcp(servers, stamp);
-            }
-        }
-    }
-
     /// Applies one event; [`Model::update`] keeps the selection in place.
     fn handle(&mut self, event: AppEvent) -> Option<Cmd> {
         match event {
@@ -970,7 +957,6 @@ impl Model {
             AppEvent::Links(read) => self.set_links(read),
             AppEvent::LinkList(folder, list) => self.set_link_list(&folder, list),
             AppEvent::LinkBody(url, text) => self.set_link_body(&url, text),
-            AppEvent::Mcp(changed) => self.set_mcp(changed),
             AppEvent::External(list) => {
                 self.external = list;
                 self.selected = self.selected.min(self.visible().len().saturating_sub(1));
