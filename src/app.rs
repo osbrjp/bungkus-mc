@@ -635,6 +635,14 @@ fn recolour(model: &mut Model) {
     }
 }
 
+/// Returns `$CLAUDE_CONFIG_DIR`, else `.claude` under `home`.
+fn claude_config_dir(home: Option<&Path>) -> PathBuf {
+    std::env::var_os("CLAUDE_CONFIG_DIR").map_or_else(
+        || home.unwrap_or_else(|| Path::new("")).join(".claude"),
+        PathBuf::from,
+    )
+}
+
 /// Starts a session for `request` and adds its card; a failure to start
 /// becomes a failed card with the reason.
 fn launch(
@@ -656,10 +664,7 @@ fn launch(
     }
     let mut user_line = None;
     if let (Some(hooks), Kind::Claude) = (hooks, kind) {
-        let config_dir = std::env::var_os("CLAUDE_CONFIG_DIR").map_or_else(
-            || model.home.clone().unwrap_or_default().join(".claude"),
-            PathBuf::from,
-        );
+        let config_dir = claude_config_dir(model.home.as_deref());
         user_line = agent::claude::user_statusline(&project, &config_dir);
         launch.settings = Some(agent::claude::settings(&hooks.exe, user_line.as_ref()));
     }
@@ -691,6 +696,7 @@ fn launch(
     };
     let extra_args = extra_args(model, &agent.args, kind, worktree.as_deref());
     card.worktree = worktree;
+    card.mcp = agent::mcp::servers(kind, &project, |name| std::env::var(name).ok());
     let argv = agent::argv(kind, &program, &extra_args, &launch);
     let id = launch.id.0.hyphenated().to_string();
     let mut extra = vec![("BUNGKUS_MC_SESSION", OsStr::new(&id))];

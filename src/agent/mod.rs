@@ -7,6 +7,7 @@
 pub(crate) mod claude;
 pub(crate) mod codex;
 pub(crate) mod codex_usage;
+pub(crate) mod mcp;
 pub(crate) mod usage;
 
 use std::ffi::{OsStr, OsString};

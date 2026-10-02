@@ -44,6 +44,15 @@ curl -fsSL https://raw.githubusercontent.com/osbrjp/bungkus-mc/main/install.sh |
 
 **Needs** `claude` and/or `codex` on `PATH`. Any monospace font works.
 
+### Let Claude set it up
+
+[`skills/bungkus-mc-setup`](skills/bungkus-mc-setup/SKILL.md) is a Claude
+Code skill that installs and configures mc with you: it checks your
+machine, runs the installer, helps with `config.json`, the icon set and a
+workspace's `.bungkus-mc/` folder, and asks before it writes any file. Copy
+the folder to `~/.claude/skills/bungkus-mc-setup`, then ask Claude Code to
+"set up bungkus-mc".
+
 ### Commands
 
 | Command | What |
@@ -314,7 +323,7 @@ key back with `kitten @ focus-window --match neighbor:…`.
   "defaultAgent": "claude",
   "theme": "auto",
   "background": "paint",
-  "icons": "ascii",
+  "icons": "auto",
   "motion": true,
   "mouse": true,
   "notify": "bell",
@@ -333,7 +342,7 @@ key back with `kitten @ focus-window --match neighbor:…`.
 | Key | Values |
 |-----|--------|
 | `background` | `paint` · `terminal` keeps your terminal's own background (mc paints its green only on TrueColor terminals anyway) |
-| `icons` | `ascii` (default) · `unicode` · `nerd` (also `--icons`) |
+| `icons` | `auto` (default: `nerd` when a Nerd Font is installed, else `ascii`) · `ascii` · `unicode` · `nerd` (also `--icons`). mc cannot see which font your terminal uses: if the glyphs show as boxes, set `ascii` |
 | `notify` | `bell` (default) · `desktop` (plus OSC 9/99/777) · `off` |
 | `interactExit` | the chord that leaves INTERACT (default `ctrl-\`) |
 | `cleanup.keep` | process names the quit dialog starts as `[keep]` |
@@ -377,6 +386,7 @@ never what you type, prompts or agent output.
 | **Structure** (working / your turn / needs you, subagents) | the agents' own hooks, injected per launch (`claude --settings`, `codex -c hooks.*`) |
 | **Claude usage** | Claude's status line; your own status line keeps rendering (mc runs it for you) |
 | **Codex usage** | `token_count` records in Codex's own session log, and nothing else |
+| **MCP servers** on a card | the server names in the agents' config when the session starts: `.mcp.json` in the project and `.claude.json` for Claude, `config.toml` for Codex. Names only. With the `nerd` icon set a known server shows as its glyph; the selected card lists the names |
 
 - **Nothing is written to your agent config**, so there is nothing to
   remove; your own hooks keep running.
@@ -456,6 +466,7 @@ darwin/linux × arm64/amd64 and publishes `v<version>`.
 | [docs/TECH_STACK.md](docs/TECH_STACK.md) | Crates and rejected alternatives, CI, release |
 | [docs/CODING_RULES.md](docs/CODING_RULES.md) | Behaviour rules, tests, review checklist |
 | [docs/SECURITY.md](docs/SECURITY.md) | Threat model and rules |
+| [skills/bungkus-mc-setup](skills/bungkus-mc-setup/SKILL.md) | A Claude Code skill that sets mc up with you |
 
 ---
 

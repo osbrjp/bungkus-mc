@@ -158,6 +158,9 @@ pub(crate) struct Card {
     /// The git worktree it runs in (`claude --worktree <name>`, under the
     /// project's `.claude/worktrees/`); a resume goes back into it.
     pub worktree: Option<String>,
+    /// Names of the MCP servers configured for it when it started
+    /// ([`crate::agent::mcp::servers`]).
+    pub mcp: Vec<String>,
 }
 
 impl Card {
@@ -223,6 +226,7 @@ impl Card {
             move_to: None,
             prompted: false,
             worktree: None,
+            mcp: Vec::new(),
         }
     }
 

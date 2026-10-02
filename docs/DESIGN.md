@@ -219,12 +219,15 @@ the green.
 A TUI does not choose the font. We choose code points.
 
 - **Recommended fonts** (README, not enforced): any monospace font; a Nerd
-  Font only if the user opts into the `nerd` icon set.
-- **Three glyph sets**, `icons: "ascii" | "unicode" | "nerd"` (config or
-  `--icons`). **Default `ascii`** (decided by the product owner): the font
-  cannot be detected, and ASCII state glyphs are unambiguous in every
-  terminal and width setting. `unicode` and `nerd` are opt-in. All glyphs
-  are 1 cell. The mockups in this file show the ascii default.
+  Font gets the `nerd` icon set.
+- **Three glyph sets**, `icons: "auto" | "ascii" | "unicode" | "nerd"`
+  (config or `--icons`). **Default `auto`** (decided by the product
+  owner): `nerd` when a Nerd Font is installed on the device, else
+  `ascii`, whose state glyphs are unambiguous in every terminal and width
+  setting. The terminal's own font cannot be detected, so an installed
+  font is the signal (ARCHITECTURE §12); a user whose terminal uses
+  another font sets `ascii`. `unicode` is opt-in. All glyphs are 1 cell.
+  The mockups in this file show the ascii fallback.
 - **Borders and separators are not part of the icon set.** Box-drawing
   borders, the `·` separator and the mascot's half-block sprite are used
   whenever the locale is UTF-8; only a non-UTF-8 locale (or
@@ -251,7 +254,7 @@ A TUI does not choose the font. We choose code points.
   asserts the emulator's column positions match the width sum — see
   CODING_RULES.md.
 
-| Meaning       | nerd (U+)      | unicode | ascii (default) | width class |
+| Meaning       | nerd (U+)      | unicode | ascii (fallback) | width class |
 |---------------|----------------|---------|-----------------|-------------|
 | running       | spinner        | braille `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` | `\|/-\` | N |
 | your turn     | U+F0E7 (bolt)  | `»`     | `~`   | N |
@@ -264,9 +267,10 @@ A TUI does not choose the font. We choose code points.
 | INTERACT      | U+F11C (kbd)   | `►`     | `>`   | N |
 | limit bar     | —              | `▮▯`    | `#-`  | N |
 | agent badge   | `C` / `X` letter in `accent`, all sets |
+| MCP server    | U+F1E6 (plug) + name; brand glyph alone (once per brand) when a word of the name is: `github` U+F09B, `gitlab` U+F296, `slack` U+F198, `chrome` U+F268, `playwright`/`puppeteer`/`browser` U+F0AC (globe), `aws`/`amazon` U+F270, `gmail` U+F0E0, `google`/`drive` U+F1A0, `postgres`/`sqlite`/`mysql`/`supabase` U+F1C0 (database), `docker` U+F308 | name | name | N |
 
 Nerd Font code points are private-use; patched "Mono" variants render them
-1 cell, "Propo" variants may not — another reason `nerd` is opt-in. Glyphs
+1 cell, "Propo" variants may not (set `icons: "ascii"` then). Glyphs
 are emitted only through `theme::icon(Icon)` (an enum, so a missing glyph
 is a compile error); a table test asserts widths.
 
@@ -491,6 +495,7 @@ whether there is a header line.
 ┃! C #a3f1 write proposal        12m   gutter · state glyph · agent badge · #id · title · right: elapsed or state word
 ┃  needs you · permission: Bash        line 2: state word · detail (tool / prompt kind / exit line) [· model when routed]
 ┃  i110-fix · 3 changed ↑2 ↓1          git line (only in a repository): branch · `clean` or changed files · ahead/behind upstream
+┃  mcp github · slack                  MCP line (only with MCP servers): `mcp` + names; glyphs in the nerd set
 ┃  499k tok · $1.42 · ctx 37%          usage line: compact usage (`-` when unknown)
 ┃  * research hooks             / 3m   one line per subagent (flat list): glyph · description · state glyph · time
 ```
@@ -502,6 +507,13 @@ whether there is a header line.
   then `clean` or `N changed` (staged, unstaged, unmerged and untracked
   files), then `↑N` / `↓N` against the upstream when not zero. The branch
   is cut short first. Read every 5 s; absent outside a repository.
+- MCP line, `fg-muted`: the MCP servers configured for the session when
+  it started (ARCHITECTURE §5.5), sorted by name; absent when there are
+  none. ascii and unicode sets: `mcp` then the names joined by ` · `. nerd
+  set: per server its brand glyph alone (§3), or the plug glyph and the
+  name when it has none, two spaces apart. The expanded card (§6.3) shows
+  an `mcp` row with every name in all sets instead, so a glyph can always
+  be read as a word.
 - Gutter column: `┃` in `warn` for needs-you, `err` for failed, space otherwise.
 - Title = **the session's name**, as the agent itself knows it (decided):
   Claude's session name (set at launch with `--name`, renamed inside the
