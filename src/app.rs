@@ -271,12 +271,7 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<bool> {
         }
         for event in std::iter::once(first).chain(rx.try_iter()) {
             model.now = Instant::now();
-            for card in &mut model.cards {
-                if let Some(pty) = card.pty.as_mut() {
-                    pty.flush_sync();
-                }
-            }
-            model.tools_mut().for_each(Session::flush_sync);
+            before_event(&mut model, &event);
             if matches!(event, AppEvent::External(_) | AppEvent::Worktrees(_)) {
                 rescan(&mut model);
                 scan_repos(&mut model, &tx);
@@ -295,6 +290,21 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<bool> {
                 Next::Continue => {}
             }
         }
+    }
+}
+
+/// Runs before each event is applied: ends overdue synchronized updates in
+/// every emulator and, in kitty, sets [`KITTY_PASS_KEYS_ON`] again after a
+/// PTY event.
+fn before_event(model: &mut Model, event: &AppEvent) {
+    for card in &mut model.cards {
+        if let Some(pty) = card.pty.as_mut() {
+            pty.flush_sync();
+        }
+    }
+    model.tools_mut().for_each(Session::flush_sync);
+    if model.kitty && matches!(event, AppEvent::Pty(_)) {
+        write_host(KITTY_PASS_KEYS_ON);
     }
 }
 
@@ -717,6 +727,10 @@ fn kitty_focus(side: &str) {
 
 /// The kitty user variable kitty's `map --when-focus-on var:IS_VIM=true`
 /// rules test, so `ctrl-h/j/k/l` reach mc instead of moving kitty windows.
+///
+/// Written at start and again after every PTY event: a program inside mc
+/// (vim-kitty-navigator, over `KITTY_LISTEN_ON`) sets the variable to
+/// `false` on mc's window when it quits, and its last output comes after.
 const KITTY_PASS_KEYS_ON: &[u8] = b"\x1b]1337;SetUserVar=IS_VIM=dHJ1ZQ==\x07";
 /// Clears [`KITTY_PASS_KEYS_ON`] when mc exits.
 const KITTY_PASS_KEYS_OFF: &[u8] = b"\x1b]1337;SetUserVar=IS_VIM\x07";

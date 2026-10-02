@@ -283,6 +283,9 @@ pub(crate) struct Model {
     pub list_rows: usize,
     /// The chord that leaves INTERACT.
     pub exit_chord: Chord,
+    /// When a plain `j` last went to the agent in INTERACT, while a `j` or
+    /// `k` right after it would still leave.
+    pub leave_j: Option<Instant>,
     /// Pane widths (dragged by the mouse, from `config.json`).
     pub widths: crate::ui::Widths,
     /// The pane border being dragged, if any.
@@ -456,6 +459,7 @@ impl Model {
             widths: crate::ui::Widths::default(),
             drag: None,
             exit_chord: Chord::DEFAULT,
+            leave_j: None,
             screen: Rect::new(0, 0, 120, 40),
             now: Instant::now(),
             frame: 0,
@@ -1066,6 +1070,8 @@ impl Model {
             let text = format!("{} needs you: {}", card.id.short(), card.name);
             self.notice = Some((now, text.clone()));
             self.alerts.push(Alert::NeedsYou(text));
+        } else if card.state == State::YourTurn && before == State::Working {
+            self.notice = Some((now, format!("{} finished: {}", card.id.short(), card.name)));
         }
         let first_bind = !bound && card.agent_session.is_some();
         let watch = card.kind == Kind::Codex && card.running() && card.rollout_stop.is_none();
@@ -1093,7 +1099,7 @@ impl Model {
 
     /// Jumps to the next session that needs you, across projects: selects
     /// its project and card and enters INTERACT (DESIGN §8.1).
-    fn next_needs_you(&mut self) -> Option<Cmd> {
+    pub(super) fn next_needs_you(&mut self) -> Option<Cmd> {
         let current = self.selected_card().map(|i| self.cards[i].id);
         let projects: Vec<PathBuf> = self.visible().iter().map(|p| p.path.clone()).collect();
         let mut found = Vec::new();
@@ -2553,6 +2559,26 @@ pub(crate) mod tests {
         );
     }
 
+    #[test]
+    fn the_mascot_says_when_a_session_finishes_its_turn() {
+        let mut m = sample(&["a"]);
+        let (id, _w) = with_session(&mut m, "s");
+        m.cards[0].expect_hooks();
+        m.update(hook_line(id, r#"{"hook_event_name":"SessionStart"}"#));
+        assert!(m.notice.is_none(), "starting is not finishing");
+        m.update(hook_line(id, r#"{"hook_event_name":"UserPromptSubmit"}"#));
+        m.update(hook_line(id, r#"{"hook_event_name":"Stop"}"#));
+        assert_eq!(m.cards[0].state, State::YourTurn);
+        assert!(
+            m.notice
+                .as_ref()
+                .is_some_and(|(_, text)| text.ends_with("finished: s")),
+            "{:?}",
+            m.notice
+        );
+        assert!(m.alerts.is_empty(), "the host terminal is not told");
+    }
+
     /// Returns a socket line for `id` carrying the status-line fixture.
     pub(crate) fn usage_line(id: SessionId) -> AppEvent {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -2661,6 +2687,32 @@ pub(crate) mod tests {
         m.focus = Focus::Sessions;
         m.update(press(KeyCode::Char('!')));
         assert_eq!(m.message.as_deref(), Some("nobody needs you right now"));
+    }
+
+    #[test]
+    fn ctrl_bracket_jumps_from_interact_and_bang_stays_the_agents() {
+        let mut m = sample(&["a"]);
+        let (first, _w1) = with_session(&mut m, "one");
+        let (second, w2) = with_session(&mut m, "two");
+        m.update(hook_line(
+            first,
+            r#"{"hook_event_name":"Notification","notification_type":"permission_prompt"}"#,
+        ));
+        let shown = |m: &Model| m.selected_card().map(|i| m.cards[i].id);
+        m.select_session(second);
+        m.update(press(KeyCode::Char('!')));
+        assert_eq!(shown(&m), Some(second), "! is typed to the agent");
+        assert_eq!(w2.try_iter().flatten().collect::<Vec<u8>>(), b"!");
+        for ch in [']', '5'] {
+            m.select_session(second);
+            m.update(AppEvent::Input(Event::Key(KeyEvent::new(
+                KeyCode::Char(ch),
+                KeyModifiers::CONTROL,
+            ))));
+            assert_eq!(shown(&m), Some(first), "ctrl-{ch} jumps");
+            assert_eq!(m.focus, Focus::Output);
+        }
+        assert_eq!(w2.try_iter().count(), 0, "the agent never sees the chord");
     }
 
     #[test]

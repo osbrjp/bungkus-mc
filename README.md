@@ -303,6 +303,12 @@ like `map ctrl+j neighboring_window down` plus a
 the kitty user variable `IS_VIM=true` while it runs, so your existing
 passthrough sends those keys to mc instead of kitty.
 
+**Neovim inside mc:** vim-kitty-navigator sets `IS_VIM=false` on mc's
+kitty window when nvim quits (in the editor popup, the terminal pane or
+the agent's external editor). mc sets the variable back to `true` after
+every piece of output from a session or tool, so the keys keep reaching
+mc.
+
 **At mc's edges** the key goes back to kitty and moves to the neighbouring
 kitty window:
 

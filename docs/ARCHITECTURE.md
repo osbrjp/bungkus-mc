@@ -940,9 +940,9 @@ name. No recursion, no project file.
    `recv_timeout(deadline)` with `deadline = min(next animation tick, each
    Term's sync_timeout())`, then drains with `try_recv` and renders once;
    the 350 ms animation tick exists only while something animated is
-   visible and `motion` is on; the corner mascot's blank-cell check runs
-   per render on at most 16×7 cells; "busy" = PTY output within the last
-   1 s (an `Instant` set in the `PtyOutput` handler — typing echo counts).
+   visible and `motion` is on; the mascot strip is three rows of the
+   output pane the PTY never gets, so drawing it needs no per-frame check
+   of the agent's screen.
 9. Shutdown (§3.2) runs on the UI thread with a "stopping…" render between
    steps (the waits are short and bounded); the raw-mode guard's `Drop`
    restores the terminal last.

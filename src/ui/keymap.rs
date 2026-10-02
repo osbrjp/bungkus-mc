@@ -384,6 +384,8 @@ pub(crate) const BINDINGS: &[Binding] = &[
             c('!'),
             Key::Press(KeyCode::Char('!'), KeyModifiers::SHIFT),
             ctrl(']'),
+            // Legacy terminals report 0x1d as ctrl-5.
+            ctrl('5'),
         ],
         label: "! ctrl-]",
         action: Action::NextNeedsYou,
@@ -738,7 +740,7 @@ pub(crate) fn help_groups(scope: Scope) -> Vec<(Group, Vec<(&'static str, &'stat
 /// pass everything else to the agent; listed in the key menu.
 pub(crate) const AGENT_KEYS: [(&str, &str); 4] = [
     ("ctrl-\\", "leave · menu"),
-    ("ctrl-h", "to sessions"),
+    ("ctrl-h · jj · jk", "to sessions"),
     ("ctrl-m", "move (popup)"),
     ("cmd/alt-1..4", "focus a pane"),
 ];
