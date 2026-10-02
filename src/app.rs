@@ -97,6 +97,9 @@ pub(crate) enum AppEvent {
     Worktrees(String),
     /// The lines ripgrep printed for finder search `u64` ([`Cmd::Find`]).
     Found(u64, Vec<String>),
+    /// The lines read for the finder's preview of this file at this line
+    /// ([`Cmd::Preview`]), and which of them is that line.
+    Preview(PathBuf, Option<u32>, Vec<String>, Option<usize>),
     /// A deadline passed: animation frame, sync flush or stop grace.
     Tick,
 }
@@ -446,6 +449,7 @@ fn run_cmd(
         Cmd::OpenEditor(project) => open_editor(model, &project, None, tx),
         Cmd::OpenFile(dir, file, line) => open_editor(model, &dir, Some((&file, line)), tx),
         Cmd::Find(root, seq, pattern) => find(model, root, seq, pattern, tx),
+        Cmd::Preview(file, line) => preview(file, line, tx),
         Cmd::OpenFolder(project) => open_folder(model, project),
         Cmd::OpenTerminal(owner, dir) => open_terminal(model, owner, &dir, tx),
         Cmd::SaveGroups(groups) => save_groups(model, &groups),
@@ -969,6 +973,44 @@ fn open_editor(
             open_detached(model, &command, dir, target);
         }
     }
+}
+
+/// Most bytes of a file read for the finder's preview; a match past them
+/// has none.
+const PREVIEW_BYTES: u64 = 16 * 1024 * 1024;
+
+/// Reads, on a background thread, the lines of `file` the finder previews
+/// and reports them as [`AppEvent::Preview`]: the first
+/// [`finder::PREVIEW_ROWS`], or with `line` those from
+/// [`finder::PREVIEW_CONTEXT`] lines above it. A file with a NUL byte in
+/// them shows as binary; one that cannot be read shows nothing.
+fn preview(file: PathBuf, line: Option<u32>, tx: &SyncSender<AppEvent>) {
+    use std::io::{BufRead, Read};
+
+    let tx = tx.clone();
+    thread::spawn(move || {
+        let at = line.map_or(0, |n| usize::try_from(n).unwrap_or(1).saturating_sub(1));
+        let start = at.saturating_sub(finder::PREVIEW_CONTEXT);
+        let raw: Vec<Vec<u8>> = std::fs::File::open(&file).map_or_else(
+            |_| Vec::new(),
+            |f| {
+                io::BufReader::new(f.take(PREVIEW_BYTES))
+                    .split(b'\n')
+                    .map_while(Result::ok)
+                    .skip(start)
+                    .take(finder::PREVIEW_ROWS)
+                    .collect()
+            },
+        );
+        let (lines, hit) = if raw.iter().any(|l| l.contains(&0)) {
+            (vec!["(binary file)".to_owned()], None)
+        } else {
+            let text = |l: &Vec<u8>| String::from_utf8_lossy(l).into_owned();
+            (raw.iter().map(text).collect(), line.map(|_| at - start))
+        };
+        // reason: mc may have quit meanwhile.
+        let _ = tx.send(AppEvent::Preview(file, line, lines, hit));
+    });
 }
 
 /// Runs ripgrep in `root` on a background thread for finder search `seq`

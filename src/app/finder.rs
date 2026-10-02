@@ -6,12 +6,20 @@
 //! loop runs off the UI thread ([`Cmd::Find`]); this module ranks, picks
 //! and never reads a file itself.
 
+use std::path::{Path, PathBuf};
+
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::app::model::{Cmd, Focus, Model, Overlay};
 
 /// Most rows the finder keeps to show, and most lines taken from one grep.
 pub(crate) const ROWS_MAX: usize = 500;
+
+/// Most lines read for the preview pane; the popup is at most 30 rows.
+pub(crate) const PREVIEW_ROWS: usize = 40;
+
+/// How many lines the preview shows above the line `fg` matched.
+pub(crate) const PREVIEW_CONTEXT: usize = 8;
 
 /// Most file names taken from one workspace; the ones past it are not found.
 pub(crate) const FILES_MAX: usize = 200_000;
@@ -58,9 +66,31 @@ pub(crate) struct Finder {
     pub total: usize,
     /// Whether ripgrep's answer is still awaited.
     pub searching: bool,
+    /// The lines of the highlighted row's file the preview pane shows
+    /// (`ff`, `fg`); empty until they are read.
+    pub preview: Vec<String>,
+    /// The line of [`Finder::preview`] that `fg` matched.
+    pub hit: Option<usize>,
 }
 
 impl Finder {
+    /// Returns the file of the highlighted row, relative to the workspace,
+    /// and for `fg` the matching line's number; `None` for `fp` or with no
+    /// row.
+    // ponytail: a path with `:` in it splits wrongly for `fg` and gives a
+    // wrong name; use ripgrep's `--null` when one turns up.
+    fn target(&self) -> Option<(&str, Option<u32>)> {
+        let row = self.rows.get(self.selected)?;
+        match self.source {
+            Source::Projects => None,
+            Source::Files => Some((row, None)),
+            Source::Grep => {
+                let mut parts = row.splitn(3, ':');
+                Some((parts.next()?, parts.next().and_then(|n| n.parse().ok())))
+            }
+        }
+    }
+
     /// Fills [`Finder::rows`] with the items matching the query, best
     /// first (see [`tier`]; within a tier the shorter item), in list order
     /// while nothing is typed.
@@ -130,6 +160,8 @@ impl Model {
             rows: Vec::new(),
             total: 0,
             searching: source == Source::Files,
+            preview: Vec::new(),
+            hit: None,
         };
         finder.rank();
         self.overlay = Some(Overlay::Finder(finder));
@@ -140,14 +172,20 @@ impl Model {
     /// Takes ripgrep's lines for search `seq` into the open finder: the
     /// file names of `ff`, or the matching lines of `fg`. A search that is
     /// no longer the last one started is dropped.
-    pub(super) fn found(&mut self, seq: u64, lines: Vec<String>) {
+    ///
+    /// # Returns
+    ///
+    /// The read of the first row's preview.
+    pub(super) fn found(&mut self, seq: u64, lines: Vec<String>) -> Option<Cmd> {
         if seq != self.find_seq {
-            return;
+            return None;
         }
         let Some(Overlay::Finder(finder)) = &mut self.overlay else {
-            return;
+            return None;
         };
         finder.searching = false;
+        finder.preview.clear();
+        finder.hit = None;
         match finder.source {
             Source::Projects => {}
             Source::Files => {
@@ -160,6 +198,47 @@ impl Model {
                 finder.selected = 0;
             }
         }
+        self.preview_cmd(None)
+    }
+
+    /// Empties the open finder's preview and asks for the highlighted
+    /// row's, unless that row's file and line are still `shown`.
+    ///
+    /// # Returns
+    ///
+    /// The read of the preview, when a file is highlighted.
+    fn preview_cmd(&mut self, shown: Option<&(PathBuf, Option<u32>)>) -> Option<Cmd> {
+        let root = self.root()?.to_path_buf();
+        let Some(Overlay::Finder(finder)) = &mut self.overlay else {
+            return None;
+        };
+        let target = finder.target().map(|(file, line)| (root.join(file), line));
+        if target.as_ref() == shown {
+            return None;
+        }
+        finder.preview.clear();
+        finder.hit = None;
+        target.map(|(file, line)| Cmd::Preview(file, line))
+    }
+
+    /// Takes the lines read for the preview of `file` at `line` (`hit` is
+    /// the matching one) into the finder, when its highlighted row is still
+    /// that one.
+    pub(super) fn previewed(
+        &mut self,
+        file: &Path,
+        line: Option<u32>,
+        lines: Vec<String>,
+        hit: Option<usize>,
+    ) {
+        let root = self.root().map(Path::to_path_buf);
+        if let Some(Overlay::Finder(finder)) = &mut self.overlay
+            && let Some(root) = root
+            && finder.target().map(|(f, n)| (root.join(f), n)) == Some((file.to_path_buf(), line))
+        {
+            finder.preview = lines;
+            finder.hit = hit;
+        }
     }
 
     /// Applies a key to the finder: typing edits the query (`ctrl-u`
@@ -168,8 +247,13 @@ impl Model {
     ///
     /// # Returns
     ///
-    /// The grep for an edited `fg` query, or what `enter` opens.
+    /// The grep for an edited `fg` query, the read of a newly highlighted
+    /// row's preview, or what `enter` opens.
     pub(super) fn finder_key(&mut self, mut finder: Finder, key: KeyEvent) -> Option<Cmd> {
+        let root = self.root().map(Path::to_path_buf);
+        let shown = root
+            .zip(finder.target())
+            .map(|(root, (file, line))| (root.join(file), line));
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         let last = finder.rows.len().saturating_sub(1);
         let edited = match key.code {
@@ -202,7 +286,7 @@ impl Model {
                     self.find_seq += 1;
                     finder.searching = !finder.query.is_empty();
                     if finder.searching {
-                        let root = self.root().map(std::path::Path::to_path_buf);
+                        let root = self.root().map(Path::to_path_buf);
                         let pattern = Some(finder.query.clone());
                         cmd = root.map(|root| Cmd::Find(root, self.find_seq, pattern));
                     } else {
@@ -214,33 +298,24 @@ impl Model {
             }
         }
         self.overlay = Some(Overlay::Finder(finder));
-        cmd
+        // A grep's answer brings its own preview; the old rows keep theirs.
+        cmd.or_else(|| self.preview_cmd(shown.as_ref()))
     }
 
     /// Opens the finder's highlighted row: a project's sessions, or a file
     /// in the editor (for `fg` at the matching line).
-    // ponytail: a path with `:` in it splits wrongly for `fg` and opens a
-    // wrong name; use ripgrep's `--null` when one turns up.
     fn pick(&mut self, finder: &Finder) -> Option<Cmd> {
-        let row = finder.rows.get(finder.selected)?;
-        match finder.source {
-            Source::Projects => {
-                let path = self.projects.iter().find(|p| p.name == *row)?.path.clone();
-                self.filter.clear();
-                if self.select_project(&path) {
-                    self.card = 0;
-                    self.focus = Focus::Sessions;
-                }
-                None
-            }
-            Source::Files => Some(Cmd::OpenFile(self.root()?.to_path_buf(), row.into(), None)),
-            Source::Grep => {
-                let mut parts = row.splitn(3, ':');
-                let file = parts.next()?.into();
-                let line = parts.next().and_then(|n| n.parse().ok());
-                Some(Cmd::OpenFile(self.root()?.to_path_buf(), file, line))
-            }
+        if let Some((file, line)) = finder.target() {
+            return Some(Cmd::OpenFile(self.root()?.to_path_buf(), file.into(), line));
         }
+        let row = finder.rows.get(finder.selected)?;
+        let path = self.projects.iter().find(|p| p.name == *row)?.path.clone();
+        self.filter.clear();
+        if self.select_project(&path) {
+            self.card = 0;
+            self.focus = Focus::Sessions;
+        }
+        None
     }
 }
 
@@ -315,6 +390,38 @@ mod tests {
             Some(Cmd::OpenFile(root, "a/src/main.rs".into(), None))
         );
         assert!(m.overlay.is_none());
+    }
+
+    #[test]
+    fn the_preview_follows_the_highlighted_row_and_drops_a_late_read() {
+        let mut m = sample(&["a"]);
+        let root = m.root().unwrap().to_path_buf();
+        typed(&mut m, "fgfn");
+        let hits = ["a/x.rs:12:fn x() {", "a/y.rs:3:fn y() {"];
+        let found = AppEvent::Found(m.find_seq, hits.map(String::from).to_vec());
+        let x = root.join("a/x.rs");
+        assert_eq!(m.update(found), Some(Cmd::Preview(x.clone(), Some(12))));
+        assert_eq!(
+            m.update(press(KeyCode::Down)),
+            Some(Cmd::Preview(root.join("a/y.rs"), Some(3)))
+        );
+        assert_eq!(m.update(press(KeyCode::Down)), None, "the same row");
+        m.update(AppEvent::Preview(x, Some(12), vec!["late".into()], Some(0)));
+        let lines = vec!["use z;".to_owned(), "fn y() {".to_owned()];
+        m.update(AppEvent::Preview(
+            root.join("a/y.rs"),
+            Some(3),
+            lines,
+            Some(1),
+        ));
+        let screen = crate::ui::tests::render(&mut m, 120, 40);
+        assert!(
+            screen.contains("│ use z;") && !screen.contains("late"),
+            "{screen}"
+        );
+        typed(&mut m, "x");
+        let screen = crate::ui::tests::render(&mut m, 120, 40);
+        assert!(screen.contains("│ fn y() {"), "kept until the grep answers");
     }
 
     #[test]

@@ -182,6 +182,9 @@ pub(crate) enum Cmd {
     /// Run ripgrep in this workspace for finder search `u64`: list its
     /// files (`None`) or the lines matching this pattern.
     Find(PathBuf, u64, Option<String>),
+    /// Read the lines of this file the finder previews: its top, or the
+    /// ones around this line.
+    Preview(PathBuf, Option<u32>),
     /// Open this project folder with the desktop's opener (`O`).
     OpenFolder(PathBuf),
     /// Start the terminal pane's shell for this owner in this folder (`t`).
@@ -967,7 +970,8 @@ impl Model {
             }
             AppEvent::Updated(result) => return self.updated(result),
             AppEvent::Worktrees(text) => self.message = Some(text),
-            AppEvent::Found(seq, lines) => self.found(seq, lines),
+            AppEvent::Found(seq, lines) => return self.found(seq, lines),
+            AppEvent::Preview(file, line, lines, hit) => self.previewed(&file, line, lines, hit),
             AppEvent::Pty(PtyEvent::Output(id, bytes)) => {
                 if let Some(pty) = self.tool_mut(id) {
                     pty.advance(&bytes);
