@@ -346,7 +346,7 @@ key back with `kitten @ focus-window --match neighbor:…`.
 |-----|--------|
 | `editor` | the command `o` opens a project with (`nvim`, `code --wait`, a full path); unset: `$VISUAL`, then `$EDITOR`, then an installed `nvim`/`vim`/`vi`. `O` opens the folder in Finder / the file manager |
 | `background` | `paint` · `terminal` keeps your terminal's own background (mc paints its green only on TrueColor terminals anyway) |
-| `icons` | `auto` (default: `nerd` when a Nerd Font is installed, else `ascii`) · `ascii` · `unicode` · `nerd` (also `--icons`). mc cannot see which font your terminal uses: if the glyphs show as boxes, set `ascii` |
+| `icons` | `auto` (default: `nerd` when a Nerd Font is installed, else `ascii`) · `ascii` · `unicode` · `nerd` (also `--icons`, and the `icons` row of the settings screen, which shows the glyphs before you save). mc cannot see which font your terminal uses: if the glyphs show as boxes, choose `ascii`; if your terminal draws Nerd glyphs without an installed font (kitty does), choose `nerd` |
 | `notify` | `bell` (default) · `desktop` (plus OSC 9/99/777) · `off` |
 | `interactExit` | the chord that leaves INTERACT (default `ctrl-\`) |
 | `cleanup.keep` | process names the quit dialog starts as `[keep]` |
@@ -354,7 +354,7 @@ key back with `kitten @ focus-window --match neighbor:…`.
 | `panes` | pane widths: projects 16–40, sessions 28–72, output keeps 40 |
 
 **Who writes what:** the settings screen writes `workspace`,
-`defaultAgent`, `theme` and `editor`; dragging a pane's right border with the mouse
+`defaultAgent`, `theme`, `icons` and `editor`; dragging a pane's right border with the mouse
 writes `panes`. Everything else is kept as you wrote it.
 
 ### Worktrees

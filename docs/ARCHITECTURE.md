@@ -853,9 +853,11 @@ the key). A hidden folder is never listed as a project.
 ```
 
 mc writes `config.json` in one place only: the setup wizard and the
-settings screen (DESIGN.md §5.8) save `workspace`, `defaultAgent`, `theme`
-and `editor` (removed when unset). The file is read as a `serde_json::Value` (with `preserve_order`),
-those four keys are set, and it is written back atomically (temp file +
+settings screen (DESIGN.md §5.8) save `workspace`, `defaultAgent`, `theme`,
+`icons` and `editor` (removed when unset). `--icons` is for one run and is
+never saved: a save keeps the stored `icons` unless the settings screen's
+`icons` row was changed, which also ends the flag for that run. The file is read as a `serde_json::Value` (with `preserve_order`),
+those five keys are set, and it is written back atomically (temp file +
 `rename`, 0600): every other key, and the key order, survive. A file that
 is not a JSON object is never replaced; the save fails with a message.
 Consent is still recorded in the state dir, not in config. The Jev model id (`jev-latest`), the

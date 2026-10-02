@@ -1,8 +1,8 @@
-//! `config.json`: reading the user's settings and writing back the four
+//! `config.json`: reading the user's settings and writing back the five
 //! the settings screen changes and the dragged pane widths.
 //!
 //! mc writes only the keys it owns (`workspace`, `theme`, `defaultAgent`,
-//! `editor`, `panes`, `workspaces`) and keeps every other key, and the key order, exactly as the
+//! `icons`, `editor`, `panes`, `workspaces`) and keeps every other key, and the key order, exactly as the
 //! user wrote it (ARCHITECTURE §7).
 
 use std::path::{Path, PathBuf};
@@ -142,6 +142,8 @@ pub(crate) struct Settings {
     pub theme: ThemeChoice,
     /// The agent the `n` picker preselects.
     pub default_agent: Kind,
+    /// State glyph set.
+    pub icons: crate::ui::icons::IconChoice,
     /// The command `o` opens a project with; `None` leaves it to
     /// `$VISUAL`/`$EDITOR`.
     pub editor: Option<String>,
@@ -272,6 +274,7 @@ pub(crate) fn save(path: &Path, settings: &Settings) -> Result<(), ConfigError> 
             "defaultAgent".into(),
             serde_json::to_value(settings.default_agent)?,
         );
+        root.insert("icons".into(), serde_json::to_value(settings.icons)?);
         match &settings.editor {
             Some(editor) => root.insert("editor".into(), editor.as_str().into()),
             None => root.shift_remove("editor"),
@@ -444,6 +447,7 @@ mod tests {
             workspace: PathBuf::from("/w"),
             theme: ThemeChoice::Light,
             default_agent: Kind::Codex,
+            icons: crate::ui::icons::IconChoice::Nerd,
             editor: Some("nvim".into()),
         };
         save(&path, &settings).unwrap();
@@ -461,6 +465,7 @@ mod tests {
                 "alpha",
                 "workspace",
                 "defaultAgent",
+                "icons",
                 "editor"
             ]
         );
@@ -470,6 +475,7 @@ mod tests {
             (config.theme, config.default_agent),
             (ThemeChoice::Light, Kind::Codex)
         );
+        assert_eq!(config.icons, crate::ui::icons::IconChoice::Nerd);
         assert_eq!(config.editor.as_deref(), Some("nvim"));
         assert!(
             text.contains(r#""command": "codex""#),
@@ -515,6 +521,7 @@ mod tests {
             workspace: "/w".into(),
             theme: ThemeChoice::Auto,
             default_agent: Kind::Claude,
+            icons: crate::ui::icons::IconChoice::Auto,
             editor: None,
         };
         assert!(save(&path, &settings).is_err());
