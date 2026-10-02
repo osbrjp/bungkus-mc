@@ -607,7 +607,8 @@ limits.
 
 Centred, double border (they take input like INTERACT), title in the top
 border, one blank line of padding, hint line last, right-aligned. `esc`
-always cancels; destructive confirms take `y`, anything else is "no".
+always cancels; destructive confirms take `y` or `enter` (hinted as
+`y/enter`), anything else is "no" (hinted as `n/esc`).
 The `n` picker has four rows — agent, model, name, prompt:
 
 ```
