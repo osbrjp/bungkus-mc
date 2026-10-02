@@ -965,7 +965,7 @@ impl Model {
             }
             AppEvent::Links(read) => self.set_links(read),
             AppEvent::LinkList(folder, list) => self.set_link_list(&folder, list),
-            AppEvent::LinkBody(url, text) => self.set_link_body(&url, text),
+            AppEvent::LinkBody(url, text) => self.set_link_body(&url, text.as_deref()),
             AppEvent::Mcp(changed) => self.set_mcp(changed),
             AppEvent::External(list) => {
                 self.external = list;

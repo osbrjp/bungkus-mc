@@ -818,6 +818,8 @@ const BODY_ROWS: u16 = 24;
 /// position (`first line/lines`) before the hint.
 fn draw_link_body(frame: &mut Frame, area: Rect, body: &crate::app::links::Body, theme: Theme) {
     use crate::app::links::{BODY_WIDTH, LinkKind};
+    use crate::app::markdown::Ink;
+    use ratatui::style::Modifier;
 
     let muted = theme.fg(Token::FgMuted);
     let rows = BODY_ROWS.min(area.height.saturating_sub(7)).max(1);
@@ -832,7 +834,22 @@ fn draw_link_body(frame: &mut Frame, area: Rect, body: &crate::app::links::Body,
         None => (vec![Line::styled("  asking gh…", muted)], String::new()),
         Some(text) => {
             let shown = text.iter().skip(body.scroll).take(usize::from(rows));
-            let lines = shown.map(|line| Line::styled(format!("  {line}"), theme.fg(Token::Fg)));
+            let style = |ink| match ink {
+                Ink::Plain => theme.fg(Token::Fg),
+                Ink::Bold => bold_if(theme.fg(Token::Fg), true),
+                Ink::Italic => theme.fg(Token::Fg).add_modifier(Modifier::ITALIC),
+                Ink::Code => theme.fg(Token::Info),
+                Ink::Heading => bold_if(theme.fg(Token::Accent), true),
+                Ink::Muted => muted,
+            };
+            let lines = shown.map(|line| {
+                let runs = line
+                    .iter()
+                    .map(|(ink, run)| Span::styled(run.clone(), style(*ink)));
+                std::iter::once(Span::raw("  "))
+                    .chain(runs)
+                    .collect::<Line>()
+            });
             (
                 lines.collect(),
                 format!("{}/{} · ", body.scroll + 1, text.len()),
