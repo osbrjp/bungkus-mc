@@ -3,16 +3,16 @@
           ▄████▄         bungkus-mc  v0.1.0-beta.6
          ████████        mission control for AI agents
        ▄██████████▄
-     ▄██████████████▄    step 4 of 4 · all set
+     ▄██████████████▄    step 5 of 5 · all set
            █  █
           ▀▀ ▀▀
 
      workspace   /tmp
      agent       claude
      theme       auto
+     editor      nvim
 
                  change these any time with , (settings)
-
 
 
 

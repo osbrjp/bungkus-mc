@@ -12,19 +12,19 @@
 ┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │
-┃                    ┃│    ╔ settings ══════════════════════════════════════════════════════╗                          │
-┃                    ┃│    ║                                                                ║                          │
-┃                    ┃│    ║   workspace   ┃~/Works/OSBR                                  ┃ ║                          │
-┃                    ┃│    ║ > agent       > claude    codex (not on PATH)                  ║█                         │
-┃                    ┃│    ║   theme         auto  > dark    light                          ║██▄                       │
-┃                    ┃│    ║               + ~/.local/bin/claude   - codex not on PATH      ║████▄                     │
-┃                    ┃│    ║               saved for: all workspaces · w switches           ║                          │
-┃                    ┃│    ║                                                                ║                          │
-┃                    ┃│    ║                                                                ║                          │
-┃                    ┃│    ║                                                                ║ed yet.                   │
-┃                    ┃│    ║        j/k ↑↓ field · h/l ← → change · enter save · esc cancel ║session                   │
-┃                    ┃│    ╚════════════════════════════════════════════════════════════════╝                          │
-┃                    ┃│                                    ││                                                          │
+┃                    ┃│╔ settings ══════════════════════════════════════════════════════════════╗                      │
+┃                    ┃│║                                                                        ║                      │
+┃                    ┃│║   workspace   ┃~/Works/OSBR                                          ┃ ║                      │
+┃                    ┃│║ > agent       > claude    codex (not on PATH)                          ║                      │
+┃                    ┃│║   theme         auto  > dark    light                                  ║                      │
+┃                    ┃│║   editor      > other                                                  ║▄                     │
+┃                    ┃│║               + ~/.local/bin/claude   - codex not on PATH              ║                      │
+┃                    ┃│║               saved for: all workspaces · w switches                   ║                      │
+┃                    ┃│║                                                                        ║                      │
+┃                    ┃│║                                                                        ║et.                   │
+┃                    ┃│║                                                                        ║ion                   │
+┃                    ┃│║                j/k ↑↓ field · h/l ← → change · enter save · esc cancel ║                      │
+┃                    ┃│╚════════════════════════════════════════════════════════════════════════╝                      │
 ┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │

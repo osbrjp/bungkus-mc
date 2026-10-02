@@ -8,6 +8,7 @@
 //! module owns their keys and visibility; the event loop spawns them.
 
 use std::ops::ControlFlow;
+use std::path::PathBuf;
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -52,28 +53,55 @@ pub(crate) enum Opener {
     Detached(Vec<String>),
 }
 
-/// Returns how to open a project for a user whose `$VISUAL`/`$EDITOR` is
-/// `editor`: vim in the popup, another editor on its own, and with none
-/// set the desktop's opener (`open` on macOS, `xdg-open` elsewhere).
+/// The editors the wizard and the settings screen look for on `PATH`, in
+/// the order they are offered: the popup ones, then desktop ones that take
+/// a folder as their argument.
+const KNOWN: [&str; 6] = ["nvim", "vim", "vi", "code", "cursor", "zed"];
+
+/// Returns the desktop's opener: `open` on macOS, `xdg-open` elsewhere.
+#[must_use]
+pub(crate) const fn desktop_opener() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    }
+}
+
+/// Returns the editors to offer as the `editor` setting: the user's own
+/// `$VISUAL`/`$EDITOR` (`env`) first, then every known editor that
+/// `installed` finds.
+#[must_use]
+pub(crate) fn editors(env: Option<&str>, installed: impl Fn(&str) -> bool) -> Vec<String> {
+    let env = env.map(str::trim).filter(|e| !e.is_empty());
+    let known = KNOWN
+        .into_iter()
+        .filter(|name| Some(*name) != env && installed(name));
+    env.into_iter().chain(known).map(str::to_owned).collect()
+}
+
+/// Returns how to open a project for a user whose editor (the `editor`
+/// setting, else `$VISUAL`/`$EDITOR`) is `editor`: vim in the popup,
+/// another editor on its own, and with none set the first of
+/// `nvim`/`vim`/`vi` that `installed` finds, else the desktop's opener
+/// ([`desktop_opener`]).
 ///
 /// The value is split on whitespace into an argument vector; it never
 /// goes through a shell.
 // ponytail: only vi/vim/nvim get the popup; another terminal editor
 // (nano, hx) starts without a terminal. Widen `VIM` when one is asked for.
 #[must_use]
-pub(crate) fn opener(editor: Option<&str>) -> Opener {
+pub(crate) fn opener(editor: Option<&str>, installed: impl Fn(&str) -> bool) -> Opener {
     let argv: Vec<String> = editor
         .unwrap_or_default()
         .split_whitespace()
         .map(str::to_owned)
         .collect();
     let Some(program) = argv.first() else {
-        let open = if cfg!(target_os = "macos") {
-            "open"
-        } else {
-            "xdg-open"
-        };
-        return Opener::Detached(vec![open.to_owned()]);
+        if let Some(vim) = VIM.iter().rev().find(|name| installed(name)) {
+            return Opener::Popup(vec![(*vim).to_owned()]);
+        }
+        return Opener::Detached(vec![desktop_opener().to_owned()]);
     };
     if VIM.contains(&program.rsplit('/').next().unwrap_or_default()) {
         Opener::Popup(argv)
@@ -198,11 +226,21 @@ impl Model {
         ControlFlow::Break(None)
     }
 
-    /// Opens the selected project in the user's editor (`o`).
-    pub(super) fn open_editor(&self) -> Option<Cmd> {
+    /// Returns the selected project's folder, when the row is one.
+    fn project_dir(&self) -> Option<PathBuf> {
         self.selected_project()
             .filter(|p| !p.path.as_os_str().is_empty())
-            .map(|p| Cmd::OpenEditor(p.path.clone()))
+            .map(|p| p.path.clone())
+    }
+
+    /// Opens the selected project in the user's editor (`o`).
+    pub(super) fn open_editor(&self) -> Option<Cmd> {
+        self.project_dir().map(Cmd::OpenEditor)
+    }
+
+    /// Opens the selected project's folder with the desktop's opener (`O`).
+    pub(super) fn open_folder(&self) -> Option<Cmd> {
+        self.project_dir().map(Cmd::OpenFolder)
     }
 
     /// Shows or hides the terminal pane (`t`). Every project has its own
@@ -266,11 +304,7 @@ mod tests {
     #[test]
     fn vim_opens_in_the_popup_and_anything_else_on_its_own() {
         let argv = |s: &str| s.split(' ').map(str::to_owned).collect::<Vec<_>>();
-        let open = if cfg!(target_os = "macos") {
-            "open"
-        } else {
-            "xdg-open"
-        };
+        let open = desktop_opener();
         for (editor, want) in [
             (Some("nvim"), Opener::Popup(argv("nvim"))),
             (
@@ -283,8 +317,53 @@ mod tests {
             (Some("  "), Opener::Detached(argv(open))),
             (None, Opener::Detached(argv(open))),
         ] {
-            assert_eq!(opener(editor), want, "{editor:?}");
+            assert_eq!(opener(editor, |_| false), want, "{editor:?}");
         }
+    }
+
+    #[test]
+    fn with_no_editor_set_an_installed_vim_opens_before_the_desktop_opener() {
+        for (installed, want) in [
+            (&["vi", "vim", "nvim"][..], "nvim"),
+            (&["vi", "vim"][..], "vim"),
+            (&["vi"][..], "vi"),
+        ] {
+            for editor in [None, Some("  ")] {
+                assert_eq!(
+                    opener(editor, |name| installed.contains(&name)),
+                    Opener::Popup(vec![want.to_owned()]),
+                    "{installed:?}"
+                );
+            }
+        }
+        assert_eq!(
+            opener(Some("code"), |_| true),
+            Opener::Detached(vec!["code".to_owned()])
+        );
+    }
+
+    #[test]
+    fn offers_the_users_own_editor_first_then_the_installed_known_ones() {
+        let installed = |name: &str| ["vim", "code", "hx"].contains(&name);
+        for (env, want) in [
+            (None, &["vim", "code"][..]),
+            (Some(" "), &["vim", "code"][..]),
+            (Some("hx"), &["hx", "vim", "code"][..]),
+            (Some("code"), &["code", "vim"][..]),
+        ] {
+            assert_eq!(editors(env, installed), want, "{env:?}");
+        }
+        assert!(editors(None, |_| false).is_empty());
+    }
+
+    #[test]
+    fn capital_o_asks_for_the_desktop_opener_on_the_project_folder() {
+        let mut m = sample(&["a"]);
+        let path = m.selected_project().unwrap().path.clone();
+        assert_eq!(
+            m.update(press(KeyCode::Char('O'))),
+            Some(Cmd::OpenFolder(path))
+        );
     }
 
     #[test]

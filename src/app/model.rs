@@ -174,6 +174,8 @@ pub(crate) enum Cmd {
     Scan,
     /// Open this project folder in the user's editor (`o`).
     OpenEditor(PathBuf),
+    /// Open this project folder with the desktop's opener (`O`).
+    OpenFolder(PathBuf),
     /// Start the terminal pane's shell in this folder (`t`).
     OpenTerminal(PathBuf),
     /// Write the dragged pane widths to `config.json`.
@@ -252,6 +254,8 @@ pub(crate) struct Model {
     pub message: Option<String>,
     /// Where each agent was found on `PATH`, in `Kind::ALL` order.
     pub found: [Option<String>; 2],
+    /// The editors the settings offer ([`crate::app::tools::editors`]).
+    pub editors: Vec<String>,
     /// Workspace used when the wizard is skipped with an empty field.
     pub fallback_workspace: PathBuf,
     /// Rows the projects list shows, for half-page moves.
@@ -405,6 +409,7 @@ impl Model {
             overlay: None,
             message: None,
             found,
+            editors: Vec::new(),
             fallback_workspace: fallback,
             list_rows: 10,
             widths: crate::ui::Widths::default(),
@@ -741,11 +746,13 @@ impl Model {
             workspace: PathBuf::new(),
             theme: ThemeChoice::Auto,
             default_agent: Kind::Claude,
+            editor: None,
         });
         let mut form = Form::new(
             kind,
             &current,
             self.found.clone(),
+            self.editors.clone(),
             self.fallback_workspace.clone(),
             self.home.clone(),
         );
@@ -1649,6 +1656,7 @@ impl Model {
             Action::QuickSession => return self.quick_session(),
             Action::ToggleRest => self.toggle_rest(),
             Action::Editor => return self.open_editor(),
+            Action::Folder => return self.open_folder(),
             Action::Terminal => return self.toggle_terminal(),
             Action::Update => return self.start_update(),
             Action::MoveQuick => self.start_move(false),
@@ -1791,6 +1799,7 @@ pub(crate) mod tests {
             workspace,
             theme: ThemeChoice::Dark,
             default_agent: Kind::Claude,
+            editor: None,
         };
         model.apply(settings, Ok(projects), Path::new("/"));
         model

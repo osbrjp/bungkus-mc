@@ -1,8 +1,8 @@
-//! `config.json`: reading the user's settings and writing back the three
+//! `config.json`: reading the user's settings and writing back the four
 //! the settings screen changes and the dragged pane widths.
 //!
 //! mc writes only the keys it owns (`workspace`, `theme`, `defaultAgent`,
-//! `panes`) and keeps every other key, and the key order, exactly as the
+//! `editor`, `panes`, `workspaces`) and keeps every other key, and the key order, exactly as the
 //! user wrote it (ARCHITECTURE §7).
 
 use std::path::{Path, PathBuf};
@@ -29,6 +29,8 @@ pub(crate) struct Config {
     pub background: Background,
     /// The agent the `n` picker preselects.
     pub default_agent: Kind,
+    /// The command `o` opens a project with; `$VISUAL`/`$EDITOR` when unset.
+    pub editor: Option<String>,
     /// Commands and extra arguments per agent.
     pub agents: Agents,
     /// The chord that leaves INTERACT, e.g. `ctrl-^` (DESIGN §8.5).
@@ -84,6 +86,7 @@ impl Default for Config {
             theme: ThemeChoice::default(),
             background: Background::default(),
             default_agent: Kind::default(),
+            editor: None,
             agents: Agents::default(),
             interact_exit: None,
             mouse: true,
@@ -139,6 +142,9 @@ pub(crate) struct Settings {
     pub theme: ThemeChoice,
     /// The agent the `n` picker preselects.
     pub default_agent: Kind,
+    /// The command `o` opens a project with; `None` leaves it to
+    /// `$VISUAL`/`$EDITOR`.
+    pub editor: Option<String>,
 }
 
 /// Where the settings screen saves the default agent.
@@ -266,6 +272,10 @@ pub(crate) fn save(path: &Path, settings: &Settings) -> Result<(), ConfigError> 
             "defaultAgent".into(),
             serde_json::to_value(settings.default_agent)?,
         );
+        match &settings.editor {
+            Some(editor) => root.insert("editor".into(), editor.as_str().into()),
+            None => root.shift_remove("editor"),
+        };
         Ok(())
     })
 }
@@ -434,6 +444,7 @@ mod tests {
             workspace: PathBuf::from("/w"),
             theme: ThemeChoice::Light,
             default_agent: Kind::Codex,
+            editor: Some("nvim".into()),
         };
         save(&path, &settings).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
@@ -449,7 +460,8 @@ mod tests {
                 "agents",
                 "alpha",
                 "workspace",
-                "defaultAgent"
+                "defaultAgent",
+                "editor"
             ]
         );
         let config = load(&path).unwrap();
@@ -458,10 +470,17 @@ mod tests {
             (config.theme, config.default_agent),
             (ThemeChoice::Light, Kind::Codex)
         );
+        assert_eq!(config.editor.as_deref(), Some("nvim"));
         assert!(
             text.contains(r#""command": "codex""#),
             "nested unknown keys survive"
         );
+        let unset = Settings {
+            editor: None,
+            ..settings
+        };
+        save(&path, &unset).unwrap();
+        assert_eq!(load(&path).unwrap().editor, None, "unset removes the key");
     }
 
     #[test]
@@ -496,6 +515,7 @@ mod tests {
             workspace: "/w".into(),
             theme: ThemeChoice::Auto,
             default_agent: Kind::Claude,
+            editor: None,
         };
         assert!(save(&path, &settings).is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "{broken");

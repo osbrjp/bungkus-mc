@@ -3,7 +3,7 @@
           ▄████▄         bungkus-mc  v0.1.0-beta.6
          ████████        mission control for AI agents
        ▄██████████▄
-     ▄██████████████▄    step 3 of 4 · theme
+     ▄██████████████▄    step 3 of 5 · theme
            █  █
           ▀▀ ▀▀
 

@@ -902,11 +902,12 @@ name (§5.8).
 
 ### 5.8 Setup wizard and settings screen
 
-Three settings belong to the user's first minutes and are edited in mc
-itself: the **workspace**, the **default agent** and the **theme**.
+Four settings belong to the user's first minutes and are edited in mc
+itself: the **workspace**, the **default agent**, the **theme** and the
+**editor** (`o`).
 
 **First run** (no workspace on the command line or in `config.json`): a
-four-step wizard, full screen, the static mascot beside the product name on
+five-step wizard, full screen, the static mascot beside the product name on
 every step. `enter` goes on, `esc` goes back, and `esc` on the first step
 **skips the wizard with defaults**. The workspace field is prefilled with
 **`~/Documents`** (else the parent of the git repository mc was started in,
@@ -917,8 +918,14 @@ follows), typing a path re-lists it, and a line says how many projects the
 folder holds, with each project marked. The agent step lists both agents
 with where they were found; only installed agents can be chosen (both, if
 neither is installed). The theme step **previews live**: the whole screen
-repaints in the chosen theme, with a sample of the state colours. Finishing
-(or skipping) writes the three keys to `config.json` (ARCHITECTURE §7).
+repaints in the chosen theme, with a sample of the state colours. The
+editor step offers the user's own `$VISUAL`/`$EDITOR` first, then every
+known editor found on `PATH` (`nvim`, `vim`, `vi`, `code`, `cursor`,
+`zed`), then `other`: a typed command or full path (`~` expanded), which
+must be a file or on `PATH` to go on. With none found, `other` is the only
+choice; left empty, the setting stays unset and `o` follows
+`$VISUAL`/`$EDITOR`. Finishing (or skipping) writes the four keys to
+`config.json` (ARCHITECTURE §7).
 
 Generated from the goldens in `src/ui/testdata/` (80×24, `NO_COLOR`):
 
@@ -927,7 +934,7 @@ Generated from the goldens in `src/ui/testdata/` (80×24, `NO_COLOR`):
           ▄████▄         bungkus-mc  v0.1.0
          ████████        mission control for AI agents
        ▄██████████▄
-     ▄██████████████▄    step 1 of 4 · workspace
+     ▄██████████████▄    step 1 of 5 · workspace
            █  █
           ▀▀ ▀▀
 
@@ -959,7 +966,7 @@ row saves.
           ▄████▄         bungkus-mc  v0.1.0
          ████████        mission control for AI agents
        ▄██████████▄
-     ▄██████████████▄    step 2 of 4 · default agent
+     ▄██████████████▄    step 2 of 5 · default agent
            █  █
           ▀▀ ▀▀
 
@@ -980,7 +987,7 @@ row saves.
           ▄████▄         bungkus-mc  v0.1.0
          ████████        mission control for AI agents
        ▄██████████▄
-     ▄██████████████▄    step 3 of 4 · theme
+     ▄██████████████▄    step 3 of 5 · theme
            █  █
           ▀▀ ▀▀
 
@@ -1001,13 +1008,35 @@ row saves.
           ▄████▄         bungkus-mc  v0.1.0
          ████████        mission control for AI agents
        ▄██████████▄
-     ▄██████████████▄    step 4 of 4 · all set
+     ▄██████████████▄    step 4 of 5 · editor
+           █  █
+          ▀▀ ▀▀
+
+     editor      > nvim    vim    code    other
+
+                 o opens the selected project in it
+                 O opens its folder in the file manager
+
+
+
+
+
+                                         ← → choose · enter next · esc back
+```
+
+```
+            ▄▄
+          ▄████▄         bungkus-mc  v0.1.0
+         ████████        mission control for AI agents
+       ▄██████████▄
+     ▄██████████████▄    step 5 of 5 · all set
            █  █
           ▀▀ ▀▀
 
      workspace   /tmp
      agent       claude
      theme       auto
+     editor      nvim
 
                  change these any time with , (settings)
 
@@ -1018,9 +1047,10 @@ row saves.
 ```
 
 **Settings screen** — `,` in NORMAL (and `w`, which opens it on the
-workspace field). A dialog with all three fields; `tab`/`shift-tab` (and
+workspace field). A dialog with all four fields; `tab`/`shift-tab` (and
 `↑`/`↓` off the workspace field) move between them, `←`/`→` change a
-choice, and on the workspace field the same folder browser opens under it
+choice (on the editor row with `other` chosen, letters type its command
+on the line below, so `h`/`j`/`k`/`l` do not move there), and on the workspace field the same folder browser opens under it
 (`↑`/`↓` pick, `→` open, `←` up); `enter` saves and rescans, `esc` cancels
 and reverts the theme preview. On the agent row a line under the choices
 says where the default agent is saved, `saved for: all workspaces` (the
@@ -1036,18 +1066,19 @@ INTERACT: every key there goes to the agent.
 ┃   teh-cli                                                                    ┃
 ┃                                                                              ┃
 ┃                                                                              ┃
-┃      ╔ settings ══════════════════════════════════════════════════════╗      ┃
-┃      ║                                                                ║      ┃
-┃      ║   workspace   ┃~/Works/OSBR                                  ┃ ║      ┃
-┃      ║ > agent       > claude    codex (not on PATH)                  ║      ┃
-┃      ║   theme         auto  > dark    light                          ║      ┃
-┃      ║               + ~/.local/bin/claude   - codex not on PATH      ║      ┃
-┃      ║                                                                ║      ┃
-┃      ║                                                                ║      ┃
-┃      ║                                                                ║      ┃
-┃      ║                                                                ║      ┃
-┃      ║               ↑ ↓ field · ← → change · enter save · esc cancel ║      ┃
-┃      ╚════════════════════════════════════════════════════════════════╝      ┃
+┃  ╔ settings ══════════════════════════════════════════════════════════════╗  ┃
+┃  ║                                                                        ║  ┃
+┃  ║   workspace   ┃~/Works/OSBR                                          ┃ ║  ┃
+┃  ║ > agent       > claude    codex (not on PATH)                          ║  ┃
+┃  ║   theme         auto  > dark    light                                  ║  ┃
+┃  ║   editor      > nvim    vim    code    other                           ║  ┃
+┃  ║               + ~/.local/bin/claude   - codex not on PATH              ║  ┃
+┃  ║                                                                        ║  ┃
+┃  ║                                                                        ║  ┃
+┃  ║                                                                        ║  ┃
+┃  ║                                                                        ║  ┃
+┃  ║                j/k ↑↓ field · h/l ← → change · enter save · esc cancel ║  ┃
+┃  ╚════════════════════════════════════════════════════════════════════════╝  ┃
 ┃                                                                              ┃
 ┃                                                                              ┃
 ┃                                                                              ┃
@@ -1171,7 +1202,8 @@ the same frame.
 | `1`–`9`                                           | jump to the project with that number (the numbers left of the names follow the searched list). The selection moves on every digit; a digit within 0.7 s of the previous one extends the number (`1` → 1, then `6` → 16), a number with no project leaves the last jump in place, and any other key ends the number (bungkus-cli's wizard rule) |
 | `w`                                               | settings, on the workspace field (§5.8) |
 | `,`                                               | settings: workspace, default agent, theme (§5.8) |
-| `o`                                               | open the selected project in the user's editor (`$VISUAL`, else `$EDITOR`): `vi`/`vim`/`nvim` run in a popup over the panes (mode word `EDITOR`, every key goes to it, it closes when the editor quits); any other editor is started on its own with the folder as its argument; with neither variable set, the desktop's opener (`open` / `xdg-open`) |
+| `o`                                               | open the selected project in the user's editor (the `editor` setting, else `$VISUAL`, else `$EDITOR`): `vi`/`vim`/`nvim` run in a popup over the panes (mode word `EDITOR`, every key goes to it, it closes when the editor quits); any other editor is started on its own with the folder as its argument; with none of the three set, the first of `nvim` / `vim` / `vi` on `PATH` in the same popup, else the desktop's opener (`open` / `xdg-open`) |
+| `O`                                               | open the selected project's folder with the desktop's opener (`open` / `xdg-open`): Finder or the file manager |
 | `t`                                               | show / hide the terminal pane: the user's `$SHELL` in the lower third of the output pane, in mc's own emulator (no tmux or other program). Every project has its own shell, started in its folder the first time `t` is pressed there; the pane follows the selected project and is absent on one without a shell. Showing it gives it the keys (mode word `TERMINAL`); `ctrl-\` gives them back to mc and leaves it showing; `ctrl-h` goes left to the sessions pane and `ctrl-k` up to the output pane (INTERACT), from where `ctrl-j` comes back down while the pane shows; `ctrl-j`/`ctrl-l` in the terminal stay the shell's (enter, clear screen); hiding keeps the shells running; `exit` closes one |
 | `?`                                               | help                                    |
 | `R`                                               | redraw |

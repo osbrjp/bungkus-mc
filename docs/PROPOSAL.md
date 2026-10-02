@@ -251,7 +251,8 @@ with the last agent preselected.
     wizard and changed later on a settings screen (`,`), with a live theme
     preview; this reverses the earlier "no runtime theme toggle" cut. mc
     writes those three keys into `config.json`, keeping every other key
-    and their order. The `n` picker preselects the default agent (no
+    and their order. The editor `o` opens (`editor`) joined them as a
+    fourth step and row (owner request, 2026-10-02). The `n` picker preselects the default agent (no
     "last used"). Built in M2 (DESIGN.md §5.8).
 23. **Sessions started outside mc are shown, read-only** (owner request,
     2026-10-01). Claude sessions come from `claude agents --json`, Codex
