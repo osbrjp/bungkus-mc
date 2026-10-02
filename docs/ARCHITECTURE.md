@@ -214,7 +214,10 @@ A thread lists them every 5 s (`src/external.rs`) and sends
 - **Claude:** `claude agents --json` (fixed argv, stdin closed, stdout
   capped at 1 MiB, killed after 3 s). Each row gives pid, cwd, name,
   session id and `status`: `busy` → working, `idle` → your turn, a status
-  about waiting/input/permission → needs you.
+  about waiting/input/permission → needs you. Rows of `kind`
+  `background` are left out: Claude's own daemon runs those agents
+  (forks, background tasks) without a terminal, so there is nothing to
+  take over.
 - **Codex:** has no listing. A process of this user whose `comm` basename
   is `codex`, that is not the app-server daemon and whose parent is not
   another `codex` (the npm wrapper), counts as one session; its folder
