@@ -169,6 +169,11 @@ resume.**
   same dialog.
 - Each session's `agentSessionId` is in `sessions.json`; `r` runs the resume
   argv (§5) in the stored `cwd`.
+- A session that quit (or terminal close) stopped is stored with
+  `"resume": true`; the next start resumes each one whose `cwd` is a
+  project of the open workspace, with the same argv as `r`. Sessions
+  stopped with `x`, wrapped or failed stay as they are, and so does a
+  hooked session that never got a prompt (nothing was saved to resume).
 - SIGHUP/terminal close: same as quit, without the dialog, keep rule applied.
 
 Detach was considered and rejected for v0.1 (owner decision): both agents
@@ -791,14 +796,19 @@ the key). A hidden folder is never listed as a project.
   message line says so. Every other key is ignored there: what mc runs
   (`agents.*.command`/`args`) and what belongs to the terminal (panes,
   mouse, icons, motion, the exit chord, theme) stay global.
-- `CLAUDE.md` is appended to the system prompt of every Claude session mc
-  starts or resumes in the workspace (`--append-system-prompt-file
-  <path>`); `AGENTS.md` reaches every Codex session as the
-  `developer_instructions` config value (`-c developer_instructions=<TOML
-  string>`, the first 64 KiB, since the text travels in argv; it takes the
-  place of a `developer_instructions` in `~/.codex/config.toml`). Both add
-  to the instruction files the agents read from the project themselves.
-  Sessions started outside mc get neither.
+- **Instructions.** Every session mc starts or resumes gets one
+  instruction text: mc's built-in rules (`src/agent/instructions.md`: how
+  to find session ids, branch from the default branch, name worktrees
+  `<project-name>-<session-id>` and remove them when done), then the
+  workspace's own file, `CLAUDE.md` for Claude and `AGENTS.md` for Codex
+  (its first 64 KiB), which has the last word. `"instructions": false` in
+  the global `config.json` leaves the built-in rules out; the workspace
+  files apply either way. Claude gets the text as `--append-system-prompt
+  <text>`, Codex as the `developer_instructions` config value (`-c
+  developer_instructions=<TOML string>`; it takes the place of a
+  `developer_instructions` in `~/.codex/config.toml`). Both add to the
+  instruction files the agents read from the project themselves. Sessions
+  started outside mc get neither.
 
 `config.json` (all keys optional; workspace can also be the first CLI argument):
 
@@ -814,6 +824,7 @@ the key). A hidden folder is never listed as a project.
   "notify": "bell",
   "interactExit": "ctrl-\\",
   "worktrees": true,
+  "instructions": true,
   "agents": {
     "claude": { "command": "claude", "args": [] },
     "codex":  { "command": "codex",  "args": [] }

@@ -577,8 +577,8 @@ otherwise. The **spinner column** shows the global-clock frame `| / - \`
 for a project with any running session (static `|` under `motion:
 false`), space otherwise. The **badge** is the worst *non-running* state
 among the project's sessions, precedence **failed > needs you > your
-turn**, as `<glyph> <count>`; before it, `<spinner> <n>` says how many
-sessions are working (nothing when none is). The header tally's `/` and every card's
+turn**, as `<glyph> <count>`; before it, `<spinner><n>` (`|2`) says how
+many sessions are working, from two (one is the spinner column alone). The header tally's `/` and every card's
 working glyph tick with the same clock.
 
 ### 5.4 Badge
@@ -1253,7 +1253,7 @@ through); `ctrl-\` is not among them.
 ### 8.6 Mouse
 
 Click focuses a pane / selects a row (and exits INTERACT if the click is
-outside the output pane); a click on a project or a session selects it, a click on the
+outside the output pane); a click on a project or a session selects it, and a click on the session that is already selected enters it like `enter`, a click on the
 `+ <n> more` line shows or hides the rest of the projects; a click on the
 terminal pane gives it the keys and a click anywhere else takes them back;
 a click on the output pane focuses it, i.e. enters INTERACT; wheel scrolls the pane under the pointer. Text selection: with mouse reporting on,

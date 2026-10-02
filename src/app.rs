@@ -203,6 +203,7 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<bool> {
     let uid = rustix::process::getuid().as_raw();
     let (hooks, _listener) = start_background(&mut model, &tx, uid);
     load_overrides(&mut model, env);
+    resume_sessions(&mut model, env, hooks.as_ref(), &tx, uid);
     if env.quick
         && let Some(cmd) = model.quick_session()
     {
@@ -272,6 +273,32 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<bool> {
             }
         }
     }
+}
+
+/// Resumes the sessions the last quit stopped ([`Model::auto_resume`]).
+/// Launching selects and focuses each session, so the project and focus
+/// mc started with are put back: the project by its folder, since the
+/// resumed sessions reorder the recent group of the list.
+fn resume_sessions(
+    model: &mut Model,
+    env: &Env,
+    hooks: Option<&Hooks>,
+    tx: &SyncSender<AppEvent>,
+    uid: u32,
+) {
+    let resumes = model.auto_resume();
+    if resumes.is_empty() {
+        return;
+    }
+    let selected = model.selected_project().map(|p| p.path.clone());
+    let focus = model.focus;
+    for cmd in resumes {
+        run_cmd(model, env, hooks, tx, uid, cmd);
+    }
+    if let Some(path) = selected {
+        model.select_project(&path);
+    }
+    (model.card, model.focus) = (0, focus);
 }
 
 /// Starts the hook socket and the daily update check; returns what
@@ -777,7 +804,7 @@ fn launch(
         ));
         return;
     };
-    let extra_args = extra_args(model, &agent.args, kind, worktree.as_deref());
+    let extra_args = extra_args(model, &env.config, kind, worktree.as_deref());
     card.worktree = worktree;
     let argv = agent::argv(kind, &program, &extra_args, &launch);
     let id = launch.id.0.hyphenated().to_string();
@@ -955,14 +982,22 @@ fn worktree_for(
 
 /// Returns what goes between the agent's program and mc's own arguments,
 /// for a new session and a resumed one alike: the configured `args`,
-/// `--worktree <name>` if any, and the open workspace's own instructions
-/// (`.bungkus-mc/CLAUDE.md`, `.bungkus-mc/AGENTS.md`; see
-/// [`agent::instruction_args`]).
-fn extra_args(model: &Model, args: &[String], kind: Kind, worktree: Option<&str>) -> Vec<String> {
-    let instructions = model.root().map_or_else(Vec::new, |root| {
-        agent::instruction_args(kind, &root.join(config::WORKSPACE_DIR))
-    });
-    [worktree_args(args, worktree), instructions].concat()
+/// `--worktree <name>` if any, and the instructions (the built-in rules
+/// unless `instructions` is off in the config, then the open workspace's
+/// `.bungkus-mc/CLAUDE.md` / `AGENTS.md`; see [`agent::instruction_args`]).
+fn extra_args(
+    model: &Model,
+    config: &config::Config,
+    kind: Kind,
+    worktree: Option<&str>,
+) -> Vec<String> {
+    let dir = model.root().map(|root| root.join(config::WORKSPACE_DIR));
+    let instructions = agent::instruction_args(kind, dir.as_deref(), config.instructions);
+    [
+        worktree_args(&config.agents.get(kind).args, worktree),
+        instructions,
+    ]
+    .concat()
 }
 
 /// Returns the agent's extra arguments plus `--worktree <name>`, if any.

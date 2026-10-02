@@ -107,6 +107,28 @@ pub(crate) struct LaunchRequest {
     pub replaces: Option<SessionId>,
 }
 
+/// Returns the launch that resumes finished `card` in its folder and
+/// replaces it, or `None` when it has no id to resume.
+fn resume_cmd(card: &Card) -> Option<Cmd> {
+    let launch = Launch {
+        id: SessionId::new(),
+        model: None,
+        name: Some(card.name.clone()),
+        prompt: None,
+        settings: None,
+        hook_args: Vec::new(),
+        resume: Some(card.resume_id()?),
+        pick: false,
+        fork: false,
+    };
+    Some(Cmd::Launch(LaunchRequest {
+        project: card.project.clone(),
+        kind: card.kind,
+        launch,
+        replaces: Some(card.id),
+    }))
+}
+
 /// How many projects the recent group of the projects list holds; more
 /// only when more of them have a running session (DESIGN §8.2).
 const RECENT_MAX: usize = 5;
@@ -1240,27 +1262,22 @@ impl Model {
         if card.running() {
             return None;
         }
-        let Some(id) = card.resume_id() else {
+        let cmd = resume_cmd(card);
+        if cmd.is_none() {
             self.message = Some("not resumable — hooks off".into());
-            return None;
-        };
-        let launch = Launch {
-            id: SessionId::new(),
-            model: None,
-            name: Some(card.name.clone()),
-            prompt: None,
-            settings: None,
-            hook_args: Vec::new(),
-            resume: Some(id),
-            pick: false,
-            fork: false,
-        };
-        Some(Cmd::Launch(LaunchRequest {
-            project: card.project.clone(),
-            kind: card.kind,
-            launch,
-            replaces: Some(card.id),
-        }))
+        }
+        cmd
+    }
+
+    /// Returns the resumes of the sessions the last quit stopped
+    /// ([`Card::auto_resume`]), for those in the open workspace's projects;
+    /// the others wait for their own workspace.
+    pub(crate) fn auto_resume(&self) -> Vec<Cmd> {
+        self.cards
+            .iter()
+            .filter(|c| c.auto_resume && self.projects.iter().any(|p| p.path == c.project))
+            .filter_map(resume_cmd)
+            .collect()
     }
 
     /// Starts the band mascot's click animation with a random quote (never
@@ -1355,7 +1372,7 @@ impl Model {
     /// Enters the selected row of the sessions pane: takes over an outside
     /// session, opens a quick session's popup (resuming it into the popup
     /// when it has ended), or enters INTERACT.
-    fn enter_session(&mut self) -> Option<Cmd> {
+    pub(super) fn enter_session(&mut self) -> Option<Cmd> {
         if let Some(ext) = self.selected_external().cloned() {
             return self.take_over(ext);
         }
