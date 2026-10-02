@@ -1487,6 +1487,16 @@ pub(crate) mod tests {
             "the row goes with its last session"
         );
         assert_eq!(model.selected, 4);
+        model.workspaces = vec!["/other".into()];
+        model.external.push(External {
+            cwd: "/other/project".into(),
+            ..ext(703, "other workspace", None)
+        });
+        assert_eq!(
+            model.visible().len(),
+            5,
+            "a session of another saved workspace gets no row here"
+        );
     }
 
     #[test]

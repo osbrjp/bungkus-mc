@@ -224,7 +224,7 @@ A thread lists them every 5 s (`src/external.rs`) and sends
   comes from `lsof -a -d cwd -p <pids> -Fpn`. Its state is "running".
 - A row whose cwd is the project folder or below it shows in that
   project, after mc's cards; one in no project folder (outside the
-  workspace, or a folder since deleted) shows under an `elsewhere` row
+  workspace, or a folder since deleted) and in no other saved workspace shows under an `elsewhere` row
   that ends the projects list while there is one, with its folder; its state feeds the projects-pane spinner and
   badge. Sessions mc started are left out by pid, tracked descendant pid,
   or session id.
