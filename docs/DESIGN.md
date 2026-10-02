@@ -515,13 +515,12 @@ whether there is a header line.
   minute for running sessions; absent without `gh` or a login.
 - MCP line, `fg-muted`: the MCP servers the session has used (a tool
   call named them, ARCHITECTURE §5.5), sorted by name; absent until the
-  first such call. Servers that are only configured are not on it. ascii
+  first such call. Servers that are only configured are not shown. ascii
   and unicode sets: `mcp` then the names joined by ` · `. nerd
   set: per server its logo alone (§3), or a kind glyph or the plug and
   the name when it has none, two spaces apart. The expanded card (§6.3) shows
-  an `mcp` row with the servers in use and an `mcp idle` row with the
-  configured servers the session has not used: their names, or in the
-  nerd set their glyphs as on the MCP line.
+  an `mcp` row with the same servers: their names, or in the nerd set
+  their glyphs as on the MCP line.
 - Gutter column: `┃` in `warn` for needs-you, `err` for failed, space otherwise.
 - Title = **the session's name**, as the agent itself knows it (decided):
   Claude's session name (set at launch with `--name`, renamed inside the
@@ -671,6 +670,33 @@ default-keep set (app bundles under `Applications`, `claude`, `codex`, `ssh-agen
 `cleanup.keep`), which start as `[keep]`; `space` toggles the highlighted
 row; `j`/`k` move. After 8 rows the dialog shows `… and N more` and
 scrolls. Exactly the listed `[stop]` set is signalled.
+
+Activity overlay (`A`): how much of the device mc is using. One row per
+group of processes — `mc` itself, each running session (its agent and
+everything observed below it), then `terminals & other` (the rest of mc's
+children) — with the process count, CPU and resident memory, a `total`
+row in `accent`, and the device line. CPU is measured between two
+samples, so it reads `-` for the first 2 s; 100 % is one core. `temp`
+reads `n/a` where the OS does not give it to an unprivileged process
+(macOS). Rows that do not fit collapse into `… and N more`; the total
+still covers them.
+
+```
+╔ activity ══════════════════════════════════════════════════════╗
+║                                                                ║
+║                                   procs       cpu        ram   ║
+║  mc                                   1      1.2%      27 MB   ║
+║  #a3f1 checkout redesign              7    123.4%     1.5 GB   ║
+║  terminals & other                    2      0.0%       8 MB   ║
+║                                                                ║
+║  total                               10    124.6%     1.5 GB   ║
+║                                                                ║
+║  device  8 cores · ram 16.0 GB, 9.9% used here · temp 54°C     ║
+║  cpu: 100% is one core · updates every 2 s                     ║
+║                                                                ║
+║                                                     esc close  ║
+╚════════════════════════════════════════════════════════════════╝
+```
 
 Help overlay (generated from the keymap for the focused pane, then the
 global set):
@@ -1237,6 +1263,7 @@ the same frame.
 | `t`                                               | show / hide the terminal pane: the user's `$SHELL` in the lower third of the output pane, in mc's own emulator (no tmux or other program). Every session has its own shell, started in the folder the session works in (its worktree when it has one) the first time `t` is pressed on it; the pane follows the selected session and is absent on one without a shell, and its title names the session. With no session of mc's selected (a project without sessions, an outside session) the shell belongs to the project folder, or to the workspace root on a row that is no folder. A session's shell does not outlive it: when the session ends (it exits, `x` stops it) or is forgotten, mc hangs up on its shell. A card whose session has a shell carries `>_` in `ok` before the right-hand word of its title line, shown or hidden. Showing it gives it the keys (mode word `TERMINAL`); `ctrl-\` gives them back to mc and leaves it showing; `ctrl-h` goes left to the sessions pane and `ctrl-k` up to the output pane (INTERACT), from where `ctrl-j` comes back down while the pane shows; `ctrl-j`/`ctrl-l` in the terminal stay the shell's (enter, clear screen), except in kitty, where they move to the kitty window below / to the right as from the other panes; `cmd`/`alt`/`ctrl` + `4` shows the pane and gives it the keys from any pane (starting the shell when there is none), and + `1`–`3` leave it for that pane; hiding keeps the shells running and leaves a `[4] terminal` marker on the output pane's bottom border; `exit` (or `ctrl-d`) closes one, and when it had the keys they go up to the output pane, as `ctrl-k` does |
 | `T`                                               | close the selected session's shell, shown or hidden: mc hangs up on it (SIGHUP), as a terminal window that closes does; the pane goes when the shell has ended |
 | `?`                                               | help                                    |
+| `A`                                               | activity monitor (§5.5): what mc and its sessions use of the device; `esc`, `A` or `q` closes it |
 | `R`                                               | redraw |
 | `q` · `ctrl-c`                                    | quit (confirm if anything is running)   |
 
@@ -1291,6 +1318,7 @@ acceptance and permission answers are typed. Exceptions:
 | `ctrl-h`             | leave INTERACT to the sessions pane, as everywhere (the agent never sees it) |
 | `jj` · `jk` (fast)   | leave INTERACT to the sessions pane when the second key follows the `j` within 200 ms. The `j` has already reached the agent, so mc sends one backspace to take it back; slower pairs are ordinary typing |
 | `ctrl-l`             | swallowed: the output pane is already the rightmost (the agent never sees it) |
+| `ctrl-]`             | jump to the next needs-you session, as `!` does in NORMAL (the agent never sees it; `!` itself is typed to the agent). While another session needs you the getah bar adds `ctrl-] next needs you`; in NORMAL it leads with `! next needs you` |
 | `cmd`/`alt`/`ctrl` + `1`–`3` | focus projects / sessions / output (the agent never sees them); also in NORMAL. Cmd only arrives when the terminal does not keep it for its tabs |
 | `ctrl-z`             | swallowed (a suspended agent cannot be resumed from inside a pane)  |
 | mouse click on another pane | leaves INTERACT and focuses that pane                       |

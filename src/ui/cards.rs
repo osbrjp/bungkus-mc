@@ -359,10 +359,8 @@ fn card_lines(
         };
         lines.push(body(&label, theme.fg(Token::FgMuted)));
     }
-    let in_use = card.mcp.iter().filter(|name| card.mcp_in_use(name));
-    let in_use: Vec<String> = in_use.cloned().collect();
-    if !in_use.is_empty() && mark != Mark::Focused {
-        let line = mcp_line(&in_use, theme.icons);
+    if !card.mcp.is_empty() && mark != Mark::Focused {
+        let line = mcp_line(&card.mcp, theme.icons);
         lines.push(body(&line, theme.fg(Token::FgMuted)));
     }
     let lead = [
@@ -554,16 +552,13 @@ fn expanded_usage(card: &Card, width: usize, text: Style, theme: Theme) -> Vec<V
         }
         None => plain("context  -".to_owned()),
     });
-    let names = card.mcp.iter().map(String::as_str);
-    let (used, idle): (Vec<_>, Vec<_>) = names.partition(|name| card.mcp_in_use(name));
-    for (label, servers) in [("mcp      ", used), ("mcp idle ", idle)] {
-        if !servers.is_empty() {
-            let servers = match theme.icons {
-                IconSet::Nerd => mcp_glyphs(&servers, theme.icons).join("  "),
-                IconSet::Ascii | IconSet::Unicode => servers.join(" · "),
-            };
-            rows.push(plain(format!("{label}{servers}")));
-        }
+    if !card.mcp.is_empty() {
+        let servers: Vec<&str> = card.mcp.iter().map(String::as_str).collect();
+        let servers = match theme.icons {
+            IconSet::Nerd => mcp_glyphs(&servers, theme.icons).join("  "),
+            IconSet::Ascii | IconSet::Unicode => servers.join(" · "),
+        };
+        rows.push(plain(format!("mcp      {servers}")));
     }
     rows
 }
@@ -670,8 +665,7 @@ mod tests {
             None,
             now,
         );
-        card.mcp = vec!["github".into(), "miko".into(), "slack".into()];
-        card.mcp_used = vec!["miko".into(), "github".into()];
+        card.mcp = vec!["github".into(), "miko".into()];
         let line = |theme, mark, n: usize| {
             card_lines(&card, (None, None, false), mark, 36, '*', now, theme)[n]
                 .to_string()
@@ -686,11 +680,9 @@ mod tests {
             "mcp      \u{f09b}  \u{f1e6} miko"
         );
         assert_eq!(line(theme, Mark::Focused, 6), "mcp      github · miko");
-        assert_eq!(line(nerd, Mark::Focused, 7), "mcp idle \u{f198}");
-        assert_eq!(line(theme, Mark::Focused, 7), "mcp idle slack");
         assert!(line(nerd, Mark::None, 0).contains("\u{ec82} "), "the logo");
         assert!(line(theme, Mark::None, 0).contains(" C "), "the letter");
-        card.mcp_used.clear();
+        card.mcp.clear();
         assert_eq!(
             card_lines(&card, (None, None, false), Mark::None, 36, '*', now, theme).len(),
             3

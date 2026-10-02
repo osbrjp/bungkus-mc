@@ -7,6 +7,7 @@
 //! deadline (a synchronized update, a stop grace, the 350 ms animation
 //! tick); it never renders on a fixed timer.
 
+pub(crate) mod activity;
 pub(crate) mod browser;
 pub(crate) mod finder;
 pub(crate) mod form;
@@ -86,6 +87,8 @@ pub(crate) enum AppEvent {
     Usage(crate::term::SessionId, crate::agent::usage::Usage),
     /// A background process snapshot.
     Procs(Vec<crate::proc::Proc>),
+    /// A resource reading for the activity overlay.
+    Activity(crate::proc::usage::Sample),
     /// Agent sessions running outside mc (every [`EXTERNAL_EVERY`]).
     External(Vec<crate::external::External>),
     /// The git branch and status of the session folders in a repository.
@@ -98,9 +101,6 @@ pub(crate) enum AppEvent {
     /// The text `gh` read of the issue or pull request at this URL, for
     /// the popup's text view; `None` when the read failed.
     LinkBody(String, Option<String>),
-    /// The configured MCP servers of sessions whose config files changed,
-    /// with the files' state when they were read.
-    Mcp(Vec<(SessionId, Vec<String>, agent::mcp::Stamp)>),
     /// The host terminal went away (input closed).
     HostGone,
     /// A newer release exists (the hourly check).
@@ -278,7 +278,6 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<bool> {
                 rescan(&mut model);
                 scan_repos(&mut model, &tx);
                 scan_links(&mut model, &tx);
-                scan_mcp(&mut model, &tx);
             }
             let Some(cmd) = model.update(event) else {
                 continue;
@@ -470,7 +469,6 @@ fn run_cmd(
         Cmd::RemoveWorktree(project, name) => forget_worktree(model, &project, &name, tx),
         Cmd::CleanWorktrees(project) => clean_worktrees(model, &project, tx),
         Cmd::OpenEditor(project) => open_editor(model, &project, None, tx),
-        Cmd::OpenFile(dir, file, line) => open_editor(model, &dir, Some((&file, line)), tx),
         Cmd::Finder(request) => finder_request(model, request, tx),
         Cmd::OpenFolder(project) => open_folder(model, project),
         Cmd::OpenUrl(url) => open_folder(model, PathBuf::from(url)),
@@ -492,6 +490,7 @@ fn run_cmd(
                 let _ = tx.send(AppEvent::Procs(crate::proc::snapshot(uid)));
             });
         }
+        Cmd::Sample => sample_activity(tx),
         Cmd::OpenStop(kind) => {
             let snapshot = crate::proc::snapshot(uid);
             model.track(&snapshot);
@@ -520,6 +519,16 @@ fn run_cmd(
         }
     }
     Next::Continue
+}
+
+/// Takes a resource reading for the activity overlay on a background
+/// thread and reports it as [`AppEvent::Activity`].
+fn sample_activity(tx: &SyncSender<AppEvent>) {
+    let tx = tx.clone();
+    thread::spawn(move || {
+        // reason: a closed loop just loses this sample.
+        let _ = tx.send(AppEvent::Activity(crate::proc::usage::sample()));
+    });
 }
 
 /// Reads the git branch and status of every session folder on a
@@ -612,38 +621,6 @@ fn scan_links(model: &mut Model, tx: &SyncSender<AppEvent>) {
             .collect();
         // reason: mc may have quit meanwhile.
         let _ = tx.send(AppEvent::Links(read));
-    });
-}
-
-/// Reads the MCP servers of every running session whose config files
-/// changed, on a background thread (at launch and every
-/// [`EXTERNAL_EVERY`]), and reports them as [`AppEvent::Mcp`].
-///
-/// A session whose files are as its card last saw them costs two `stat`
-/// calls. One scan runs at a time.
-fn scan_mcp(model: &mut Model, tx: &SyncSender<AppEvent>) {
-    let sessions: Vec<_> = model
-        .cards
-        .iter()
-        .filter(|card| card.running())
-        .map(|card| (card.id, card.kind, card.project.clone(), card.mcp_stamp))
-        .collect();
-    if sessions.is_empty() || model.mcp_scan {
-        return;
-    }
-    model.mcp_scan = true;
-    let tx = tx.clone();
-    thread::spawn(move || {
-        let var = |name: &str| std::env::var(name).ok();
-        let changed: Vec<_> = sessions
-            .into_iter()
-            .filter_map(|(id, kind, project, seen)| {
-                let stamp = agent::mcp::stamp(kind, &project, var);
-                (seen != Some(stamp)).then(|| (id, agent::mcp::servers(kind, &project, var), stamp))
-            })
-            .collect();
-        // reason: mc may have quit meanwhile.
-        let _ = tx.send(AppEvent::Mcp(changed));
     });
 }
 
@@ -965,7 +942,6 @@ fn launch(
         }
     }
     model.add_card(card);
-    scan_mcp(model, tx);
 }
 
 /// Starts `command` (program first, looked up on `PATH`) in a PTY of
@@ -1071,11 +1047,13 @@ fn open_editor(
     }
 }
 
-/// Runs what the finder asked for, off the UI thread.
+/// Runs what the finder asked for; the search and the read go off the UI
+/// thread.
 fn finder_request(model: &mut Model, request: Request, tx: &SyncSender<AppEvent>) {
     match request {
         Request::Find(root, seq, pattern) => find(model, root, seq, pattern, tx),
         Request::Preview(file, line) => preview(file, line, tx),
+        Request::Open(dir, file, line) => open_editor(model, &dir, Some((&file, line)), tx),
     }
 }
 

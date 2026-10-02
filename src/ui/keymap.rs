@@ -93,6 +93,8 @@ pub(crate) enum Action {
     Settings,
     /// Show the help overlay.
     Help,
+    /// Show the activity monitor: mc's memory and CPU use.
+    Activity,
     /// Clear and redraw the whole screen.
     Redraw,
     /// Quit mc.
@@ -391,6 +393,8 @@ pub(crate) const BINDINGS: &[Binding] = &[
             c('!'),
             Key::Press(KeyCode::Char('!'), KeyModifiers::SHIFT),
             ctrl(']'),
+            // Legacy terminals report 0x1d as ctrl-5.
+            ctrl('5'),
         ],
         label: "! ctrl-]",
         action: Action::NextNeedsYou,
@@ -578,6 +582,14 @@ pub(crate) const BINDINGS: &[Binding] = &[
         scope: Scope::Global,
     },
     Binding {
+        keys: &[Key::Press(KeyCode::Char('A'), KeyModifiers::SHIFT), c('A')],
+        label: "A",
+        action: Action::Activity,
+        help: "activity",
+        hint: None,
+        scope: Scope::Global,
+    },
+    Binding {
         keys: &[Key::Press(KeyCode::Char('R'), KeyModifiers::SHIFT), c('R')],
         label: "R",
         action: Action::Redraw,
@@ -714,7 +726,6 @@ impl Action {
             | Self::HalfDown
             | Self::HalfUp
             | Self::Filter
-            | Self::Find(_)
             | Self::Jump
             | Self::Pane(_)
             | Self::NextNeedsYou
@@ -739,10 +750,12 @@ impl Action {
             | Self::Editor
             | Self::Folder
             | Self::ToggleRest
-            | Self::CleanWorktrees => Group::Projects,
+            | Self::CleanWorktrees
+            | Self::Find(_) => Group::Projects,
             Self::Workspace
             | Self::Settings
             | Self::Help
+            | Self::Activity
             | Self::Redraw
             | Self::Update
             | Self::Terminal
@@ -796,6 +809,20 @@ mod tests {
                 assert!(!seen.contains(key), "{scope:?}: {key:?} bound twice");
                 seen.push(*key);
             }
+        }
+    }
+
+    #[test]
+    fn the_key_menu_fits_a_40_row_screen() {
+        for scope in [Scope::Projects, Scope::Sessions] {
+            let groups: usize = help_groups(scope)
+                .iter()
+                .map(|(_, rows)| 2 + rows.len().div_ceil(2))
+                .sum();
+            // Borders, the agent keys under their heading, a blank line and
+            // the hint; 38 rows are the body.
+            let height = 2 + groups + 1 + AGENT_KEYS.len().div_ceil(2) + 2;
+            assert!(height <= 38, "{scope:?}: {height} rows");
         }
     }
 

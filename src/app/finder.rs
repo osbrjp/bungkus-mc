@@ -33,6 +33,9 @@ pub(crate) enum Request {
     /// Read the lines of this file the preview shows: its top, or the ones
     /// around this line.
     Preview(PathBuf, Option<u32>),
+    /// Open, from this folder, this file in it in the user's editor, at
+    /// this line when given.
+    Open(PathBuf, PathBuf, Option<u32>),
 }
 
 /// What the event loop answers a [`Request`] with.
@@ -343,7 +346,11 @@ impl Model {
     /// in the editor (for `fg` at the matching line).
     fn pick(&mut self, finder: &Finder) -> Option<Cmd> {
         if let Some((file, line)) = finder.target() {
-            return Some(Cmd::OpenFile(self.root()?.to_path_buf(), file.into(), line));
+            return Some(Cmd::Finder(Request::Open(
+                self.root()?.to_path_buf(),
+                file.into(),
+                line,
+            )));
         }
         let row = finder.rows.get(finder.selected)?;
         let path = self.projects.iter().find(|p| p.name == *row)?.path.clone();
@@ -440,7 +447,11 @@ mod tests {
         m.update(press(KeyCode::Down));
         assert_eq!(
             m.update(press(KeyCode::Enter)),
-            Some(Cmd::OpenFile(root, "a/src/main.rs".into(), None))
+            Some(Cmd::Finder(Request::Open(
+                root,
+                "a/src/main.rs".into(),
+                None
+            )))
         );
         assert!(m.overlay.is_none());
     }
@@ -488,7 +499,11 @@ mod tests {
         );
         assert_eq!(
             m.update(press(KeyCode::Enter)),
-            Some(Cmd::OpenFile(root, "a/src/main.rs".into(), Some(12)))
+            Some(Cmd::Finder(Request::Open(
+                root,
+                "a/src/main.rs".into(),
+                Some(12)
+            )))
         );
         typed(&mut m, "fgx");
         assert_eq!(m.update(press(KeyCode::Backspace)), None, "nothing to grep");
