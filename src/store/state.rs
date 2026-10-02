@@ -43,6 +43,8 @@ pub(crate) struct Record {
     pub usage: Option<Usage>,
     /// The git worktree it ran in (`claude --worktree <name>`), if any.
     pub worktree: Option<String>,
+    /// Whether quitting mc stopped it, so the next start resumes it.
+    pub resume: bool,
 }
 
 /// Returns `$XDG_STATE_HOME/bungkus/mc/sessions.json`, or the same under
