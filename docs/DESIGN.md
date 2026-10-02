@@ -266,7 +266,7 @@ A TUI does not choose the font. We choose code points.
 | focus marker  | U+F0DA         | `▸`     | `>`   | N |
 | INTERACT      | U+F11C (kbd)   | `►`     | `>`   | N |
 | progress bar  | `█░` in every set on a UTF-8 terminal, `#-` without UTF-8 (not an icon: the same block characters as the mascot) | | | |
-| agent badge   | `C` / `X` letter in all sets; with `agentLogos: true` the company's logo in the nerd set: `nf-cod-claude` (U+EC82), `nf-cod-openai` (U+EC81), which need Nerd Fonts 3.5 or newer. In `accent` |
+| agent badge   | `C` / `X` letter in the ascii and unicode sets; the company's logo in the nerd set: `nf-cod-claude` (U+EC82), `nf-cod-openai` (U+EC81), which need Nerd Fonts 3.5 or newer. In `accent` |
 | MCP server    | logo alone (once per logo) when a word of the name is in `MCP_BRANDS` (`ui/icons.rs`: about 120 rows — GitHub, GitLab, Slack, Figma, Blender, Chrome, Playwright, Google Drive, Gmail, AWS, Azure, Cloudflare, Vercel, Supabase, Postgres, MongoDB, Redis, Docker, Kubernetes, Notion, Jira, Sentry, Stripe, …); else the glyph of its kind from `MCP_KINDS` (CMS such as Payload, files, memory, database, web, search, terminal, docs, …) or U+F1E6 (plug), then the name. Code points come from Nerd Fonts' `glyphnames.json`; some logos (Figma, Playwright, Notion, …) need Nerd Fonts 3.3 or newer | name | name | N |
 
 Nerd Font code points are private-use; patched "Mono" variants render them
@@ -598,11 +598,10 @@ working glyph tick with the same clock.
 ### 5.4 Badge
 
 `<glyph> <count>` or `<letter>`; one cell glyph, one space, digits. Agent
-badges are the letters `C` (Claude Code) and `X` (Codex) in `accent`.
-With `agentLogos: true` (off by default: the glyphs need Nerd Fonts 3.5
-or newer, and mc cannot see the terminal's font) they are the companies'
-logos in the nerd set (§3), on cards, outside sessions, the output pane's
-title, the `!` list and the limits.
+badges are the letters `C` (Claude Code) and `X` (Codex) in `accent`; in
+the nerd set they are the companies' logos (§3, Nerd Fonts 3.5 or newer),
+on cards, outside sessions, the output pane's title, the `!` list and the
+limits.
 
 ### 5.5 Dialogs
 

@@ -228,9 +228,6 @@ pub(crate) struct Theme {
     pub utf8: bool,
     /// Whether spinners and the mascot move (`motion`).
     pub motion: bool,
-    /// Whether the agent badge is the company's logo in the `nerd` set
-    /// (`agentLogos`).
-    pub logos: bool,
 }
 
 impl Theme {
@@ -244,25 +241,6 @@ impl Theme {
             icons: IconSet::Ascii,
             utf8: true,
             motion: true,
-            logos: false,
-        }
-    }
-
-    /// Returns this theme with the agent logos on or off (`agentLogos`).
-    #[must_use]
-    pub(crate) const fn with_logos(self, logos: bool) -> Self {
-        Self { logos, ..self }
-    }
-
-    /// Returns the badge of agent `kind` (DESIGN §5.4): its letter, or
-    /// with the logos on the company's logo in the `nerd` set
-    /// ([`IconSet::agent`]).
-    #[must_use]
-    pub(crate) const fn agent(self, kind: crate::agent::Kind) -> char {
-        if self.logos {
-            self.icons.agent(kind)
-        } else {
-            kind.badge()
         }
     }
 

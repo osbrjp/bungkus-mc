@@ -118,7 +118,7 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
 /// name cut to fit `width`, and the INTERACT note when the pane has focus.
 fn output_title(card: &Card, model: &Model, width: u16) -> String {
     let interact = model.focus == Focus::Output;
-    let badge = model.theme.agent(card.kind);
+    let badge = model.theme.icons.agent(card.kind);
     let head = format!("[3] output · {badge} {} · ", card.id.short());
     let tail = if interact {
         format!(" · INTERACT · {} to leave", model.exit_chord.label())
@@ -143,7 +143,7 @@ pub(super) fn draw_popup(frame: &mut Frame, area: Rect, model: &Model, theme: Th
     } else {
         format!(" · ctrl-m move · {} menu", model.exit_chord.label())
     };
-    let badge = theme.agent(card.kind);
+    let badge = theme.icons.agent(card.kind);
     let head = format!("quick · {badge} {} · ", card.id.short());
     let room =
         usize::from(area.width).saturating_sub(head.chars().count() + tail.chars().count() + 4);

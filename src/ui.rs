@@ -980,7 +980,7 @@ fn limit_spans(model: &Model, theme: Theme, wide: bool) -> Vec<Span<'static>> {
             spans.push(Span::styled(" · ", theme.fg(Token::FgMuted)));
         }
         spans.push(Span::styled(
-            format!("{} ", theme.agent(*kind)),
+            format!("{} ", theme.icons.agent(*kind)),
             theme.agent_style(*kind),
         ));
         let shown = windows.iter().filter(|w| wide || w.label == "5h");

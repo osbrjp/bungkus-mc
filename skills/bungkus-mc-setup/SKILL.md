@@ -140,7 +140,6 @@ A starting point (leave out what the user does not need):
 | `theme` | `auto` (follows the terminal's background) · `dark` · `light` |
 | `background` | `paint` (default) · `terminal` keeps the terminal's own background |
 | `icons` | `auto` (default) · `ascii` · `unicode` · `nerd`; see step 5 |
-| `agentLogos` | `false` (default) · `true`: the Claude / OpenAI logo instead of `C` / `X` in the `nerd` set; see step 5 "Agent logos" |
 | `motion` | `true` (default) · `false`: spinners and the mascot stand still |
 | `mouse` | `true` (default) · `false` |
 | `notify` | `bell` (default) · `desktop` · `off` |
@@ -185,11 +184,10 @@ mc cannot see which font the terminal actually uses. So:
 - **The user wants the icons:** they need both: a Nerd Font installed, and
   that font selected in their terminal. A "Mono" variant keeps every icon
   one cell wide; with a "Propo" variant set `ascii`.
-- **Only the agent badge (or a Claude / OpenAI MCP server) is a box:** the
-  user turned `agentLogos` on (or uses such an MCP server) and the font is
-  older than **Nerd Fonts 3.5**, which added the two logos
-  (`nf-cod-claude` U+EC82, `nf-cod-openai` U+EC81). See "Agent logos"
-  below.
+- **Only the agent badge (or a Claude / OpenAI MCP server) is a box:** in
+  the `nerd` set the agent badge is the company's logo (`nf-cod-claude`
+  U+EC82, `nf-cod-openai` U+EC81), and those two glyphs need **Nerd Fonts
+  3.5 or newer**. The font is older. See "Agent logos" below.
 - **Over SSH:** the font is on the user's own machine, which mc cannot see;
   set `"icons": "nerd"` by hand if their terminal has one.
 - **Unsure:** try `bungkus-mc --icons nerd` and `--icons ascii` and keep the
@@ -207,18 +205,15 @@ theirs to do in the terminal's own settings.
 
 ### Agent logos (Nerd Fonts 3.5+)
 
-Off by default. `"agentLogos": true` in `config.json` shows the Claude and
-OpenAI logos instead of the `C` / `X` badge when the icon set is `nerd`.
-Offer it only when the user asks for the logos. Before turning it on,
-check that the terminal can draw them; the user should see two logos, not
-boxes:
+With the `nerd` set the agent badge is the Claude or OpenAI logo instead
+of `C` / `X`. Whenever the user ends up on `nerd`, check that the terminal
+can draw the two logos; the user should see two logos, not boxes:
 
 ```bash
 printf 'claude: \xee\xb2\x82  openai: \xee\xb2\x81\n'
 ```
 
-If they are boxes and the user wants the logos (ask first, this installs
-a font):
+If they are boxes, offer to fix it (ask first, this installs a font):
 
 1. Install the current symbols font. macOS with Homebrew:
 
@@ -243,11 +238,10 @@ a font):
 
    Other terminals use the installed font once it is the terminal's font
    or a fallback of it; restart the terminal.
-3. Run the `printf` check again, then set `"agentLogos": true` and have
-   the user restart mc.
+3. Run the `printf` check again.
 
-If the user does not want to install a font, leave `agentLogos` off: the
-badge stays `C` / `X`.
+If the user does not want to install a font, the letters `C` / `X` come
+back with `"icons": "ascii"` or `"unicode"`.
 
 Borders and the mascot are not part of the icon set: they follow the
 locale (ASCII on a non-UTF-8 locale).
@@ -296,7 +290,7 @@ touched.
 | Symptom | Cause and fix |
 |---------|---------------|
 | Icons are boxes | step 5: set `"icons": "ascii"` or select the Nerd Font in the terminal |
-| Only the agent badge is a box | step 5 "Agent logos": the font is older than Nerd Fonts 3.5; in kitty also add the `symbol_map` line, or set `"agentLogos": false` |
+| Only the agent badge is a box | step 5 "Agent logos": the font is older than Nerd Fonts 3.5; in kitty also add the `symbol_map` line |
 | A Codex card says `hooks not trusted · /hooks in codex` | Codex asks once to trust mc's hooks: in the session, answer "Hooks need review" with "Trust all and continue". The trust is remembered while mc stays at the same path |
 | A Claude card says `output only` | no hook event arrived: the workspace-trust prompt in that session is not answered yet (answer it in INTERACT), or managed settings turn hooks off (`disableAllHooks` / `allowManagedHooksOnly`). The live pane still works; the card recovers on the first event |
 | Every card says `output only` | mc could not create its socket (the runtime directory is not usable or its path is too long). Check `$XDG_RUNTIME_DIR` / `$TMPDIR` |

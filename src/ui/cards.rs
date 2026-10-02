@@ -180,7 +180,7 @@ fn external_lines(
             Span::styled(glyph.to_string(), theme.fg(token)),
             Span::raw(" "),
             Span::styled(
-                theme.agent(ext.kind).to_string(),
+                theme.icons.agent(ext.kind).to_string(),
                 theme.agent_style(ext.kind),
             ),
             Span::raw(" "),
@@ -318,7 +318,7 @@ fn card_lines(
         Span::styled(glyph.to_string(), theme.fg(glyph_token)),
         Span::raw(" "),
         Span::styled(
-            theme.agent(card.kind).to_string(),
+            theme.icons.agent(card.kind).to_string(),
             theme.agent_style(card.kind),
         ),
         Span::raw(" "),
@@ -684,11 +684,8 @@ mod tests {
         assert_eq!(line(theme, Mark::Focused, 6), "mcp      github · miko");
         assert_eq!(line(nerd, Mark::Focused, 7), "mcp idle \u{f198}");
         assert_eq!(line(theme, Mark::Focused, 7), "mcp idle slack");
-        assert!(line(nerd, Mark::None, 0).contains(" C "), "the letter");
-        let logos = nerd.with_logos(true);
-        assert!(line(logos, Mark::None, 0).contains("\u{ec82} "), "the logo");
-        let ascii = theme.with_logos(true);
-        assert!(line(ascii, Mark::None, 0).contains(" C "), "only in nerd");
+        assert!(line(nerd, Mark::None, 0).contains("\u{ec82} "), "the logo");
+        assert!(line(theme, Mark::None, 0).contains(" C "), "the letter");
         card.mcp_used.clear();
         assert_eq!(
             card_lines(&card, (None, false), Mark::None, 36, '*', now, theme).len(),

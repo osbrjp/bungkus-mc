@@ -187,9 +187,11 @@ fn main() -> Result<()> {
     let utf8 = utf8_locale(var);
     let nerd_font = utf8 && nerd_font_here(var, home.as_deref());
     let icons = args.icons.unwrap_or(config.icons).resolve(|| nerd_font);
-    let theme = Theme::new(ThemeName::Dark, Profile::detect(var), config.background)
-        .with_view(icons, utf8, config.motion)
-        .with_logos(config.agent_logos);
+    let theme = Theme::new(ThemeName::Dark, Profile::detect(var), config.background).with_view(
+        icons,
+        utf8,
+        config.motion,
+    );
     let mut model = Model::new(theme, home.clone(), found, fallback);
     model.nerd_font = nerd_font;
     (model.icons_saved, model.icons_flag) = (config.icons, args.icons);

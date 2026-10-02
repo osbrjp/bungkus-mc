@@ -328,7 +328,6 @@ key back with `kitten @ focus-window --match neighbor:…`.
   "background": "paint",
   "icons": "auto",
   "motion": true,
-  "agentLogos": false,
   "mouse": true,
   "notify": "bell",
   "interactExit": "ctrl-\\",
@@ -347,8 +346,7 @@ key back with `kitten @ focus-window --match neighbor:…`.
 |-----|--------|
 | `editor` | the command `o` opens a project with (`nvim`, `code --wait`, a full path); unset: `$VISUAL`, then `$EDITOR`, then an installed `nvim`/`vim`/`vi`. `O` opens the folder in Finder / the file manager |
 | `background` | `paint` · `terminal` keeps your terminal's own background (mc paints its green only on TrueColor terminals anyway) |
-| `icons` | `auto` (default: `nerd` when a Nerd Font is installed, else `ascii`) · `ascii` · `unicode` · `nerd` (also `--icons`, and the `icons` row of the settings screen, which shows the glyphs before you save). mc cannot see which font your terminal uses: if the glyphs show as boxes, choose `ascii`; if your terminal draws Nerd glyphs without an installed font (kitty does), choose `nerd`. |
-| `agentLogos` | `false` (default) · `true`: in the `nerd` icon set the agent badge is the company's logo (Claude, OpenAI) instead of `C` / `X`. Needs Nerd Fonts 3.5 or newer; see [Agent logos](#agent-logos) |
+| `icons` | `auto` (default: `nerd` when a Nerd Font is installed, else `ascii`) · `ascii` · `unicode` · `nerd` (also `--icons`, and the `icons` row of the settings screen, which shows the glyphs before you save). mc cannot see which font your terminal uses: if the glyphs show as boxes, choose `ascii`; if your terminal draws Nerd glyphs without an installed font (kitty does), choose `nerd`. In the `nerd` set the agent badge is the company's logo (Claude, OpenAI) instead of `C` / `X`; if it shows as a box see [Agent logos](#agent-logos) |
 | `notify` | `bell` (default) · `desktop` (plus OSC 9/99/777) · `off` |
 | `interactExit` | the chord that leaves INTERACT (default `ctrl-\`) |
 | `cleanup.keep` | process names the quit dialog starts as `[keep]` |
@@ -361,8 +359,8 @@ writes `panes`. Everything else is kept as you wrote it.
 
 ### Agent logos
 
-`"agentLogos": true` swaps the `C` / `X` badge for the Claude and OpenAI
-logos when the icon set is `nerd`. The two glyphs (`nf-cod-claude`
+In the `nerd` icon set the agent badge is the Claude or OpenAI logo
+instead of `C` / `X`. The two glyphs (`nf-cod-claude`
 U+EC82, `nf-cod-openai` U+EC81) are in **Nerd Fonts 3.5 or newer**; an
 older font shows a box. Check your terminal:
 
@@ -382,6 +380,8 @@ from the installed font:
 ```
 symbol_map U+EC81-U+EC82 Symbols Nerd Font Mono
 ```
+
+To keep the letters instead, set `"icons": "ascii"` or `"unicode"`.
 
 ### Worktrees
 
