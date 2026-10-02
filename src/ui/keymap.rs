@@ -88,6 +88,8 @@ pub(crate) enum Action {
     Settings,
     /// Show the help overlay.
     Help,
+    /// Show the activity monitor: mc's memory and CPU use.
+    Activity,
     /// Clear and redraw the whole screen.
     Redraw,
     /// Quit mc.
@@ -549,6 +551,14 @@ pub(crate) const BINDINGS: &[Binding] = &[
         scope: Scope::Global,
     },
     Binding {
+        keys: &[Key::Press(KeyCode::Char('A'), KeyModifiers::SHIFT), c('A')],
+        label: "A",
+        action: Action::Activity,
+        help: "activity",
+        hint: None,
+        scope: Scope::Global,
+    },
+    Binding {
         keys: &[Key::Press(KeyCode::Char('R'), KeyModifiers::SHIFT), c('R')],
         label: "R",
         action: Action::Redraw,
@@ -707,6 +717,7 @@ impl Action {
             Self::Workspace
             | Self::Settings
             | Self::Help
+            | Self::Activity
             | Self::Redraw
             | Self::Update
             | Self::Terminal

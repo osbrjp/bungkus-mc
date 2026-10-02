@@ -671,6 +671,33 @@ default-keep set (app bundles under `Applications`, `claude`, `codex`, `ssh-agen
 row; `j`/`k` move. After 8 rows the dialog shows `… and N more` and
 scrolls. Exactly the listed `[stop]` set is signalled.
 
+Activity overlay (`A`): how much of the device mc is using. One row per
+group of processes — `mc` itself, each running session (its agent and
+everything observed below it), then `terminals & other` (the rest of mc's
+children) — with the process count, CPU and resident memory, a `total`
+row in `accent`, and the device line. CPU is measured between two
+samples, so it reads `-` for the first 2 s; 100 % is one core. `temp`
+reads `n/a` where the OS does not give it to an unprivileged process
+(macOS). Rows that do not fit collapse into `… and N more`; the total
+still covers them.
+
+```
+╔ activity ══════════════════════════════════════════════════════╗
+║                                                                ║
+║                                   procs       cpu        ram   ║
+║  mc                                   1      1.2%      27 MB   ║
+║  #a3f1 checkout redesign              7    123.4%     1.5 GB   ║
+║  terminals & other                    2      0.0%       8 MB   ║
+║                                                                ║
+║  total                               10    124.6%     1.5 GB   ║
+║                                                                ║
+║  device  8 cores · ram 16.0 GB, 9.9% used here · temp 54°C     ║
+║  cpu: 100% is one core · updates every 2 s                     ║
+║                                                                ║
+║                                                     esc close  ║
+╚════════════════════════════════════════════════════════════════╝
+```
+
 Help overlay (generated from the keymap for the focused pane, then the
 global set):
 
@@ -1235,6 +1262,7 @@ the same frame.
 | `t`                                               | show / hide the terminal pane: the user's `$SHELL` in the lower third of the output pane, in mc's own emulator (no tmux or other program). Every session has its own shell, started in the folder the session works in (its worktree when it has one) the first time `t` is pressed on it; the pane follows the selected session and is absent on one without a shell, and its title names the session. With no session of mc's selected (a project without sessions, an outside session) the shell belongs to the project folder, or to the workspace root on a row that is no folder. A session's shell does not outlive it: when the session ends (it exits, `x` stops it) or is forgotten, mc hangs up on its shell. A card whose session has a shell carries `>_` in `ok` before the right-hand word of its title line, shown or hidden. Showing it gives it the keys (mode word `TERMINAL`); `ctrl-\` gives them back to mc and leaves it showing; `ctrl-h` goes left to the sessions pane and `ctrl-k` up to the output pane (INTERACT), from where `ctrl-j` comes back down while the pane shows; `ctrl-j`/`ctrl-l` in the terminal stay the shell's (enter, clear screen), except in kitty, where they move to the kitty window below / to the right as from the other panes; `cmd`/`alt`/`ctrl` + `4` shows the pane and gives it the keys from any pane (starting the shell when there is none), and + `1`–`3` leave it for that pane; hiding keeps the shells running and leaves a `[4] terminal` marker on the output pane's bottom border; `exit` (or `ctrl-d`) closes one, and when it had the keys they go up to the output pane, as `ctrl-k` does |
 | `T`                                               | close the selected session's shell, shown or hidden: mc hangs up on it (SIGHUP), as a terminal window that closes does; the pane goes when the shell has ended |
 | `?`                                               | help                                    |
+| `A`                                               | activity monitor (§5.5): what mc and its sessions use of the device; `esc`, `A` or `q` closes it |
 | `R`                                               | redraw |
 | `q` · `ctrl-c`                                    | quit (confirm if anything is running)   |
 
