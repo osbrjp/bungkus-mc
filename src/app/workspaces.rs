@@ -39,7 +39,15 @@ pub(crate) enum SwitcherRow {
 
 impl Model {
     /// Opens the switcher, counting each saved workspace's projects.
+    ///
+    /// The highlight starts on the first workspace that is not the current
+    /// one (the add row when there is no other), so `enter` switches.
     pub(crate) fn open_switcher(&mut self) {
+        let selected = self
+            .workspaces
+            .iter()
+            .position(|w| Some(w.as_path()) != self.root())
+            .unwrap_or(self.workspaces.len());
         let counts = self
             .workspaces
             .iter()
@@ -47,7 +55,7 @@ impl Model {
             .collect();
         self.overlay = Some(Overlay::Switcher(Switcher {
             query: String::new(),
-            selected: 0,
+            selected,
             counts,
         }));
     }
@@ -175,6 +183,7 @@ mod tests {
             panic!("w opens the switcher");
         };
         assert_eq!(m.switcher_rows(s).len(), 4, "three saved and the add row");
+        assert_eq!(s.selected, 1, "the highlight skips the current workspace");
         assert_eq!(
             m.update(press(KeyCode::Char('2'))),
             Some(Cmd::SwitchWorkspace(home.join("personal"), None))
