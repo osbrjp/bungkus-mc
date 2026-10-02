@@ -16,6 +16,10 @@ use crate::ui::theme::{Background, ThemeChoice};
 /// The settings mc reads from `config.json`; every key is optional.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "independent on/off keys of the config file, not a state machine"
+)]
 pub(crate) struct Config {
     /// The folder whose children are the projects; may start with `~`.
     pub workspace: Option<String>,
@@ -46,6 +50,10 @@ pub(crate) struct Config {
     /// Whether a Claude session joining a project where another session
     /// runs gets its own git worktree.
     pub worktrees: bool,
+    /// Whether every session mc starts gets mc's built-in rules (session
+    /// ids, branching, worktrees); a workspace's own instruction files
+    /// apply either way.
+    pub instructions: bool,
 }
 
 /// The `cleanup` config block.
@@ -86,6 +94,7 @@ impl Default for Config {
             panes: crate::ui::Widths::default(),
             workspaces: Vec::new(),
             worktrees: true,
+            instructions: true,
         }
     }
 }
