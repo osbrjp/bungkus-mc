@@ -31,7 +31,7 @@
 ┃                    ║  ? space              this help       q ctrl-c             quit            ║                    │
 ┃                    ║                                                                            ║                    │
 ┃                    ║  agent pane & quick popup                                                  ║                    │
-┃                    ║  ctrl-\               leave · menu    ctrl-h               to sessions     ║                    │
+┃                    ║  ctrl-\               leave · menu    ctrl-h · jj · jk     to sessions     ║                    │
 ┃                    ║  ctrl-m               move (popup)    cmd/alt-1..4         focus a pane    ║                    │
 ┃                    ║                                                                            ║                    │
 ┃                    ║                                         press a key to run it · esc close  ║                    │
