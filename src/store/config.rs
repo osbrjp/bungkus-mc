@@ -45,6 +45,9 @@ pub(crate) struct Config {
     pub icons: crate::ui::icons::IconChoice,
     /// Whether spinners and the mascot move.
     pub motion: bool,
+    /// Whether the agent badge is the company's logo in the `nerd` icon
+    /// set; off by default, since the logos need Nerd Fonts 3.5 or newer.
+    pub agent_logos: bool,
     /// Outer widths of the projects and sessions panes.
     pub panes: crate::ui::Widths,
     /// Saved workspaces for the `w` switcher, most recent first.
@@ -94,6 +97,7 @@ impl Default for Config {
             cleanup: Cleanup::default(),
             icons: crate::ui::icons::IconChoice::default(),
             motion: true,
+            agent_logos: false,
             panes: crate::ui::Widths::default(),
             workspaces: Vec::new(),
             worktrees: true,

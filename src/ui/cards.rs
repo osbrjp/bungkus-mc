@@ -179,7 +179,10 @@ fn external_lines(
             ),
             Span::styled(glyph.to_string(), theme.fg(token)),
             Span::raw(" "),
-            Span::styled(ext.kind.badge().to_string(), theme.agent_style(ext.kind)),
+            Span::styled(
+                theme.agent(ext.kind).to_string(),
+                theme.agent_style(ext.kind),
+            ),
             Span::raw(" "),
             Span::styled(name, theme.fg(Token::Fg)),
             Span::raw(" ".repeat(pad)),
@@ -314,7 +317,10 @@ fn card_lines(
         Span::styled(gutter, theme.fg(gutter_token)),
         Span::styled(glyph.to_string(), theme.fg(glyph_token)),
         Span::raw(" "),
-        Span::styled(card.kind.badge().to_string(), theme.agent_style(card.kind)),
+        Span::styled(
+            theme.agent(card.kind).to_string(),
+            theme.agent_style(card.kind),
+        ),
         Span::raw(" "),
         Span::styled(id, theme.fg(Token::Info)),
         Span::raw(" "),
@@ -389,15 +395,23 @@ fn subagent_spans(
     ]
 }
 
-/// Returns the compact MCP line (DESIGN §5.2): glyphs in the `nerd` set,
-/// `mcp` and the names otherwise. Servers of one brand share one glyph.
-fn mcp_line(servers: &[String], icons: IconSet) -> String {
+/// Returns how each of `servers` shows in `icons` ([`IconSet::mcp`]), once
+/// per label: servers of one brand share one glyph.
+fn mcp_glyphs(servers: &[&str], icons: IconSet) -> Vec<String> {
     let mut labels: Vec<String> = Vec::new();
     for label in servers.iter().map(|s| icons.mcp(s)) {
         if !labels.contains(&label) {
             labels.push(label);
         }
     }
+    labels
+}
+
+/// Returns the compact MCP line (DESIGN §5.2): glyphs in the `nerd` set,
+/// `mcp` and the names otherwise. Servers of one brand share one glyph.
+fn mcp_line(servers: &[String], icons: IconSet) -> String {
+    let servers: Vec<&str> = servers.iter().map(String::as_str).collect();
+    let labels = mcp_glyphs(&servers, icons);
     match icons {
         IconSet::Nerd => labels.join("  "),
         IconSet::Ascii | IconSet::Unicode => format!("mcp {}", labels.join(" · ")),
@@ -538,9 +552,13 @@ fn expanded_usage(card: &Card, width: usize, text: Style, theme: Theme) -> Vec<V
     }
     let names = card.mcp.iter().map(String::as_str);
     let (used, idle): (Vec<_>, Vec<_>) = names.partition(|name| card.mcp_in_use(name));
-    for (label, names) in [("mcp      ", used), ("mcp idle ", idle)] {
-        if !names.is_empty() {
-            rows.push(plain(format!("{label}{}", names.join(" · "))));
+    for (label, servers) in [("mcp      ", used), ("mcp idle ", idle)] {
+        if !servers.is_empty() {
+            let servers = match theme.icons {
+                IconSet::Nerd => mcp_glyphs(&servers, theme.icons).join("  "),
+                IconSet::Ascii | IconSet::Unicode => servers.join(" · "),
+            };
+            rows.push(plain(format!("{label}{servers}")));
         }
     }
     rows
@@ -659,8 +677,18 @@ mod tests {
         assert_eq!(line(theme, Mark::None, 2), "mcp github · miko");
         let nerd = theme.with_view(IconSet::Nerd, true, true);
         assert_eq!(line(nerd, Mark::None, 2), "\u{f09b}  \u{f1e6} miko");
-        assert_eq!(line(nerd, Mark::Focused, 6), "mcp      github · miko");
-        assert_eq!(line(nerd, Mark::Focused, 7), "mcp idle slack");
+        assert_eq!(
+            line(nerd, Mark::Focused, 6),
+            "mcp      \u{f09b}  \u{f1e6} miko"
+        );
+        assert_eq!(line(theme, Mark::Focused, 6), "mcp      github · miko");
+        assert_eq!(line(nerd, Mark::Focused, 7), "mcp idle \u{f198}");
+        assert_eq!(line(theme, Mark::Focused, 7), "mcp idle slack");
+        assert!(line(nerd, Mark::None, 0).contains(" C "), "the letter");
+        let logos = nerd.with_logos(true);
+        assert!(line(logos, Mark::None, 0).contains("\u{ec82} "), "the logo");
+        let ascii = theme.with_logos(true);
+        assert!(line(ascii, Mark::None, 0).contains(" C "), "only in nerd");
         card.mcp_used.clear();
         assert_eq!(
             card_lines(&card, (None, false), Mark::None, 36, '*', now, theme).len(),
