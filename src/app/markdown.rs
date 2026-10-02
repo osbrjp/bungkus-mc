@@ -45,6 +45,7 @@ pub(crate) type TextLine = Vec<(Ink, String)>;
 pub(crate) fn render(text: &str, width: usize) -> Vec<TextLine> {
     let mut out = Vec::new();
     let mut fence: Option<String> = None;
+    let mut comment = false;
     for raw in text.lines() {
         let line = sanitise(raw, LINE_MAX);
         let trimmed = line.trim_start();
@@ -64,7 +65,8 @@ pub(crate) fn render(text: &str, width: usize) -> Vec<TextLine> {
         if fence.is_some() {
             cells.extend("  ".chars().chain(line.chars()).map(|c| (c, Ink::Code)));
             indent = 2;
-        } else if trimmed.starts_with("<!--") && trimmed.ends_with("-->") {
+        } else if comment || trimmed.starts_with("<!--") {
+            comment = !line.contains("-->");
             continue;
         } else if let Some(title) = heading(trimmed) {
             inline(title, Ink::Heading, &mut cells);
@@ -97,12 +99,13 @@ fn fence_mark(line: &str) -> Option<&str> {
 
 /// Returns where the closing `mark` (`*` or `**`) of emphasis is in
 /// `text`: the first one that follows a character other than a space or
-/// a `*` and is not followed by a `*`.
+/// a `*`, is not followed by a `*` and is not inside a `code` span.
 fn closing(text: &str, mark: &str) -> Option<usize> {
     text.match_indices(mark).map(|(at, _)| at).find(|&at| {
         let before = text[..at].chars().next_back();
         let after = text[at + mark.len()..].chars().next();
-        before.is_some_and(|c| !c.is_whitespace() && c != '*') && after != Some('*')
+        let in_code = text[..at].matches('`').count() % 2 == 1;
+        before.is_some_and(|c| !c.is_whitespace() && c != '*') && after != Some('*') && !in_code
     })
 }
 
@@ -216,7 +219,7 @@ fn wrap(cells: Vec<(char, Ink)>, width: usize, indent: usize, out: &mut Vec<Text
         let wide = columns(ch);
         if used + wide > width {
             let mut rest: Vec<_> = std::iter::repeat_n((' ', Ink::Plain), indent).collect();
-            if let Some(at) = space {
+            if let Some(at) = space.filter(|at| *at > indent) {
                 rest.extend(current.split_off(at));
             }
             out.push(runs(&std::mem::replace(&mut current, rest)));
@@ -302,6 +305,7 @@ mod tests {
             ("[![ci](https://img/x.svg)](https://ci/run) ok", "ci ok"),
             ("[Foo](https://w.org/Foo_(bar)) end", "Foo end"),
             ("```one line```", "one line"),
+            ("deref *ptr or `*other`", "deref *ptr or *other"),
         ] {
             let lines = render(source, 70);
             assert_eq!(text(&lines[0]), want, "{source}");
@@ -309,6 +313,17 @@ mod tests {
         let nested = "````md\n```rust\ncode\n```\n````\nafter";
         let plain: Vec<String> = render(nested, 70).iter().map(text).collect();
         assert_eq!(plain, ["  ```rust", "  code", "  ```", "after"]);
+        let hidden = "<!--\ntemplate\n-->\nshown\n<!-- one line -->";
+        assert_eq!(render(hidden, 70).len(), 1, "HTML comments are not shown");
+        let long = format!("- {}", "x".repeat(100));
+        let plain: Vec<String> = render(&long, 70).iter().map(text).collect();
+        assert_eq!(
+            plain,
+            [
+                format!("- {}", "x".repeat(68)),
+                format!("  {}", "x".repeat(32))
+            ]
+        );
     }
 
     #[test]
