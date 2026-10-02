@@ -262,7 +262,7 @@ A TUI does not choose the font. We choose code points.
 | subagent      | U+F0DA (caret) | `◦`     | `*`   | N |
 | focus marker  | U+F0DA         | `▸`     | `>`   | N |
 | INTERACT      | U+F11C (kbd)   | `►`     | `>`   | N |
-| limit bar     | —              | `▮▯`    | `#-`  | N |
+| progress bar  | `█░` in every set on a UTF-8 terminal, `#-` without UTF-8 (not an icon: the same block characters as the mascot) | | | |
 | agent badge   | `C` / `X` letter in `accent`, all sets |
 
 Nerd Font code points are private-use; patched "Mono" variants render them
@@ -1053,7 +1053,7 @@ per vendor (`C` Claude from the status line, `X` Codex from the usage
 reader, ARCHITECTURE.md §6.3), each labelled by its window (Codex's
 `window_minutes` → `5h`/`7d`). Limits are per account, not per session.
 When only one vendor has reported, its figures get 5-cell bars
-(`5h ###-- 42% · 7d #---- 18%`, unicode `▮▯`); `warn` colour from 80 %,
+(`5h ██░░░ 42% · 7d █░░░░ 18%`; `#-` without UTF-8; filled to the nearest cell, one at least for any use); `warn` colour from 80 %,
 `err` from 95 %. Below 100 columns: `C 42% X 10%` (5-hour window only).
 Omitted entirely when no session has reported limits (API-key users):
 nothing is shown rather than `-`, because the bar is global. When a
@@ -1086,14 +1086,20 @@ the room (§5.1); `/ filter` and `, settings` are listed in `?` help only.
  ┃  tokens   in 486k · out 13k      
  ┃  cache    read 402k · write 19k  
  ┃  cost     $1.42 (list price)     
- ┃  context  37% of 200k · 74k used 
- ┃  limits   5h 42% · 7d 18%        
+ ┃  context  ████░░░░░░ 37% 74k/200k
+ ┃  limits   5h ████░░░░░░ 42%
+ ┃           7d ██░░░░░░░░ 18%        
  ┃  * research hooks            / 3m
  ┃  * research codex            / 3m
 ```
 
-Shown only while the sessions pane is focused (§5.2). `context` shows the
-reported `context_window_size` (200k here; 1M has been observed).
+Shown only while the sessions pane is focused (§5.2). `context` and each
+plan-limit window show a 10-cell progress bar (solid `█` then shaded `░`,
+the look of indicatif's default bar; filled to the nearest cell, one at
+least for any use), then the percentage; `context` adds used / reported
+`context_window_size` when the card is wide enough (200k here; 1M has
+been observed). The filled part is `ok`, `warn` from 80 % and `err` from
+90 % (context) or 95 % (limits); the rest is `fg-muted`.
 Per-subagent tokens are not shown (no source outside transcripts). A routed
 session adds a `model    haiku · routed 0.82` line (§10). A Codex card has
 no `cache`/`cost` lines and its `limits` line reads `5h 10% · 7d 3%`.
