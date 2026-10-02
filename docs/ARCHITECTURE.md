@@ -291,7 +291,10 @@ for the folders of running sessions. Results are kept per folder in the
 model (not in `sessions.json`; they are read again on start) and arrive
 as `AppEvent::Links`. The `i` popup asks `gh pr list` and `gh issue list`
 (30 each) when it opens, and `gh issue view <url> --json body,comments` (or `gh pr
-view`) when `enter` asks for a row's description and comments, which `src/app/markdown.rs` reads
+view`, with `reviews`) when `enter` asks for a row's description and comments, plus
+`gh api repos/<owner>/<repo>/pulls/<n>/comments` for a pull request's review
+comments on code (owner, repository and number taken from its
+`https://github.com/` URL and checked; the first 100), all put in date order, which `src/app/markdown.rs` reads
 (sanitised line by line; headings, lists, quotes, rules, fenced code and
 inline code, bold, italic and link text; no crate), wrapped and capped at
 2000 lines. The model keeps styled runs (`Ink`); `ui` gives them colours. `P`, `I` and `o` in the popup hand the URL to

@@ -248,8 +248,10 @@ const BODY_PAGE: usize = 10;
 /// Most wrapped lines kept of one text; the browser has the rest.
 const BODY_MAX: usize = 2000;
 
-/// What `gh --json body,comments` prints; a comment has the same shape,
-/// with its author and date and no comments of its own.
+/// What `gh --json body,comments,reviews` prints. A comment, a review and
+/// a review comment on code (from the REST API, which names the fields
+/// `user` and `created_at`) have the same shape, with the fields that
+/// apply and no comments of their own.
 #[derive(Debug, Deserialize)]
 struct RawBody {
     #[serde(default)]
@@ -257,9 +259,71 @@ struct RawBody {
     #[serde(default)]
     comments: Vec<RawBody>,
     #[serde(default)]
+    reviews: Vec<RawBody>,
+    #[serde(default, alias = "user")]
     author: Option<RawAuthor>,
-    #[serde(default, rename = "createdAt")]
-    created_at: String,
+    #[serde(
+        default,
+        rename = "createdAt",
+        alias = "submittedAt",
+        alias = "created_at"
+    )]
+    created_at: Option<String>,
+    /// A review's verdict: `APPROVED`, `CHANGES_REQUESTED`, `COMMENTED`.
+    #[serde(default)]
+    state: String,
+    /// The file a review comment is on.
+    #[serde(default)]
+    path: String,
+    /// The line of [`RawBody::path`] it is on; none on an outdated diff.
+    #[serde(default)]
+    line: Option<u64>,
+}
+
+/// Most review comments on code read of one pull request.
+// ponytail: one page of the API; follow its `Link` header when a pull
+// request with more than 100 code comments is reported.
+const REVIEW_COMMENTS_MAX: usize = 100;
+
+/// Returns the `gh api` path that lists the review comments on the code
+/// of the pull request at `url`, or `None` when `url` is not a
+/// `https://github.com/<owner>/<repo>/pull/<n>` address.
+fn review_comments_path(url: &str) -> Option<String> {
+    let mut parts = url.strip_prefix("https://github.com/")?.split('/');
+    let (owner, repo) = (parts.next()?, parts.next()?);
+    let number: u64 = parts
+        .next()
+        .filter(|p| *p == "pull")
+        .and(parts.next())?
+        .parse()
+        .ok()?;
+    let name = |s: &str| {
+        !s.is_empty()
+            && s != "."
+            && s != ".."
+            && s.chars()
+                .all(|c| c.is_ascii_alphanumeric() || "._-".contains(c))
+    };
+    (name(owner) && name(repo)).then(|| {
+        format!("repos/{owner}/{repo}/pulls/{number}/comments?per_page={REVIEW_COMMENTS_MAX}")
+    })
+}
+
+/// Returns one entry of the thread as `(when, Markdown)`: a rule, a line
+/// naming the author, the day and `tag` (when not empty), then the text.
+fn entry(raw: RawBody, tag: &str) -> (String, String) {
+    let login = raw.author.map_or_else(String::new, |a| a.login);
+    let who = sanitise(&login, 40);
+    let who = if who.is_empty() { "ghost" } else { &who };
+    let when = raw.created_at.unwrap_or_default();
+    let day: String = when.chars().take(10).collect();
+    let tag = if tag.is_empty() {
+        String::new()
+    } else {
+        format!(" · {tag}")
+    };
+    let text = format!("\n---\n**@{who}** · {day}{tag}\n\n{}", raw.body);
+    (when, text)
 }
 
 /// Who wrote a comment; absent for a deleted account.
@@ -269,33 +333,61 @@ struct RawAuthor {
     login: String,
 }
 
-/// Parses what `gh … --json body,comments` printed into the Markdown
-/// texts of the view: the description, then each comment under a rule and
-/// a line naming its author and day.
-fn parse_thread(json: &str) -> Option<Vec<String>> {
+/// Parses what `gh` printed into the Markdown texts of the view: the
+/// description, then in date order the comments, the reviews (tagged
+/// `review: approved`; one that only holds code comments, or is not
+/// submitted yet, is left out) and
+/// the review comments on code (tagged with their `path:line`), each
+/// under a rule and a line naming its author and day.
+///
+/// # Arguments
+///
+/// * `json`    - What `gh … view --json body,comments[,reviews]` printed.
+/// * `on_code` - What `gh api` printed for [`review_comments_path`], if
+///   it was asked and answered.
+fn parse_thread(json: &str, on_code: Option<&str>) -> Option<Vec<String>> {
     let raw = serde_json::from_str::<RawBody>(json).ok()?;
-    let comments = raw.comments.into_iter().map(|comment| {
-        let login = comment.author.map_or_else(String::new, |a| a.login);
-        let who = sanitise(&login, 40);
-        let who = if who.is_empty() { "ghost" } else { &who };
-        let day: String = comment.created_at.chars().take(10).collect();
-        format!("\n---\n**@{who}** · {day}\n\n{}", comment.body)
+    let on_code: Vec<RawBody> = on_code
+        .and_then(|json| serde_json::from_str(json).ok())
+        .unwrap_or_default();
+    let comments = raw.comments.into_iter().map(|c| entry(c, ""));
+    let reviews = raw
+        .reviews
+        .into_iter()
+        .filter(|r| r.state != "PENDING" && (!r.body.trim().is_empty() || r.state != "COMMENTED"))
+        .map(|r| {
+            let verdict = sanitise(&r.state, 24).to_lowercase().replace('_', " ");
+            entry(r, &format!("review: {verdict}"))
+        });
+    let on_code = on_code.into_iter().map(|c| {
+        let line = c.line.map_or_else(String::new, |n| format!(":{n}"));
+        let tag = format!("`{}{line}`", sanitise(&c.path, 80).replace('`', ""));
+        entry(c, &tag)
     });
-    Some(std::iter::once(raw.body).chain(comments).collect())
+    let mut entries: Vec<_> = comments.chain(reviews).chain(on_code).collect();
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    let texts = entries.into_iter().map(|(_, text)| text);
+    Some(std::iter::once(raw.body).chain(texts).collect())
 }
 
 /// Reads the description and comments of `link` with `gh issue view` /
 /// `gh pr view` in `dir` (by its URL, so one in another repository is
 /// found too), as the texts of [`parse_thread`]; `None` when `gh` failed.
-/// Review comments on a pull request's code are not read.
+/// For a pull request the reviews come along, and the review comments on
+/// its code from a second read (`gh api`), left out when that one fails.
 #[must_use]
 pub(crate) fn body(dir: &Path, config: Option<&Path>, link: &Link) -> Option<Vec<String>> {
-    let what = match link.kind {
-        LinkKind::Issue => "issue",
-        LinkKind::Pr => "pr",
+    let (what, fields, on_code) = match link.kind {
+        LinkKind::Issue => ("issue", "body,comments", None),
+        LinkKind::Pr => (
+            "pr",
+            "body,comments,reviews",
+            review_comments_path(&link.url),
+        ),
     };
-    let args = [what, "view", &link.url, "--json", "body,comments"];
-    parse_thread(&gh(dir, config, &args)?)
+    let json = gh(dir, config, &[what, "view", &link.url, "--json", fields])?;
+    let on_code = on_code.and_then(|path| gh(dir, config, &["api", &path]));
+    parse_thread(&json, on_code.as_deref())
 }
 
 /// Returns the lines of the text view for what `gh` read: each text's
@@ -647,7 +739,7 @@ mod tests {
             "https://other".into(),
             Some(vec!["x".into()]),
         ));
-        m.update(AppEvent::LinkBody(url.into(), parse_thread(&thread)));
+        m.update(AppEvent::LinkBody(url.into(), parse_thread(&thread, None)));
         let screen = crate::ui::tests::render(&mut m, 120, 40);
         assert!(screen.contains("PR #7 · title 7") && screen.contains("  Why"));
         assert!(!screen.contains("## Why"), "the heading mark is not shown");
@@ -680,6 +772,55 @@ mod tests {
         assert!(viewer.body.is_none() && viewer.selected == 2);
         m.update(press(KeyCode::Esc));
         assert!(m.overlay.is_none());
+    }
+
+    #[test]
+    fn reviews_and_comments_on_code_join_the_thread_in_date_order() {
+        let view = r#"{"body":"what",
+            "comments":[{"author":{"login":"ann"},"createdAt":"2026-10-03T09:00:00Z","body":"third"}],
+            "reviews":[
+              {"author":{"login":"bob"},"submittedAt":"2026-10-02T09:00:00Z","state":"CHANGES_REQUESTED","body":"second"},
+              {"author":{"login":"bob"},"submittedAt":"2026-10-01T08:00:00Z","state":"COMMENTED","body":""},
+              {"author":{"login":"me"},"submittedAt":null,"state":"PENDING","body":"draft"},
+              {"author":{"login":"cy"},"submittedAt":"2026-10-04T09:00:00Z","state":"APPROVED","body":""}]}"#;
+        let on_code = r#"[{"user":{"login":"bob"},"created_at":"2026-10-01T09:00:00Z",
+            "path":"src/a`pp.rs","line":12,"body":"first"},
+            {"user":{"login":"bob"},"created_at":"2026-10-05T09:00:00Z","path":"b.rs","line":null,"body":"last"}]"#;
+        let texts = parse_thread(view, Some(on_code)).unwrap();
+        let heads: Vec<&str> = texts[1..]
+            .iter()
+            .map(|t| t.lines().nth(2).unwrap())
+            .collect();
+        assert_eq!(
+            heads,
+            [
+                "**@bob** · 2026-10-01 · `src/app.rs:12`",
+                "**@bob** · 2026-10-02 · review: changes requested",
+                "**@ann** · 2026-10-03",
+                "**@cy** · 2026-10-04 · review: approved",
+                "**@bob** · 2026-10-05 · `b.rs`",
+            ]
+        );
+        assert!(texts[0] == "what" && texts[1].ends_with("\n\nfirst"));
+        assert_eq!(
+            parse_thread(view, Some("not json")).unwrap().len(),
+            4,
+            "a failed read of the code comments leaves the rest"
+        );
+
+        for (url, want) in [
+            (
+                "https://github.com/osbrjp/bungkus-mc/pull/189",
+                Some("repos/osbrjp/bungkus-mc/pulls/189/comments?per_page=100"),
+            ),
+            ("https://github.com/o/r/issues/1", None),
+            ("https://github.com/o/r/pull/x", None),
+            ("https://github.com/../r/pull/1", None),
+            ("https://github.com/o/r?x/y/pull/1", None),
+            ("https://ghe.example.com/o/r/pull/1", None),
+        ] {
+            assert_eq!(review_comments_path(url).as_deref(), want, "{url}");
+        }
     }
 
     #[test]
