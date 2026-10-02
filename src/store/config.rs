@@ -35,8 +35,8 @@ pub(crate) struct Config {
     pub notify: Notify,
     /// Process cleanup settings.
     pub cleanup: Cleanup,
-    /// State glyph set.
-    pub icons: crate::ui::icons::IconSet,
+    /// State glyph set; `auto` picks by the installed fonts.
+    pub icons: crate::ui::icons::IconChoice,
     /// Whether spinners and the mascot move.
     pub motion: bool,
     /// Outer widths of the projects and sessions panes.
@@ -81,7 +81,7 @@ impl Default for Config {
             mouse: true,
             notify: Notify::default(),
             cleanup: Cleanup::default(),
-            icons: crate::ui::icons::IconSet::default(),
+            icons: crate::ui::icons::IconChoice::default(),
             motion: true,
             panes: crate::ui::Widths::default(),
             workspaces: Vec::new(),

@@ -273,6 +273,8 @@ pub(crate) struct Model {
     pub repos: std::collections::HashMap<PathBuf, crate::app::repo::Status>,
     /// Whether a background read of [`Model::repos`] is under way.
     pub repo_scan: bool,
+    /// Whether an MCP config scan is running.
+    pub mcp_scan: bool,
     /// Shows every key mc receives in the hint line (`BUNGKUS_MC_DEBUG_KEYS`),
     /// to find chords a terminal keeps for itself.
     pub debug_keys: bool,
@@ -400,6 +402,7 @@ impl Model {
             external: Vec::new(),
             repos: std::collections::HashMap::new(),
             repo_scan: false,
+            mcp_scan: false,
             poke: None,
             notice: None,
             popup: None,
@@ -771,6 +774,16 @@ impl Model {
         cmd
     }
 
+    /// Gives each session in `changed` its configured MCP servers.
+    fn set_mcp(&mut self, changed: Vec<(SessionId, Vec<String>, crate::agent::mcp::Stamp)>) {
+        self.mcp_scan = false;
+        for (id, servers, stamp) in changed {
+            if let Some(card) = self.cards.iter_mut().find(|c| c.id == id) {
+                card.set_mcp(servers, stamp);
+            }
+        }
+    }
+
     /// Applies one event; [`Model::update`] keeps the selection in place.
     fn handle(&mut self, event: AppEvent) -> Option<Cmd> {
         match event {
@@ -802,6 +815,7 @@ impl Model {
                 self.repos = repos.into_iter().collect();
                 self.repo_scan = false;
             }
+            AppEvent::Mcp(changed) => self.set_mcp(changed),
             AppEvent::External(list) => {
                 self.external = list;
                 self.selected = self.selected.min(self.visible().len().saturating_sub(1));

@@ -621,6 +621,46 @@ name → first prompt line → `untitled`. Stored in `sessions.json` as
 | `alacritty_terminal` API on a minor bump | build break | one module (`term`); exact-minor pin; `Cargo.lock` |
 | Jev API/schema change | routing falls back | one module, timeout, fake-server tests (§13) |
 
+### 5.5 MCP servers on the card (`mcp.rs`)
+
+A card lists the MCP servers of its session (DESIGN §5.2). Neither agent
+reports them, so `agent/mcp.rs` combines two sources:
+
+**1. The agents' own config files** — what is configured.
+
+| Agent | Files | Names |
+|-------|-------|-------|
+| Claude | `<project>/.mcp.json`; `.claude.json` in `$CLAUDE_CONFIG_DIR`, else the home directory | keys of `mcpServers` in the project file, in the user file, and in the user file's `projects[<project>]`; less that entry's `disabledMcpjsonServers` / `disabledMcpServers` |
+| Codex | `config.toml` in `$CODEX_HOME`, else `~/.codex` | `[mcp_servers.<name>]` table headers (a line scan, no TOML crate) |
+
+**2. Hook events** — what is used. A `PreToolUse` whose `tool_name` is
+`mcp__<server>__<tool>` adds `<server>` (less Claude's `claude_ai_` /
+`plugin_` prefix). This is the only source for claude.ai connectors and
+plugin servers, which are in no config file; they show from their first
+tool call.
+
+Cost (measured on a 220 KB `.claude.json`, release build):
+
+- The files are checked at launch and every 5 s (`EXTERNAL_EVERY`) on a
+  background thread, never on the UI thread. A check is two `stat` calls
+  per running session (about 5 µs); the card keeps the files' mtime and
+  size, and nothing is opened while they are unchanged.
+- A changed file is parsed as a stream (`serde_json::from_reader`,
+  `IgnoredAny` for everything but the names): about 2 ms, with a read
+  buffer of 8 KiB instead of the file in memory. Claude rewrites
+  `.claude.json` often while it works, so this runs regularly; an event is
+  sent only when a file changed.
+- Held per card: the names (≤ 12 × ≤ 24 characters) and one stamp.
+
+Rules:
+
+- **Names only.** Commands, arguments and `env` values are never kept;
+  names are sanitised, cut to 24 characters, sorted, at most 12.
+- **Configured or used, not "connected".** A configured server that failed
+  to start still shows; servers from managed settings show only once used.
+- A missing, malformed or over-8-MiB file gives no names; nothing is
+  persisted, and a server a tool call named stays listed for the session.
+
 ## 6. Usage figures — sources, verified vs assumed
 
 | Number | Claude Code 2.1.285 | Codex 0.153.4 |
@@ -766,7 +806,7 @@ workspace switch. A hidden folder is never listed as a project.
   "theme": "auto",
   "background": "paint",
   "motion": true,
-  "icons": "ascii",
+  "icons": "auto",
   "mouse": true,
   "notify": "bell",
   "interactExit": "ctrl-\\",
@@ -865,7 +905,7 @@ src/
   ui/                # panes, dialogs, first run, keymap.rs (single source of keys/help), theme.rs (token spec impl),
                      # mascot.rs (pixel maps, frames, moods), sanitise.rs (the one string sanitiser)
   term/              # session.rs (PTY + Term + reader/writer/waiter threads), keys.rs (encoder, from the spike), replies.rs (OSC 10/11, CSI 14 t)
-  agent/             # mod.rs (Kind, Launch, argv), usage.rs (Usage), claude.rs, codex.rs, codex_usage.rs; testdata/{claude,codex}/
+  agent/             # mod.rs (Kind, Launch, argv), usage.rs (Usage), claude.rs, codex.rs, codex_usage.rs, mcp.rs; testdata/{claude,codex}/
   ipc/               # server.rs (UnixListener), hook.rs and statusline.rs (the silent subcommands), wire types
   proc/              # scan (linux.rs: /proc + pidfd; macos.rs: ps), ports.rs (lsof), kill.rs, keep rule
   route/             # Jev tier judgement → model id, key runner, secret-shape guard, consent
@@ -970,7 +1010,7 @@ Go code any more:
 | mouse | `ratatui::crossterm` `EnableMouseCapture` | `mouse: false`; wheel = scrollback; forwarded to the agent when it enabled mouse modes; modifier-drag for selection documented |
 | synchronized output | `BeginSynchronizedUpdate`/`End…` per frame (host side); alacritty's `sync_timeout()` + `stop_sync()` for the agent side (§4.1) | — |
 | OSC 8 | not emitted by ratatui; header link written raw only where supported | stripped from agent output |
-| Nerd Font / glyphs | undetectable | `icons` setting, **default ascii**; borders follow the locale |
+| Nerd Font / glyphs | the terminal's font is undetectable; `icons: auto` looks for a file or folder named `*nerd*` in the font folders (`~/Library/Fonts`, `~/.local/share/fonts`, `~/.fonts`, `/Library/Fonts`, `/usr/local/share/fonts`, `/usr/share/fonts`, 3 levels deep), skipped on a non-UTF-8 locale and over SSH | `ascii`; the `icons` setting overrides; borders follow the locale |
 | light/dark | one OSC 11 query at start, reply awaited with `rustix::event::poll` on stdin (200 ms) before the input reader starts (§3.1) | `theme` setting |
 | notifications | OSC 9/99/777 raw writes by terminal, BEL fallback; title via OSC 2 with XTWINOPS push/pop | `notify` setting |
 | tmux / zellij | `TERM=tmux-256color`; OSC 8 ≥ 3.4 | test matrix |

@@ -23,7 +23,7 @@ use anyhow::{Context, Result, bail};
 use crate::agent::{Kind, find_on_path};
 use crate::app::model::Model;
 use crate::store::config::{self, Config, Settings, tilde};
-use crate::ui::icons::IconSet;
+use crate::ui::icons::{self, IconChoice};
 use crate::ui::theme::{Profile, Theme, ThemeName};
 
 /// Usage text printed by `--help`.
@@ -44,7 +44,8 @@ Options:
   -p, --project NAME
                    start on this project; when the workspace has no such
                    project, the workspace switcher opens to find it
-  --icons SET      state glyphs: ascii (default), unicode, nerd
+  --icons SET      state glyphs: auto (default: nerd when a Nerd Font is
+                   installed, else ascii), ascii, unicode, nerd
   --debug          write a debug log (~/.local/state/bungkus/mc/mc.log)
   -h, --help       print this help
   -V, --version    print the version
@@ -59,7 +60,7 @@ struct TuiArgs {
     /// Workspace folder as typed; the saved one when absent.
     workspace: Option<String>,
     /// `--icons`.
-    icons: Option<IconSet>,
+    icons: Option<IconChoice>,
     /// `--debug`: write the debug log.
     debug: bool,
     /// `-q`: open a quick session popup at start.
@@ -141,16 +142,12 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, lexopt:
             Long("debug") => tui.debug = true,
             Long("icons") => {
                 let value = parser.value()?.string()?;
-                tui.icons = Some(match value.as_str() {
-                    "ascii" => IconSet::Ascii,
-                    "unicode" => IconSet::Unicode,
-                    "nerd" => IconSet::Nerd,
-                    _ => {
-                        return Err(lexopt::Error::from(format!(
-                            "--icons: {value}? (ascii, unicode, nerd)"
-                        )));
-                    }
-                });
+                let Some(choice) = IconChoice::parse(&value) else {
+                    return Err(lexopt::Error::from(format!(
+                        "--icons: {value}? (auto, ascii, unicode, nerd)"
+                    )));
+                };
+                tui.icons = Some(choice);
             }
             Value(value) if tui.workspace.is_none() => tui.workspace = Some(value.string()?),
             _ => return Err(arg.unexpected()),
@@ -187,10 +184,15 @@ fn main() -> Result<()> {
     let found = Kind::ALL
         .map(|kind| find_on_path(kind.command(), &path_var).map(|p| tilde(&p, home.as_deref())));
     let fallback = default_workspace(home.as_deref(), &cwd);
-    let icons = args.icons.unwrap_or(config.icons);
+    let utf8 = utf8_locale(var);
+    // Over SSH the fonts on this host are not the ones the terminal draws with.
+    let icons = args.icons.unwrap_or(config.icons).resolve(|| {
+        utf8 && var("SSH_CONNECTION").is_none()
+            && icons::nerd_font_installed(&icons::font_dirs(home.as_deref()))
+    });
     let theme = Theme::new(ThemeName::Dark, Profile::detect(var), config.background).with_view(
         icons,
-        utf8_locale(var),
+        utf8,
         config.motion,
     );
     let mut model = Model::new(theme, home.clone(), found, fallback);
@@ -427,7 +429,7 @@ mod tests {
             (
                 &["--icons", "unicode"],
                 tui(TuiArgs {
-                    icons: Some(IconSet::Unicode),
+                    icons: Some(IconChoice::Unicode),
                     ..TuiArgs::default()
                 }),
             ),

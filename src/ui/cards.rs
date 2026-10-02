@@ -330,6 +330,10 @@ fn card_lines(
     if let Some(repo) = repo {
         lines.push(body(&repo.label(body_width), theme.fg(Token::FgMuted)));
     }
+    if !card.mcp.is_empty() && mark != Mark::Focused {
+        let line = mcp_line(&card.mcp, theme.icons);
+        lines.push(body(&line, theme.fg(Token::FgMuted)));
+    }
     let lead = [
         edge.clone(),
         Span::styled(gutter, theme.fg(gutter_token)),
@@ -340,29 +344,57 @@ fn card_lines(
     lines.extend(rows.into_iter().map(prefixed));
     let skip = card.subagents.len().saturating_sub(SUBAGENT_ROWS);
     for sub in card.subagents.iter().skip(skip) {
-        let mark = if sub.ended.is_some() {
-            theme.icons.icon(Icon::Wrapped)
-        } else {
-            spin
-        };
-        let time = format!("{}m", minutes(sub.started, sub.ended.unwrap_or(now)));
-        let right_len = time.len() + 2;
-        let desc = truncate(&sub.description, body_width.saturating_sub(right_len + 2));
-        let pad = body_width.saturating_sub(desc.chars().count() + 2 + right_len);
-        lines.push(Line::from(vec![
-            edge.clone(),
-            Span::styled(gutter, theme.fg(gutter_token)),
-            Span::styled(
-                format!("  {} ", theme.icons.icon(Icon::Subagent)),
-                theme.fg(Token::FgMuted),
-            ),
-            Span::styled(desc, text),
-            Span::raw(" ".repeat(pad)),
-            Span::styled(format!("{mark} "), theme.fg(Token::Ok)),
-            Span::styled(time, theme.fg(Token::FgMuted)),
-        ]));
+        let mut spans = vec![edge.clone(), Span::styled(gutter, theme.fg(gutter_token))];
+        spans.extend(subagent_spans(sub, body_width, spin, now, text, theme));
+        lines.push(Line::from(spans));
     }
     lines
+}
+
+/// Returns a subagent row after the card's two edge columns: glyph,
+/// description, then its state glyph and time at the right of `width`.
+fn subagent_spans(
+    sub: &crate::app::sessions::Subagent,
+    width: usize,
+    spin: char,
+    now: Instant,
+    text: Style,
+    theme: Theme,
+) -> [Span<'static>; 5] {
+    let mark = if sub.ended.is_some() {
+        theme.icons.icon(Icon::Wrapped)
+    } else {
+        spin
+    };
+    let time = format!("{}m", minutes(sub.started, sub.ended.unwrap_or(now)));
+    let right_len = time.len() + 2;
+    let desc = truncate(&sub.description, width.saturating_sub(right_len + 2));
+    let pad = width.saturating_sub(desc.chars().count() + 2 + right_len);
+    [
+        Span::styled(
+            format!("  {} ", theme.icons.icon(Icon::Subagent)),
+            theme.fg(Token::FgMuted),
+        ),
+        Span::styled(desc, text),
+        Span::raw(" ".repeat(pad)),
+        Span::styled(format!("{mark} "), theme.fg(Token::Ok)),
+        Span::styled(time, theme.fg(Token::FgMuted)),
+    ]
+}
+
+/// Returns the compact MCP line (DESIGN §5.2): glyphs in the `nerd` set,
+/// `mcp` and the names otherwise. Servers of one brand share one glyph.
+fn mcp_line(servers: &[String], icons: IconSet) -> String {
+    let mut labels: Vec<String> = Vec::new();
+    for label in servers.iter().map(|s| icons.mcp(s)) {
+        if !labels.contains(&label) {
+            labels.push(label);
+        }
+    }
+    match icons {
+        IconSet::Nerd => labels.join("  "),
+        IconSet::Ascii | IconSet::Unicode => format!("mcp {}", labels.join(" · ")),
+    }
 }
 
 /// Returns the usage rows of a card: the expanded rows when it is the
@@ -497,6 +529,9 @@ fn expanded_usage(card: &Card, width: usize, text: Style, theme: Theme) -> Vec<V
         let fill = level(w.used_pct, 95.0);
         rows.push(bar_row(&label, w.used_pct, "", fill, (width, text), theme));
     }
+    if !card.mcp.is_empty() {
+        rows.push(plain(format!("mcp      {}", card.mcp.join(" · "))));
+    }
     rows
 }
 
@@ -584,5 +619,30 @@ mod tests {
         let lines = text(Some(&repo));
         assert_eq!(lines.len(), 4);
         assert_eq!(lines[2].trim(), "main · 1 changed");
+    }
+
+    #[test]
+    fn a_card_lists_its_mcp_servers_as_glyphs_or_names() {
+        let theme = Theme::new(ThemeName::Dark, Profile::NoColor, Background::Paint);
+        let now = Instant::now();
+        let mut card = Card::new(
+            crate::term::SessionId::new(),
+            Kind::Claude,
+            "/p".into(),
+            Some("s"),
+            None,
+            now,
+        );
+        card.mcp = vec!["github".into(), "miko".into()];
+        let line = |theme, mark, n: usize| {
+            card_lines(&card, None, mark, 36, '*', now, theme)[n]
+                .to_string()
+                .trim()
+                .to_owned()
+        };
+        assert_eq!(line(theme, Mark::None, 2), "mcp github · miko");
+        let nerd = theme.with_view(IconSet::Nerd, true, true);
+        assert_eq!(line(nerd, Mark::None, 2), "\u{f09b}  \u{f1e6} miko");
+        assert_eq!(line(nerd, Mark::Focused, 6), "mcp      github · miko");
     }
 }
