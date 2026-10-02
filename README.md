@@ -133,6 +133,7 @@ pane; press one to run it.
 | `cmd`/`alt`/`ctrl` + `1` `2` `3` `4` | projects · sessions · output · terminal pane, also from inside INTERACT (`cmd` needs a [terminal mapping](#cmd--1-2-3-on-macos)) |
 | `1`–`9` | jump to project N; type the next digit quickly for two digits (`1` `6` → 16) |
 | `/` | search projects (`↑` `↓` pick, `enter` open, `esc` clear) |
+| `fp` · `ff` · `fg` | finder popup over the workspace: projects, file names, grep (`enter` opens the project, or the file in your editor; `ff` and `fg` need [ripgrep](https://github.com/BurntSushi/ripgrep)) |
 | `!` · `ctrl-]` | jump to the next session that needs you, in any project |
 | `ctrl-j` `ctrl-k` · `ctrl-n` `ctrl-p` | down · up in every dialog, list and the `/` search (same as `↓` `↑`) |
 | `z` | zoom the output pane |

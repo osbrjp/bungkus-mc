@@ -7,6 +7,8 @@
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+use crate::app::finder::Source;
+
 /// Where a binding applies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Scope {
@@ -39,6 +41,9 @@ pub(crate) enum Action {
     HalfUp,
     /// Search the projects (FILTER mode).
     Filter,
+    /// Open the finder on the workspace's projects (`fp`), file names
+    /// (`ff`) or file contents (`fg`).
+    Find(Source),
     /// Jump to a project by its number (digits; two when there are more
     /// than nine projects).
     Jump,
@@ -117,8 +122,10 @@ pub(crate) enum Action {
 pub(crate) enum Key {
     /// A single key with exact modifiers.
     Press(KeyCode, KeyModifiers),
-    /// The same character pressed twice (only `gg`).
+    /// The same character pressed twice (`gg`, `dd`).
     Twice(char),
+    /// One character, then another (`fp`).
+    Seq(char, char),
 }
 
 /// A key binding with its documentation.
@@ -412,6 +419,30 @@ pub(crate) const BINDINGS: &[Binding] = &[
         scope: Scope::Global,
     },
     Binding {
+        keys: &[Key::Seq('f', 'p')],
+        label: "fp",
+        action: Action::Find(Source::Projects),
+        help: "find project",
+        hint: None,
+        scope: Scope::Global,
+    },
+    Binding {
+        keys: &[Key::Seq('f', 'f')],
+        label: "ff",
+        action: Action::Find(Source::Files),
+        help: "find file",
+        hint: None,
+        scope: Scope::Global,
+    },
+    Binding {
+        keys: &[Key::Seq('f', 'g')],
+        label: "fg",
+        action: Action::Find(Source::Grep),
+        help: "grep workspace",
+        hint: None,
+        scope: Scope::Global,
+    },
+    Binding {
         keys: &[
             c('1'),
             c('2'),
@@ -619,10 +650,16 @@ pub(crate) fn lookup(scope: Scope, key: KeyEvent, pending: Option<char>) -> Look
                 Key::Twice(ch) if pending.is_none() && pressed == c(ch) => {
                     return Lookup::Pending(ch);
                 }
+                Key::Seq(first, second) if pending == Some(first) && pressed == c(second) => {
+                    return Lookup::Action(binding.action);
+                }
+                Key::Seq(first, _) if pending.is_none() && pressed == c(first) => {
+                    return Lookup::Pending(first);
+                }
                 Key::Press(..) if *bound == pressed && pending.is_none() => {
                     return Lookup::Action(binding.action);
                 }
-                Key::Twice(_) | Key::Press(..) => {}
+                Key::Twice(_) | Key::Seq(..) | Key::Press(..) => {}
             }
         }
     }
@@ -713,7 +750,8 @@ impl Action {
             | Self::Editor
             | Self::Folder
             | Self::ToggleRest
-            | Self::CleanWorktrees => Group::Projects,
+            | Self::CleanWorktrees
+            | Self::Find(_) => Group::Projects,
             Self::Workspace
             | Self::Settings
             | Self::Help
@@ -771,6 +809,20 @@ mod tests {
                 assert!(!seen.contains(key), "{scope:?}: {key:?} bound twice");
                 seen.push(*key);
             }
+        }
+    }
+
+    #[test]
+    fn the_key_menu_fits_a_40_row_screen() {
+        for scope in [Scope::Projects, Scope::Sessions] {
+            let groups: usize = help_groups(scope)
+                .iter()
+                .map(|(_, rows)| 2 + rows.len().div_ceil(2))
+                .sum();
+            // Borders, the agent keys under their heading, a blank line and
+            // the hint; 38 rows are the body.
+            let height = 2 + groups + 1 + AGENT_KEYS.len().div_ceil(2) + 2;
+            assert!(height <= 38, "{scope:?}: {height} rows");
         }
     }
 
@@ -857,6 +909,24 @@ mod tests {
                 key(KeyCode::Char(','), KeyModifiers::NONE),
                 None,
                 Lookup::Action(Action::Settings),
+            ),
+            (
+                Scope::Sessions,
+                key(KeyCode::Char('f'), KeyModifiers::NONE),
+                None,
+                Lookup::Pending('f'),
+            ),
+            (
+                Scope::Sessions,
+                key(KeyCode::Char('p'), KeyModifiers::NONE),
+                Some('f'),
+                Lookup::Action(Action::Find(Source::Projects)),
+            ),
+            (
+                Scope::Projects,
+                key(KeyCode::Char('g'), KeyModifiers::NONE),
+                Some('f'),
+                Lookup::Action(Action::Find(Source::Grep)),
             ),
         ];
         for (scope, event, pending, want) in cases {

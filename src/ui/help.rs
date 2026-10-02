@@ -22,7 +22,7 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, scope: Scope, theme: Theme) {
         Scope::Sessions => "sessions pane",
         Scope::Global => "everywhere",
     };
-    let mut lines = vec![Line::from("")];
+    let mut lines = Vec::new();
     for (group, rows) in keymap::help_groups(scope) {
         lines.push(Line::styled(
             format!("  {}", group.title()),
