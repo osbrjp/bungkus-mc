@@ -466,6 +466,36 @@ mod tests {
     }
 
     #[test]
+    fn the_recent_group_holds_five_projects_running_ones_first() {
+        let all = ["a", "b", "c", "d", "e", "f", "g"];
+        let mut m = sample(&all);
+        let mut writes = Vec::new();
+        for (row, minutes) in (0..all.len()).zip(0u64..) {
+            m.selected = row;
+            m.show_rest = true;
+            writes.push(with_session(&mut m, "s"));
+            let card = m.cards.last_mut().unwrap();
+            card.started += std::time::Duration::from_secs(60 * minutes);
+            card.state = crate::app::sessions::State::Wrapped;
+        }
+        m.show_rest = false;
+        let names =
+            |m: &Model| -> Vec<String> { m.visible().iter().map(|p| p.name.clone()).collect() };
+        assert_eq!(names(&m), ["c", "d", "e", "f", "g"], "the five last used");
+        assert_eq!(m.rest().unwrap().count, 2);
+        m.cards[0].state = crate::app::sessions::State::NeedsYou;
+        assert_eq!(
+            names(&m),
+            ["a", "d", "e", "f", "g"],
+            "a runs: it goes first"
+        );
+        for card in &mut m.cards {
+            card.state = crate::app::sessions::State::Working;
+        }
+        assert!(m.rest().is_none(), "every running project stays, past five");
+    }
+
+    #[test]
     fn a_forwarded_click_is_relative_to_the_agent_screen_below_the_strip() {
         let mut m = sample(&["a"]);
         let (id, writes) = with_session(&mut m, "s");
