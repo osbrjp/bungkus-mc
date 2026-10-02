@@ -168,6 +168,39 @@ pub(super) fn draw_popup(frame: &mut Frame, area: Rect, model: &Model, theme: Th
     }
 }
 
+/// Draws one of the user's tools (the terminal pane, the editor popup):
+/// its live screen under `title`, double-bordered with the cursor while it
+/// has the keys.
+pub(super) fn draw_tool(
+    frame: &mut Frame,
+    area: Rect,
+    title: &str,
+    pty: &crate::term::session::Session,
+    focused: bool,
+    theme: Theme,
+) {
+    let block = if focused {
+        super::bordered(super::Weight::Double, theme)
+            .border_style(theme.fg(Token::Warn))
+            .title(Span::styled(format!(" {title} "), theme.fg(Token::Warn)))
+    } else {
+        pane(title, false, theme)
+    };
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let (fg, bg) = default_colors(theme);
+    let screen = Screen {
+        term: pty.term(),
+        fg,
+        bg,
+    };
+    let cursor = screen.cursor(inner);
+    frame.render_widget(screen, inner);
+    if let (true, Some(position)) = (focused, cursor) {
+        frame.set_cursor_position(position);
+    }
+}
+
 /// Draws the output pane for a selected quick session, which lives in
 /// its popup instead (issue #46).
 fn draw_quick_note(frame: &mut Frame, area: Rect, theme: Theme, running: bool) {

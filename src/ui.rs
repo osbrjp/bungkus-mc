@@ -26,11 +26,14 @@ use ratatui::widgets::{Block, BorderType, Clear, Paragraph};
 use crate::app::form::FormKind;
 use crate::app::model::{Focus, Model, Overlay};
 use crate::app::sessions::{self, State};
+use crate::app::tools::TermView;
 use crate::store::config::tilde;
 use crate::term::session::Size;
 use crate::ui::mascot::{Mascot, Mood};
 use crate::ui::sanitise::truncate;
 use crate::ui::theme::{Theme, Token};
+
+pub(crate) use cards::session_at;
 
 /// Smallest usable screen, per DESIGN §4.
 const MIN_SIZE: (u16, u16) = (80, 24);
@@ -126,6 +129,8 @@ pub(crate) fn title(model: &Model) -> String {
 pub(crate) struct Panes {
     /// The projects pane.
     pub projects: Option<Rect>,
+    /// The terminal pane, below the output pane.
+    pub terminal: Option<Rect>,
     /// The sessions pane.
     pub sessions: Option<Rect>,
     /// The output pane.
@@ -149,6 +154,7 @@ pub(crate) fn panes(area: Rect, focus: Focus, zoom: bool, widths: Widths) -> Pan
         projects: (which == Focus::Projects).then_some(body),
         sessions: (which == Focus::Sessions).then_some(body),
         output: (which == Focus::Output).then_some(body),
+        terminal: None,
     };
     if zoom {
         return only(Focus::Output);
@@ -167,6 +173,44 @@ pub(crate) fn panes(area: Rect, focus: Focus, zoom: bool, widths: Widths) -> Pan
         projects: Some(projects),
         sessions: Some(sessions),
         output: Some(output),
+        terminal: None,
+    }
+}
+
+impl Panes {
+    /// Returns these panes with the terminal pane, when `shown`, in the
+    /// lower third of the output pane.
+    #[must_use]
+    pub(crate) fn with_terminal(self, shown: bool) -> Self {
+        let (Some(output), true) = (self.output, shown) else {
+            return self;
+        };
+        let terminal = Rect {
+            y: output.bottom() - output.height / 3,
+            height: output.height / 3,
+            ..output
+        };
+        Self {
+            output: Some(Rect {
+                height: output.height - terminal.height,
+                ..output
+            }),
+            terminal: Some(terminal),
+            ..self
+        }
+    }
+}
+
+/// Returns the terminal pane's inner size, which its shell's PTY has.
+#[must_use]
+pub(crate) fn terminal_size(area: Rect, zoom: bool, widths: Widths) -> Size {
+    let pane = panes(area, Focus::Output, zoom, widths)
+        .with_terminal(true)
+        .terminal
+        .unwrap_or(area);
+    Size {
+        cols: pane.width.saturating_sub(2).max(1),
+        rows: pane.height.saturating_sub(2).max(1),
     }
 }
 
@@ -194,10 +238,12 @@ pub(crate) fn popup_size(area: Rect) -> Size {
 }
 
 /// Returns the output pane's inner size, which every session's PTY has
-/// (the size the pane has whenever it is shown).
+/// (the size the pane has whenever it is shown); `terminal` says whether
+/// the terminal pane takes its lower third.
 #[must_use]
-pub(crate) fn output_size(area: Rect, zoom: bool, widths: Widths) -> Size {
+pub(crate) fn output_size(area: Rect, zoom: bool, widths: Widths, terminal: bool) -> Size {
     let pane = panes(area, Focus::Output, zoom, widths)
+        .with_terminal(terminal)
         .output
         .unwrap_or(area);
     Size {
@@ -237,7 +283,7 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
     ])
     .areas(area);
     model.list_rows = usize::from(area.height.saturating_sub(5));
-    let layout = panes(area, model.focus, model.zoom, model.widths);
+    let layout = model.panes(area);
     draw_header(
         frame,
         header,
@@ -254,9 +300,31 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
     if let Some(rect) = layout.output {
         output::draw(frame, rect, model, theme);
     }
+    if let (Some(rect), Some(shell)) = (layout.terminal, model.shell()) {
+        let focused = model.term_view == TermView::Focused;
+        let name = model.selected_project().map_or("", |p| p.name.as_str());
+        let title = if focused {
+            format!("terminal · {name} · {} to leave", model.exit_chord.label())
+        } else {
+            format!("terminal · {name} · t hides")
+        };
+        output::draw_tool(frame, rect, &title, &shell.pty, focused, theme);
+    }
     draw_getah(frame, getah, model, theme);
     if model.popup.is_some() {
         output::draw_popup(frame, popup_rect(area), model, theme);
+    }
+    if let Some(editor) = &model.editor {
+        let rect = popup_rect(area);
+        frame.render_widget(ratatui::widgets::Clear, rect);
+        output::draw_tool(
+            frame,
+            rect,
+            "editor · quit it to close",
+            &editor.pty,
+            true,
+            theme,
+        );
     }
     match &model.overlay {
         Some(Overlay::Help) => help::draw(frame, area, model.focus.scope(), theme),
@@ -315,11 +383,13 @@ pub(crate) fn strip_mascot(output: Rect, screen: Rect) -> Option<Rect> {
     })
 }
 
-/// Draws the strip mascot at `spot` in `mood` and, after a click, its
-/// speech bubble to the left (within `strip`).
+/// Draws the strip mascot at `spot` in `mood` and, after a click or a
+/// notification, its speech bubble to the left (within `strip`).
 ///
 /// A click plays [`mascot::poke_pose`] and shows a quote for
-/// [`mascot::POKE`].
+/// [`mascot::POKE`]. A notification (a session needs you or failed, see
+/// [`Model::notice`]) is said for [`mascot::NOTICE`], cut to the room the
+/// strip has; a quote from a click goes first.
 pub(super) fn draw_strip(
     frame: &mut Frame,
     strip: Rect,
@@ -342,13 +412,16 @@ pub(super) fn draw_strip(
         },
         spot,
     );
-    let Some((_, quote)) = clicked else {
-        return;
-    };
-    let text = mascot::QUOTES[quote % mascot::QUOTES.len()];
-    let width = u16::try_from(text.chars().count() + 4).unwrap_or(u16::MAX);
     let room = spot.x.saturating_sub(strip.x + STRIP_GAP + 1);
-    if width > room {
+    let text = match (clicked, &model.notice) {
+        (Some((_, quote)), _) => mascot::QUOTES[quote % mascot::QUOTES.len()].to_owned(),
+        (None, Some((_, notice))) => {
+            sanitise::sanitise(notice, usize::from(room.saturating_sub(4)))
+        }
+        (None, None) => return,
+    };
+    let width = u16::try_from(text.chars().count() + 4).unwrap_or(u16::MAX);
+    if width > room || text.is_empty() {
         return;
     }
     let bubble = Rect::new(spot.x - width - STRIP_GAP - 1, strip.y, width, strip.height);
@@ -457,6 +530,10 @@ fn workspace_label(model: &Model) -> String {
 /// digits jump to. The search row reads `/ search` until `/` is pressed,
 /// then shows the typed text with the cursor after it.
 ///
+/// When recent projects are grouped ([`Model::rest`]), the rest line
+/// `+ <count> more (e)` follows them (`-` while the rest shows; `▸`/`▾`
+/// outside the ascii icon set).
+///
 /// The marker is `>` on the selected row while the pane is focused and
 /// `:` (the ascii form of `▌`) while it is not. The spinner column turns
 /// while any session of the project works; the badge is the worst other
@@ -478,14 +555,20 @@ fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
     let digits = visible.len().max(1).to_string().len();
     let rows = usize::from(inner.height);
     let width = usize::from(inner.width).saturating_sub(4 + digits);
-    let offset = (model.selected + 1).saturating_sub(rows);
+    let rest = model.rest();
+    let rest_at = rest.map(|rest| rest.at);
+    let chosen = line_of(model.selected, rest_at);
+    let offset = projects_offset(chosen, rows);
+    let header = rest_line(rest.map_or(0, |rest| rest.count), model.show_rest, theme);
     let spin = cards::spinner(model.frame, theme);
-    let lines: Vec<Line> = visible
-        .iter()
-        .enumerate()
-        .skip(offset)
+    let lines: Vec<Line> = (offset..)
         .take(rows)
-        .map(|(i, project)| {
+        .map_while(|line| row_at(line, rest_at, visible.len()))
+        .map(|row| {
+            let Row::Project(i) = row else {
+                return header.clone();
+            };
+            let project = visible[i];
             let selected = i == model.selected;
             let marker = match (selected, focused) {
                 (true, true) => theme.icons.icon(icons::Icon::Marker),
@@ -552,13 +635,7 @@ fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
         })
         .collect();
     frame.render_widget(Paragraph::new(lines), inner);
-    shade(
-        frame,
-        inner,
-        model.selected.saturating_sub(offset),
-        1,
-        theme,
-    );
+    shade(frame, inner, chosen - offset, 1, theme);
 }
 
 /// Gives `height` rows of `inner`, from row `top`, the selection
@@ -577,6 +654,87 @@ pub(crate) fn shade(frame: &mut Frame, inner: Rect, top: usize, height: usize, t
     frame
         .buffer_mut()
         .set_style(rows.intersection(inner), style);
+}
+
+/// Rows of the projects pane above its first project: the top border and
+/// the search row.
+const PROJECTS_HEAD: u16 = 2;
+
+/// Returns the index of the first project row shown when `selected` must
+/// stay inside `rows` rows.
+fn projects_offset(selected: usize, rows: usize) -> usize {
+    (selected + 1).saturating_sub(rows)
+}
+
+/// What a line of the projects list holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Row {
+    /// The project at this index into [`Model::visible`].
+    Project(usize),
+    /// The line that shows or hides the projects that are not recent.
+    Rest,
+}
+
+/// Returns the list line of project row `selected`: the rest line, which
+/// sits before row `rest`, pushes the rows after it down by one.
+fn line_of(selected: usize, rest: Option<usize>) -> usize {
+    selected + usize::from(rest.is_some_and(|at| selected >= at))
+}
+
+/// Returns what list line `line` holds among `len` project rows, or
+/// `None` past the end (the inverse of [`line_of`]).
+fn row_at(line: usize, rest: Option<usize>, len: usize) -> Option<Row> {
+    let row = match rest {
+        Some(at) if line == at => return Some(Row::Rest),
+        Some(at) if line > at => line - 1,
+        _ => line,
+    };
+    (row < len).then_some(Row::Project(row))
+}
+
+/// Returns what is drawn at screen row `row` of projects pane `pane`,
+/// for mouse hit tests.
+///
+/// # Arguments
+///
+/// * `pane`     - The projects pane.
+/// * `selected` - The selected row, which the list scrolls to keep in view.
+/// * `rest`     - The row the rest line sits before, if any.
+/// * `len`      - How many project rows there are.
+/// * `row`      - The screen row.
+///
+/// # Returns
+///
+/// `None` on the border, the search row and below the list.
+#[must_use]
+pub(crate) fn project_at(
+    pane: Rect,
+    selected: usize,
+    rest: Option<usize>,
+    len: usize,
+    row: u16,
+) -> Option<Row> {
+    let rows = pane.height.saturating_sub(PROJECTS_HEAD + 1);
+    let line = row
+        .checked_sub(pane.y + PROJECTS_HEAD)
+        .filter(|line| *line < rows)?;
+    let offset = projects_offset(line_of(selected, rest), usize::from(rows));
+    row_at(offset + usize::from(line), rest, len)
+}
+
+/// Returns the rest line of the projects list: `count` projects that are
+/// not recent, folded away or (`open`) shown below it.
+fn rest_line(count: usize, open: bool, theme: Theme) -> Line<'static> {
+    let fold = match (open, theme.icons == icons::IconSet::Ascii) {
+        (false, true) => '+',
+        (true, true) => '-',
+        (false, false) => '▸',
+        (true, false) => '▾',
+    };
+    Line::styled(
+        format!(" {fold} {count} more (e)"),
+        theme.fg(Token::FgMuted),
+    )
 }
 
 /// Returns the name a project row shows: a worktree drops its
@@ -628,8 +786,13 @@ fn truncate_start(s: &str, max: usize) -> String {
 /// key hints or the current message (DESIGN §5.1).
 fn draw_getah(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
     let interact = model.focus == Focus::Output || model.popup.is_some();
-    let (mode, token) = if model.popup.is_some() {
+    let terminal = model.term_view == TermView::Focused && model.shell().is_some();
+    let (mode, token) = if model.editor.is_some() {
+        (" EDITOR ", Token::Warn)
+    } else if model.popup.is_some() {
         (" QUICK ", Token::Warn)
+    } else if terminal {
+        (" TERMINAL ", Token::Warn)
     } else if interact {
         (" INTERACT ", Token::Warn)
     } else if model.filtering {
@@ -641,6 +804,13 @@ fn draw_getah(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
     };
     let text = if let Some(message) = &model.message {
         message.clone()
+    } else if model.editor.is_some() {
+        "keys go to the editor · quit it to come back".to_owned()
+    } else if terminal && model.popup.is_none() {
+        format!(
+            "keys go to the terminal · {} back to mc",
+            model.exit_chord.label()
+        )
     } else if let Some(id) = model.popup {
         let agent = model
             .cards
@@ -1157,6 +1327,7 @@ pub(crate) mod tests {
 
         let mut model = sample(PROJECTS);
         let (_id, _w) = with_session(&mut model, "mine");
+        model.show_rest = true;
         let project = model.selected_project().unwrap().path.clone();
         model.cards[0].pid = Some(700);
         let ext = |pid, name: &str, status: Option<&str>| External {
@@ -1327,6 +1498,20 @@ pub(crate) mod tests {
         model.now = at + mascot::POKE;
         model.update(crate::app::AppEvent::Tick);
         assert!(model.poke.is_none(), "the quote goes after a while");
+    }
+
+    #[test]
+    fn a_notification_shows_in_the_strip_mascots_bubble_for_a_while() {
+        use crate::app::model::tests::with_session;
+
+        let mut model = sample(PROJECTS);
+        let (_id, _w) = with_session(&mut model, "s");
+        model.notice = Some((model.now, "#a3f1 needs you: \x1b[31mdeploy".into()));
+        let screen = render(&mut model, 120, 40);
+        assert!(screen.contains("#a3f1 needs you: deploy"), "{screen}");
+        model.now += mascot::NOTICE;
+        model.update(crate::app::AppEvent::Tick);
+        assert!(model.notice.is_none(), "it goes after a while");
     }
 
     #[test]

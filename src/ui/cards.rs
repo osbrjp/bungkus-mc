@@ -46,12 +46,47 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
     let block = pane(&title, focused, theme);
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    let indices = model.project_cards();
-    let external = project.map_or_else(Vec::new, |p| model.external_in(&p.path));
-    if indices.is_empty() && external.is_empty() {
+    let lines = rows(inner, model, theme);
+    if lines.is_empty() {
         draw_empty(frame, inner, model, theme);
         return;
     }
+    // The selected block: a card without its blank line, or an outside
+    // session's two lines.
+    let chosen = |(_, row): &(Line, Option<usize>)| *row == Some(model.card);
+    let top = lines.iter().position(chosen).unwrap_or(0);
+    let height = lines.iter().filter(|line| chosen(line)).count();
+    let lines: Vec<Line> = lines.into_iter().map(|(line, _)| line).collect();
+    frame.render_widget(Paragraph::new(lines), inner);
+    crate::ui::shade(frame, inner, top, height, theme);
+}
+
+/// Returns the row of the sessions pane (a card, or an outside session
+/// after the cards: what [`Model::card`] counts) drawn at screen row
+/// `row` of pane `area`, for mouse hit tests.
+///
+/// # Returns
+///
+/// `None` on the border, between cards, on the "outside" heading and
+/// below the list.
+#[must_use]
+pub(crate) fn session_at(area: Rect, model: &Model, row: u16) -> Option<usize> {
+    let inner = pane("", false, model.theme).inner(area);
+    let line = row.checked_sub(inner.y).filter(|l| *l < inner.height)?;
+    let lines = rows(inner, model, model.view_theme());
+    lines.get(usize::from(line)).and_then(|(_, row)| *row)
+}
+
+/// Returns the lines of the sessions pane inside `inner`, top one first,
+/// each with the row it belongs to (the blank line under a card and the
+/// "outside" heading belong to none). The list starts at the first card
+/// that still lets the selected one fit. Empty when the project has no
+/// session.
+fn rows(inner: Rect, model: &Model, theme: Theme) -> Vec<(Line<'static>, Option<usize>)> {
+    let project = model.selected_project();
+    let focused = model.focus == Focus::Sessions;
+    let indices = model.project_cards();
+    let external = project.map_or_else(Vec::new, |p| model.external_in(&p.path));
     let width = usize::from(inner.width);
     let spin = spinner(model.frame, theme);
     let cards: Vec<Vec<Line>> = indices
@@ -77,22 +112,24 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
         start -= 1;
         used += cards[start].len();
     }
-    let shown =
-        |from: usize, to: usize| -> usize { cards.iter().take(to).skip(from).map(Vec::len).sum() };
-    // The selected block: a card without its blank line, or an outside
-    // session's two lines below the cards and their heading.
-    let (top, height) = match cards.get(model.card) {
-        Some(card) => (shown(start, model.card), card.len() - 1),
-        None => (
-            shown(start, cards.len()) + 1 + 2 * (model.card - cards.len()),
-            2,
-        ),
-    };
-    let mut lines: Vec<Line> = cards.into_iter().skip(start).flatten().collect();
+    let mut lines: Vec<(Line, Option<usize>)> = cards
+        .into_iter()
+        .enumerate()
+        .skip(start)
+        .flat_map(|(pos, card)| {
+            let last = card.len() - 1;
+            card.into_iter()
+                .enumerate()
+                .map(move |(n, line)| (line, (n < last).then_some(pos)))
+        })
+        .collect();
     if !external.is_empty() {
-        lines.push(Line::styled(
-            " outside · enter take over · x stop",
-            theme.fg(Token::FgMuted),
+        lines.push((
+            Line::styled(
+                " outside · enter take over · x stop",
+                theme.fg(Token::FgMuted),
+            ),
+            None,
         ));
         for (pos, ext) in external.into_iter().enumerate() {
             let selected = focused && pos + indices.len() == model.card;
@@ -101,11 +138,12 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
             } else {
                 "in its own terminal".to_owned()
             };
-            lines.extend(external_lines(ext, selected, &place, width, spin, theme));
+            let row = Some(pos + indices.len());
+            let ext = external_lines(ext, selected, &place, width, spin, theme);
+            lines.extend(ext.map(|line| (line, row)));
         }
     }
-    frame.render_widget(Paragraph::new(lines), inner);
-    crate::ui::shade(frame, inner, top, height, theme);
+    lines
 }
 
 /// Returns a session running outside mc as two lines: marker, glyph,

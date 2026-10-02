@@ -682,7 +682,10 @@ rows) at the right, so it never covers agent output (the PTY is three rows
 shorter); its mood follows the selected session. A click on it plays
 duck–hop–duck–hop–duck–look–blink (one pose per 350 ms tick; a single hop
 without motion) and shows a speech bubble with a random line from
-`QUOTES` (never the same twice in a row) for 4 s. With no session the
+`QUOTES` (never the same twice in a row) for 4 s. A notification (a
+session needs you, a session failed: the same text the host terminal is
+told, §9) shows in the same bubble for 8 s, cut to the strip's width; a
+click's quote goes first. With no session the
 pane shows the big centred empty-state mascot as before. Smaller screens
 keep the corner mascot below. Pane titles carry their `cmd`/`alt`/`ctrl`
 digit: `[1] projects`, `[2] sessions`, `[3] output`.
@@ -1141,6 +1144,8 @@ the same frame.
 | `1`–`9`                                           | jump to the project with that number (the numbers left of the names follow the searched list). The selection moves on every digit; a digit within 0.7 s of the previous one extends the number (`1` → 1, then `6` → 16), a number with no project leaves the last jump in place, and any other key ends the number (bungkus-cli's wizard rule) |
 | `w`                                               | settings, on the workspace field (§5.8) |
 | `,`                                               | settings: workspace, default agent, theme (§5.8) |
+| `o`                                               | open the selected project in the user's editor (`$VISUAL`, else `$EDITOR`): `vi`/`vim`/`nvim` run in a popup over the panes (mode word `EDITOR`, every key goes to it, it closes when the editor quits); any other editor is started on its own with the folder as its argument; with neither variable set, the desktop's opener (`open` / `xdg-open`) |
+| `t`                                               | show / hide the terminal pane: the user's `$SHELL` in the lower third of the output pane, in mc's own emulator (no tmux or other program). Every project has its own shell, started in its folder the first time `t` is pressed there; the pane follows the selected project and is absent on one without a shell. Showing it gives it the keys (mode word `TERMINAL`); `ctrl-\` gives them back to mc and leaves it showing; `ctrl-h` goes left to the sessions pane and `ctrl-k` up to the output pane (INTERACT), from where `ctrl-j` comes back down while the pane shows; `ctrl-j`/`ctrl-l` in the terminal stay the shell's (enter, clear screen); hiding keeps the shells running; `exit` closes one |
 | `?`                                               | help                                    |
 | `R`                                               | redraw |
 | `q` · `ctrl-c`                                    | quit (confirm if anything is running)   |
@@ -1155,6 +1160,7 @@ cleared by the next key).
 | `enter`     | focus the sessions pane of the selected project               |
 | `j` `k`     | move the sidebar selection; the sessions pane switches to that project |
 | `n`         | new session for the selected project (same picker as below)   |
+| `e`         | show / hide the projects that are not recent. Recent projects (the ones with a session, a repository and its worktrees together) lead the list; the others fold behind the line `+ <n> more (e)` (`-` while they show). `j`/`↓` on the last recent project opens them too. With no recent project, or only recent ones, the list is not grouped; a search finds every project |
 
 `n` `enter` from the projects pane therefore starts a session for the
 highlighted project with the default agent and no prompt.
@@ -1222,8 +1228,10 @@ through); `ctrl-\` is not among them.
 ### 8.6 Mouse
 
 Click focuses a pane / selects a row (and exits INTERACT if the click is
-outside the output pane); a click on the output pane focuses it, i.e.
-enters INTERACT; wheel scrolls the pane under the pointer. Text selection: with mouse reporting on,
+outside the output pane); a click on a project or a session selects it, a click on the
+`+ <n> more` line shows or hides the rest of the projects; a click on the
+terminal pane gives it the keys and a click anywhere else takes them back;
+a click on the output pane focuses it, i.e. enters INTERACT; wheel scrolls the pane under the pointer. Text selection: with mouse reporting on,
 terminals need a modifier to select (kitty/Ghostty/iTerm2 `shift`-drag,
 WezTerm/Alacritty `shift`, Terminal.app `option`-drag) — shown in the help
 overlay; `--no-mouse` / `mouse: false` turns reporting off entirely.

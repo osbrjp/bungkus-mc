@@ -1,12 +1,11 @@
  bungkus-mc  ~/Works/OSBR › kedai-web                                                                     v0.1.0-beta.5
 ┏ [1] projects ━━━━━━┓┌ [2] sessions · kedai-web ──────────┐┌ [3] output ──────────────────────────────────────────────┐
 ┃ / search           ┃│ No sessions in kedai-web. n to     ││                                                          │
-┃>  1 kedai-web      ┃│ start one.                         ││                                                          │
-┃   2 pasar-mobile   ╔ keys · projects pane ══════════════════════════════════════════════════════╗                    │
-┃   3 roti-docs      ║                                                                            ║                    │
-┃   4 teh-cli        ║  navigate                                                                  ║                    │
-┃   5 warung-api     ║  enter                its sessions    h ← shift-tab ctrl-h pane left       ║                    │
-┃                    ║  l → tab ctrl-l       pane right      j ↓                  down            ║                    │
+┃>  1 kedai-web      ╔ keys · projects pane ══════════════════════════════════════════════════════╗                    │
+┃   2 pasar-mobile   ║                                                                            ║                    │
+┃   3 roti-docs      ║  navigate                                                                  ║                    │
+┃   4 teh-cli        ║  enter                its sessions    h ← shift-tab ctrl-h pane left       ║                    │
+┃   5 warung-api     ║  l → tab ctrl-l       pane right      j ↓                  down            ║                    │
 ┃                    ║  k ↑                  up              gg home              first           ║                    │
 ┃                    ║  G end                last            ctrl-d pgdn          half page down  ║                    │
 ┃                    ║  ctrl-u pgup          half page up    ! ctrl-]             next needs you  ║                    │
@@ -21,12 +20,14 @@
 ┃                    ║  projects                                                                  ║                    │
 ┃                    ║  a                    new project     V                    select lines    ║                    │
 ┃                    ║  u                    undo dd         dd                   to Trash        ║                    │
-┃                    ║  c                    clean worktrees                                      ║.                   │
+┃                    ║  c                    clean worktrees e                    more projects   ║                    │
+┃                    ║  o                    open in editor                                       ║.                   │
 ┃                    ║                                                                            ║n                   │
 ┃                    ║  workspace & app                                                           ║                    │
-┃                    ║  U                    update+restart  w                    workspaces      ║                    │
-┃                    ║  ,                    settings        R                    redraw          ║                    │
-┃                    ║  ? space              this help       q ctrl-c             quit            ║                    │
+┃                    ║  U                    update+restart  t                    terminal on/off ║                    │
+┃                    ║  w                    workspaces      ,                    settings        ║                    │
+┃                    ║  R                    redraw          ? space              this help       ║                    │
+┃                    ║  q ctrl-c             quit                                                 ║                    │
 ┃                    ║                                                                            ║                    │
 ┃                    ║  agent pane & quick popup                                                  ║                    │
 ┃                    ║  ctrl-\               leave · menu    ctrl-h               to sessions     ║                    │
@@ -34,7 +35,6 @@
 ┃                    ║                                                                            ║                    │
 ┃                    ║                                         press a key to run it · esc close  ║                    │
 ┃                    ╚════════════════════════════════════════════════════════════════════════════╝                    │
-┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │
 ┗━━━━━━━━━━━━━━━━━━━━┛└────────────────────────────────────┘└──────────────────────────────────────────────────────────┘
  NORMAL  enter → sessions · n new · c clean · ? keys

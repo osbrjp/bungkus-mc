@@ -15,6 +15,7 @@ use ratatui::crossterm::event::{
 use ratatui::layout::{Position, Rect};
 
 use crate::app::model::{Cmd, Focus, Model};
+use crate::app::tools::TermView;
 use crate::term::keys;
 use crate::ui;
 
@@ -32,8 +33,10 @@ pub(crate) enum Divider {
 
 impl Model {
     /// Handles a key in INTERACT: the exit chord and `ctrl-h` return to
-    /// the sessions pane, cmd/alt/ctrl + 1–3 focus that pane, `ctrl-l` (already the rightmost pane) and `ctrl-z`
-    /// are swallowed, everything else is encoded for the agent (and snaps
+    /// the sessions pane, cmd/alt/ctrl + 1–3 focus that pane, `ctrl-j` goes
+    /// down to the terminal pane while it shows (otherwise it is the
+    /// agent's), `ctrl-l` (already the rightmost pane) and `ctrl-z` are
+    /// swallowed, everything else is encoded for the agent (and snaps
     /// its view back to the bottom).
     pub(super) fn interact_key(&mut self, key: KeyEvent) {
         if self.exit_chord.matches(&key) {
@@ -53,6 +56,11 @@ impl Model {
                     return;
                 }
                 KeyCode::Char('l') => return,
+                KeyCode::Char('j') if self.terminal_shown() => {
+                    self.focus = Focus::Sessions;
+                    self.term_view = TermView::Focused;
+                    return;
+                }
                 _ => {}
             }
         }
@@ -71,8 +79,16 @@ impl Model {
         }
     }
 
-    /// Sends pasted text to the agent while in INTERACT.
-    pub(super) fn paste(&self, text: &str) {
+    /// Sends pasted text to the tool that has the keys, else to the agent
+    /// while in INTERACT; a dialog over a tool takes nothing.
+    pub(super) fn paste(&mut self, text: &str) {
+        if self.editor.is_some() || self.term_view == TermView::Focused {
+            let free = self.overlay.is_none();
+            if let (true, Some(pty)) = (free, self.keyed_tool()) {
+                pty.send(keys::paste(text, pty.mode()));
+            }
+            return;
+        }
         let target = match self.popup {
             Some(id) => self.cards.iter().find(|c| c.id == id),
             None if self.focus == Focus::Output => self.selected_card().map(|i| &self.cards[i]),
@@ -84,14 +100,16 @@ impl Model {
     }
 
     /// Handles a mouse event: a pane's right border drags to resize it
-    /// (saved on release), clicks focus panes, the wheel scrolls, and
+    /// (saved on release), clicks focus panes (the terminal pane too) and
+    /// select the project row or session under the pointer (or open and
+    /// close the rest of the projects), the wheel scrolls, and
     /// events inside the output pane go to an agent that asked for them.
     pub(super) fn mouse(&mut self, event: MouseEvent) -> Option<Cmd> {
-        if self.overlay.is_some() || self.popup.is_some() {
+        if self.overlay.is_some() || self.popup.is_some() || self.editor.is_some() {
             return None;
         }
         let at = Position::new(event.column, event.row);
-        let panes = ui::panes(self.screen, self.focus, self.zoom, self.widths);
+        let panes = self.panes(self.screen);
         if matches!(event.kind, MouseEventKind::Down(MouseButton::Left))
             && self.selected_card().is_some()
             && panes
@@ -106,12 +124,40 @@ impl Model {
             return cmd;
         }
         let inside = |r: Option<Rect>| r.is_some_and(|r| r.contains(at));
+        if matches!(event.kind, MouseEventKind::Down(_)) && self.terminal_shown() {
+            self.term_view = if inside(panes.terminal) {
+                TermView::Focused
+            } else {
+                TermView::Shown
+            };
+        }
         if inside(panes.output) && self.forward_mouse(event, panes.output) {
             return None;
         }
         match event.kind {
-            MouseEventKind::Down(_) if inside(panes.projects) => self.focus = Focus::Projects,
-            MouseEventKind::Down(_) if inside(panes.sessions) => self.focus = Focus::Sessions,
+            MouseEventKind::Down(_) if inside(panes.projects) => {
+                self.focus = Focus::Projects;
+                let rest = self.rest().map(|rest| rest.at);
+                let rows = self.visible().len();
+                let row = panes
+                    .projects
+                    .and_then(|pane| ui::project_at(pane, self.selected, rest, rows, event.row));
+                match row {
+                    Some(ui::Row::Project(row)) if row != self.selected => {
+                        self.selected = row;
+                        self.card = 0;
+                    }
+                    Some(ui::Row::Rest) => self.toggle_rest(),
+                    Some(ui::Row::Project(_)) | None => {}
+                }
+            }
+            MouseEventKind::Down(_) if inside(panes.sessions) => {
+                let row = panes
+                    .sessions
+                    .and_then(|pane| ui::session_at(pane, self, event.row));
+                self.focus = Focus::Sessions;
+                self.card = row.unwrap_or(self.card);
+            }
             MouseEventKind::Down(_) if inside(panes.output) => {
                 self.focus = Focus::Sessions;
                 self.interact();
@@ -302,6 +348,127 @@ mod tests {
         };
         m.update(AppEvent::Input(Event::Mouse(click)));
         assert_eq!(m.focus, Focus::Output, "click on the output pane");
+    }
+
+    #[test]
+    fn a_click_on_a_project_row_selects_it() {
+        let mut m = sample(&["a", "b", "c"]);
+        m.focus = Focus::Sessions;
+        let pane = ui::panes(m.screen, m.focus, m.zoom, m.widths)
+            .projects
+            .unwrap();
+        let click = |row| {
+            AppEvent::Input(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: pane.x + 3,
+                row,
+                modifiers: KeyModifiers::NONE,
+            }))
+        };
+        m.update(click(pane.y + 4));
+        assert_eq!((m.focus, m.selected), (Focus::Projects, 2));
+        for (row, why) in [
+            (pane.y + 1, "the search row"),
+            (pane.y + 9, "below the list"),
+        ] {
+            m.update(click(row));
+            assert_eq!(m.selected, 2, "{why}");
+        }
+        m.update(click(pane.y + 2));
+        assert_eq!(m.selected, 0);
+    }
+
+    #[test]
+    fn ctrl_j_and_ctrl_k_move_between_the_agent_and_a_shown_terminal() {
+        let mut m = sample(&["a"]);
+        let (_, writes) = with_session(&mut m, "s");
+        send(&mut m, KeyCode::Char('j'), KeyModifiers::CONTROL);
+        assert_eq!(drain(&writes), b"\n", "no terminal: the agent's newline");
+        let black = alacritty_terminal::vte::ansi::Rgb::default();
+        let colors = crate::term::session::Colors {
+            fg: black,
+            bg: black,
+        };
+        let size = crate::term::session::Size { cols: 40, rows: 8 };
+        let (pty, _shell) = crate::term::session::Session::detached(size, colors);
+        let id = crate::term::SessionId::new();
+        let dir = m.selected_project().unwrap().path.clone();
+        m.shells.push((dir, crate::app::tools::Tool { id, pty }));
+        m.term_view = TermView::Shown;
+        send(&mut m, KeyCode::Char('j'), KeyModifiers::CONTROL);
+        assert_eq!(m.term_view, TermView::Focused, "down to the terminal");
+        assert!(drain(&writes).is_empty());
+        send(&mut m, KeyCode::Char('k'), KeyModifiers::CONTROL);
+        assert_eq!((m.term_view, m.focus), (TermView::Shown, Focus::Output));
+    }
+
+    #[test]
+    fn a_click_on_a_session_selects_it() {
+        let mut m = sample(&["a"]);
+        let _first = with_session(&mut m, "one");
+        let _second = with_session(&mut m, "two");
+        m.focus = Focus::Projects;
+        let selected = m.card;
+        let pane = ui::panes(m.screen, m.focus, m.zoom, m.widths)
+            .sessions
+            .unwrap();
+        let rows: Vec<Option<usize>> = (pane.y..pane.bottom())
+            .map(|row| ui::session_at(pane, &m, row))
+            .collect();
+        assert_eq!(rows[0], None, "the border");
+        assert_eq!(rows[1], Some(0), "the first card's title line");
+        let other = 1 - selected;
+        let row = rows.iter().position(|r| *r == Some(other)).unwrap();
+        m.update(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: pane.x + 3,
+            row: pane.y + u16::try_from(row).unwrap(),
+            modifiers: KeyModifiers::NONE,
+        })));
+        assert_eq!((m.focus, m.card), (Focus::Sessions, other));
+        m.update(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: pane.x + 3,
+            row: pane.bottom() - 2,
+            modifiers: KeyModifiers::NONE,
+        })));
+        assert_eq!(m.card, other, "below the cards: only the focus");
+    }
+
+    #[test]
+    fn recent_projects_lead_and_the_rest_fold_behind_a_line() {
+        let names =
+            |m: &Model| -> Vec<String> { m.visible().iter().map(|p| p.name.clone()).collect() };
+        let mut m = sample(&["a", "b", "c"]);
+        assert!(m.rest().is_none(), "no recent project: all of them show");
+        m.selected = 1;
+        let _writes = with_session(&mut m, "s");
+        assert_eq!((names(&m), m.selected), (vec!["b".to_owned()], 0));
+        let rest = m.rest().unwrap();
+        assert_eq!((rest.at, rest.count), (1, 2));
+        let pane = ui::panes(m.screen, m.focus, m.zoom, m.widths)
+            .projects
+            .unwrap();
+        let click = |row| {
+            AppEvent::Input(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: pane.x + 3,
+                row,
+                modifiers: KeyModifiers::NONE,
+            }))
+        };
+        m.update(click(pane.y + 3));
+        assert_eq!(
+            (names(&m), m.selected),
+            (vec!["b".into(), "a".into(), "c".into()], 0)
+        );
+        m.update(click(pane.y + 5));
+        assert_eq!(m.selected, 2, "the row below the rest line");
+        send(&mut m, KeyCode::Char('e'), KeyModifiers::NONE);
+        assert_eq!((names(&m), m.selected), (vec!["b".to_owned()], 0));
+        m.filter = "c".into();
+        assert_eq!(names(&m), ["c"], "the search finds folded projects");
+        assert!(m.rest().is_none());
     }
 
     #[test]
