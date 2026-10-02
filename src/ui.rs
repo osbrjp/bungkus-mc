@@ -636,12 +636,13 @@ fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
                 Span::raw(" "),
                 Span::styled(
                     if model.root() == Some(project.path.as_path()) {
-                        format!("{:>digits$} ", 0)
+                        format!("{:>digits$}", 0)
                     } else {
-                        format!("{:>digits$} ", i + 1 - quick_first)
+                        format!("{:>digits$}", i + 1 - quick_first)
                     },
                     theme.fg(Token::Ok),
                 ),
+                link_bar(model, &project.path, theme),
                 Span::styled(branch.unwrap_or_default(), theme.fg(Token::FgMuted)),
                 Span::styled(text, name),
                 Span::raw(" ".repeat(pad)),
@@ -736,6 +737,21 @@ pub(crate) fn project_at(
         .filter(|line| *line < rows)?;
     let offset = projects_offset(line_of(selected, rest), usize::from(rows));
     row_at(offset + usize::from(line), rest, len)
+}
+
+/// Returns the cell between a project's number and its name: the link
+/// bar (`│`, `|` without UTF-8) when a session of another project works in
+/// `project` too (`/add-dir`), else a space. The bar is in `accent` when
+/// that link is with the selected project (or the row is the selected
+/// one), else `fg-muted`.
+fn link_bar(model: &Model, project: &std::path::Path, theme: Theme) -> Span<'static> {
+    if !model.shared(project) {
+        return Span::raw(" ");
+    }
+    let chosen = model.selected_project().map(|p| p.path.as_path());
+    let near = chosen.is_some_and(|c| c == project || model.related(c, project));
+    let token = if near { Token::Accent } else { Token::FgMuted };
+    Span::styled(if theme.utf8 { "│" } else { "|" }, theme.fg(token))
 }
 
 /// Returns the connector that ties worktree row `i` of `visible` to its
@@ -1606,6 +1622,38 @@ pub(crate) mod tests {
         let _two = with_session(&mut model, "two");
         model.cards[1].state = State::Working;
         assert_eq!(row(&mut model), "│:| 1 kedai-web   |2 │");
+    }
+
+    #[test]
+    fn a_folder_another_projects_session_added_gets_the_link_bar() {
+        use crate::app::model::tests::with_session;
+
+        let mut model = sample(PROJECTS);
+        let _w = with_session(&mut model, "s");
+        let (home, added) = (
+            model.projects[0].path.clone(),
+            model.projects[2].path.clone(),
+        );
+        let usage = crate::agent::usage::Usage {
+            added_dirs: vec![added.join("docs"), home.clone()],
+            ..Default::default()
+        };
+        model.cards[0].usage = Some(usage);
+        assert!(model.shared(&added) && model.related(&home, &added));
+        assert!(!model.shared(&home), "its own folder is no link");
+        let root = model.root().unwrap().to_path_buf();
+        assert!(!model.shared(&root) && !model.shared(std::path::Path::new("")));
+        assert!(!model.shared(&model.projects[1].path));
+        let names: Vec<&str> = model.visible().iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["kedai-web", "roti-docs"],
+            "in use: it stays in view"
+        );
+        let screen = render(&mut model, 120, 40);
+        assert!(screen.contains(" 2│roti-docs"), "{screen}");
+        model.cards[0].state = State::Wrapped;
+        assert!(!model.shared(&added), "only while the session runs");
     }
 
     #[test]

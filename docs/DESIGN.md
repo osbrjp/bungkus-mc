@@ -573,14 +573,20 @@ Subagents use the same glyphs at one indent with `*` (`◦`); their status
 comes from `background_tasks` on Stop/SubagentStop (authoritative), else
 from SubagentStart/Stop.
 
-Sidebar row = `<marker><spinner> <name>` … `<working> <badge>`. The marker is `>`
+Sidebar row = `<marker><spinner> <number><link><name>` … `<working> <badge>`. The marker is `>`
 when the projects pane is focused, `▌` (ascii `:`) when it is not, space
 otherwise. The **spinner column** shows the global-clock frame `| / - \`
 for a project with any running session (static `|` under `motion:
 false`), space otherwise. The **badge** is the worst *non-running* state
 among the project's sessions, precedence **failed > needs you > your
 turn**, as `<glyph> <count>`; before it, `<spinner><n>` (`|2`) says how
-many sessions are working, from two (one is the spinner column alone). The header tally's `/` and every card's
+many sessions are working, from two (one is the spinner column alone). The
+**link** cell between the number and the name is a bar (`│`, `|` without
+UTF-8) on a project that a running session of another project works in
+too (Claude's `/add-dir`, read from `workspace.added_dirs` of its status
+line; Codex reports none): `accent` when the link is with the selected
+project, `fg-muted` otherwise, a space when there is none. A linked
+project counts as in use and stays in the recent group. The header tally's `/` and every card's
 working glyph tick with the same clock.
 
 ### 5.4 Badge
