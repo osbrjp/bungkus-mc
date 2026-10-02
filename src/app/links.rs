@@ -278,6 +278,42 @@ struct RawBody {
     /// The line of [`RawBody::path`] it is on; none on an outdated diff.
     #[serde(default)]
     line: Option<u64>,
+    /// The first line of a review comment on several lines.
+    #[serde(default)]
+    start_line: Option<u64>,
+    /// [`RawBody::line`] as it was when the comment was made; all an
+    /// outdated comment has.
+    #[serde(default)]
+    original_line: Option<u64>,
+    /// [`RawBody::start_line`] as it was when the comment was made.
+    #[serde(default)]
+    original_start_line: Option<u64>,
+    /// The diff around the code a review comment is on, ending at its
+    /// line.
+    #[serde(default)]
+    diff_hunk: Option<String>,
+}
+
+/// Most lines quoted of the code a review comment is on.
+const QUOTE_MAX: u64 = 8;
+
+/// Returns the last `lines` lines of `hunk` (one at least, [`QUOTE_MAX`]
+/// at most; they are the code a review comment is on, with the diff's
+/// `+` / `-` in front; hunk headers and the "no newline" note are left
+/// out) as a fenced code block, or nothing for an empty hunk. The fence is
+/// of `~`, which code rarely holds on a line alone.
+fn quoted(hunk: &str, lines: u64) -> String {
+    let code: Vec<&str> = hunk
+        .lines()
+        .filter(|l| !l.starts_with("@@") && !l.starts_with('\\'))
+        .collect();
+    let keep = usize::try_from(lines.clamp(1, QUOTE_MAX)).unwrap_or(1);
+    let last = &code[code.len().saturating_sub(keep)..];
+    if last.is_empty() {
+        String::new()
+    } else {
+        format!("~~~~~~\n{}\n~~~~~~\n\n", last.join("\n"))
+    }
 }
 
 /// Most review comments on code read of one pull request.
@@ -337,7 +373,8 @@ struct RawAuthor {
 /// description, then in date order the comments, the reviews (tagged
 /// `review: approved`; one that only holds code comments, or is not
 /// submitted yet, is left out) and
-/// the review comments on code (tagged with their `path:line`), each
+/// the review comments on code (tagged with their `path:line`, the code
+/// they are on quoted above their text), each
 /// under a rule and a line naming its author and day.
 ///
 /// # Arguments
@@ -359,7 +396,17 @@ fn parse_thread(json: &str, on_code: Option<&str>) -> Option<Vec<String>> {
             let verdict = sanitise(&r.state, 24).to_lowercase().replace('_', " ");
             entry(r, &format!("review: {verdict}"))
         });
-    let on_code = on_code.into_iter().map(|c| {
+    let on_code = on_code.into_iter().map(|mut c| {
+        // ponytail: the span counts file lines, the hunk holds diff lines; a
+        // range with removed lines in it is quoted short. Walk the hunk by
+        // the comment's side when that is reported.
+        let end = c.line.or(c.original_line);
+        let start = c.start_line.or(c.original_start_line);
+        let span = end.zip(start).map_or(1, |(end, start)| {
+            end.saturating_sub(start).saturating_add(1)
+        });
+        let quote = quoted(c.diff_hunk.as_deref().unwrap_or_default(), span);
+        c.body.insert_str(0, &quote);
         let line = c.line.map_or_else(String::new, |n| format!(":{n}"));
         let tag = format!("`{}{line}`", sanitise(&c.path, 80).replace('`', ""));
         entry(c, &tag)
@@ -784,8 +831,11 @@ mod tests {
               {"author":{"login":"me"},"submittedAt":null,"state":"PENDING","body":"draft"},
               {"author":{"login":"cy"},"submittedAt":"2026-10-04T09:00:00Z","state":"APPROVED","body":""}]}"#;
         let on_code = r#"[{"user":{"login":"bob"},"created_at":"2026-10-01T09:00:00Z",
-            "path":"src/a`pp.rs","line":12,"body":"first"},
-            {"user":{"login":"bob"},"created_at":"2026-10-05T09:00:00Z","path":"b.rs","line":null,"body":"last"}]"#;
+            "path":"src/a`pp.rs","line":12,"start_line":11,
+            "diff_hunk":"@@ -1,3 +1,4 @@\n fn a() {\n+    let x = 1;\n+    x\n","body":"first"},
+            {"user":{"login":"bob"},"created_at":"2026-10-05T09:00:00Z","path":"b.rs","line":null,
+            "original_line":5,"original_start_line":4,
+            "diff_hunk":"@@ -1 +1,3 @@\n a\n+b\n+c\n\\ No newline at end of file","body":"last"}]"#;
         let texts = parse_thread(view, Some(on_code)).unwrap();
         let heads: Vec<&str> = texts[1..]
             .iter()
@@ -801,7 +851,15 @@ mod tests {
                 "**@bob** · 2026-10-05 · `b.rs`",
             ]
         );
-        assert!(texts[0] == "what" && texts[1].ends_with("\n\nfirst"));
+        assert!(
+            texts[5].ends_with("~~~~~~\n+b\n+c\n~~~~~~\n\nlast"),
+            "an outdated comment quotes its original lines: {}",
+            texts[5]
+        );
+        assert!(
+            texts[0] == "what"
+                && texts[1].ends_with("\n\n~~~~~~\n+    let x = 1;\n+    x\n~~~~~~\n\nfirst")
+        );
         assert_eq!(
             parse_thread(view, Some("not json")).unwrap().len(),
             4,
