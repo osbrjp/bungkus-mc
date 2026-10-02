@@ -7,6 +7,7 @@
 //! deadline (a synchronized update, a stop grace, the 350 ms animation
 //! tick); it never renders on a fixed timer.
 
+pub(crate) mod activity;
 pub(crate) mod browser;
 pub(crate) mod form;
 pub(crate) mod groups;
@@ -84,6 +85,8 @@ pub(crate) enum AppEvent {
     Usage(crate::term::SessionId, crate::agent::usage::Usage),
     /// A background process snapshot.
     Procs(Vec<crate::proc::Proc>),
+    /// A resource reading for the activity overlay.
+    Activity(crate::proc::usage::Sample),
     /// Agent sessions running outside mc (every [`EXTERNAL_EVERY`]).
     External(Vec<crate::external::External>),
     /// The git branch and status of the session folders in a repository.
@@ -482,6 +485,7 @@ fn run_cmd(
                 let _ = tx.send(AppEvent::Procs(crate::proc::snapshot(uid)));
             });
         }
+        Cmd::Sample => sample_activity(tx),
         Cmd::OpenStop(kind) => {
             let snapshot = crate::proc::snapshot(uid);
             model.track(&snapshot);
@@ -510,6 +514,16 @@ fn run_cmd(
         }
     }
     Next::Continue
+}
+
+/// Takes a resource reading for the activity overlay on a background
+/// thread and reports it as [`AppEvent::Activity`].
+fn sample_activity(tx: &SyncSender<AppEvent>) {
+    let tx = tx.clone();
+    thread::spawn(move || {
+        // reason: a closed loop just loses this sample.
+        let _ = tx.send(AppEvent::Activity(crate::proc::usage::sample()));
+    });
 }
 
 /// Reads the git branch and status of every session folder on a
