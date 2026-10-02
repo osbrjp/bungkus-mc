@@ -178,6 +178,8 @@ pub(crate) enum Cmd {
     OpenFolder(PathBuf),
     /// Start the terminal pane's shell for this owner in this folder (`t`).
     OpenTerminal(crate::app::tools::Owner, PathBuf),
+    /// Write the workspace's project groups to its `.bungkus-mc/config.json`.
+    SaveGroups(Vec<Vec<String>>),
     /// Write the dragged pane widths to `config.json`.
     SaveWidths(crate::ui::Widths),
     /// Switch to this workspace (saved first in the list), then select this
@@ -336,6 +338,8 @@ pub(crate) struct Model {
     pub last_trash: Vec<(PathBuf, PathBuf)>,
     /// The other end of the projects pane's line selection (`V`), when on.
     pub visual: Option<usize>,
+    /// The projects marked with `v`, by folder (chosen like the `V` range).
+    pub marks: Vec<PathBuf>,
     /// The quick session whose popup shows (keys go to it).
     pub popup: Option<SessionId>,
     /// Whether the popup's menu (`ctrl-\`: hide, move, new project) is open.
@@ -454,6 +458,7 @@ impl Model {
             known: std::collections::HashSet::new(),
             kitty: false,
             visual: None,
+            marks: Vec::new(),
             popup_menu: false,
             show_rest: false,
             editor: None,
@@ -667,10 +672,17 @@ impl Model {
     }
 
     /// Returns whether projects `a` and `b` are linked: a session of one
-    /// added the other.
+    /// added the other, or they are in one group.
     #[must_use]
     pub(crate) fn related(&self, a: &Path, b: &Path) -> bool {
-        a != b && (self.added(a, b) || self.added(b, a))
+        a != b && (self.added(a, b) || self.added(b, a) || self.group_of(a).iter().any(|p| p == b))
+    }
+
+    /// Returns whether `project` carries the link bar: it is in a group,
+    /// or a session of another project works in it ([`Model::shared`]).
+    #[must_use]
+    pub(crate) fn linked(&self, project: &Path) -> bool {
+        self.shared(project) || !self.group_of(project).is_empty()
     }
 
     /// Returns the sessions outside mc running in `project` (or below it),
@@ -1152,16 +1164,20 @@ impl Model {
             self.filter_key(nav_alias(key));
             return None;
         }
-        if self.visual.is_some() && self.focus == Focus::Projects {
+        if self.choosing() && self.focus == Focus::Projects {
             match key.code {
                 KeyCode::Esc => {
-                    self.visual = None;
+                    self.clear_chosen();
                     return None;
                 }
                 KeyCode::Char('d') if key.modifiers.is_empty() => {
                     self.pending = None;
                     self.ask_trash();
                     return None;
+                }
+                KeyCode::Char('g') if key.modifiers.is_empty() => {
+                    self.pending = None;
+                    return self.group_chosen();
                 }
                 _ => {}
             }
@@ -1377,19 +1393,17 @@ impl Model {
     /// `V` selection, else the highlighted one. The `quick` and `elsewhere`
     /// rows are skipped; any project with running sessions refuses all.
     fn ask_trash(&mut self) {
-        let visible = self.visible();
-        let (from, to) = match self.visual {
-            Some(anchor) => (anchor.min(self.selected), anchor.max(self.selected)),
-            None => (self.selected, self.selected),
+        let chosen = if self.choosing() {
+            self.chosen()
+        } else {
+            self.selected_project().into_iter().collect()
         };
-        let projects: Vec<Project> = visible
-            .iter()
-            .take(to + 1)
-            .skip(from)
+        let projects: Vec<Project> = chosen
+            .into_iter()
             .filter(|p| !p.path.as_os_str().is_empty() && self.root() != Some(p.path.as_path()))
-            .map(|p| (*p).clone())
+            .cloned()
             .collect();
-        self.visual = None;
+        self.clear_chosen();
         if projects.is_empty() {
             return;
         }
@@ -1732,6 +1746,7 @@ impl Model {
             Action::CleanWorktrees => self.ask_clean_worktrees(),
             Action::UndoTrash => return self.undo_trash(),
             Action::Visual => self.visual = self.visual.xor(Some(self.selected)),
+            Action::Mark => self.toggle_mark(),
             Action::QuickSession => return self.quick_session(),
             Action::ToggleRest => self.toggle_rest(),
             Action::Editor => return self.open_editor(),

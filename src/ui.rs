@@ -597,7 +597,7 @@ fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
                 (true, false) => '▌',
                 (false, _) => ' ',
             };
-            let name = match (selected, model.in_visual(i)) {
+            let name = match (selected, model.is_chosen(i, &project.path)) {
                 (_, true) => theme.fg(Token::Accent).add_modifier(Modifier::REVERSED),
                 (true, false) => theme.fg(Token::Accent),
                 (false, false) => theme.fg(Token::Fg),
@@ -740,12 +740,12 @@ pub(crate) fn project_at(
 }
 
 /// Returns the cell between a project's number and its name: the link
-/// bar (`│`, `|` without UTF-8) when a session of another project works in
-/// `project` too (`/add-dir`), else a space. The bar is in `accent` when
+/// bar (`│`, `|` without UTF-8) when `project` is in a group or a session
+/// of another project works in it too (`/add-dir`), else a space. The bar is in `accent` when
 /// that link is with the selected project (or the row is the selected
 /// one), else `fg-muted`.
 fn link_bar(model: &Model, project: &std::path::Path, theme: Theme) -> Span<'static> {
-    if !model.shared(project) {
+    if !model.linked(project) {
         return Span::raw(" ");
     }
     let chosen = model.selected_project().map(|p| p.path.as_path());
@@ -859,7 +859,7 @@ fn draw_getah(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
         (" INTERACT ", Token::Warn)
     } else if model.filtering {
         (" FILTER ", Token::Info)
-    } else if model.visual.is_some() {
+    } else if model.choosing() {
         (" VISUAL ", Token::Info)
     } else {
         (" NORMAL ", Token::FgMuted)
@@ -895,8 +895,8 @@ fn draw_getah(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
             "keys go to {agent} · {} back to mc",
             model.exit_chord.label()
         )
-    } else if model.visual.is_some() {
-        "j/k extend · d move to Trash · esc cancel".to_owned()
+    } else if model.choosing() {
+        "v mark · j/k move · g group · d move to Trash · esc clear".to_owned()
     } else if model.filtering {
         "type to search · ↑↓ pick · enter open · esc clear".to_owned()
     } else if let Some(ch) = model.pending {

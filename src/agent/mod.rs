@@ -170,8 +170,16 @@ const INSTRUCTIONS_MAX: u64 = 64 * 1024;
 /// session ids, where to branch from, how to name and remove worktrees.
 const BUILTIN_INSTRUCTIONS: &str = include_str!("instructions.md");
 
+/// What a session is told about the folders grouped with its project;
+/// the list of folders follows it.
+const RELATED_FOLDERS: &str = "## Related folders\n\nThe user grouped this project with the \
+folders below in bungkus-mc, and you can read and edit them (they were added to your \
+workspace). They belong together: look there when the task touches them, and say so when \
+you change something in one of them.";
+
 /// Returns the arguments that give `kind` its instructions for a session
-/// mc starts or resumes: the built-in rules when `builtin` is on, then
+/// mc starts or resumes: the built-in rules when `builtin` is on, the
+/// `related` folders of its project's group ([`RELATED_FOLDERS`]), then
 /// the workspace's own file from `dir` (`<workspace>/.bungkus-mc`:
 /// `CLAUDE.md` for Claude, `AGENTS.md` for Codex; its first
 /// [`INSTRUCTIONS_MAX`] bytes), which therefore has the last word. None
@@ -184,7 +192,12 @@ const BUILTIN_INSTRUCTIONS: &str = include_str!("instructions.md");
 /// to the agent's own instructions; neither replaces `CLAUDE.md` /
 /// `AGENTS.md` files in the project.
 #[must_use]
-pub(crate) fn instruction_args(kind: Kind, dir: Option<&Path>, builtin: bool) -> Vec<String> {
+pub(crate) fn instruction_args(
+    kind: Kind,
+    dir: Option<&Path>,
+    builtin: bool,
+    related: &[PathBuf],
+) -> Vec<String> {
     use std::io::Read;
     let name = match kind {
         Kind::Claude => "CLAUDE.md",
@@ -198,7 +211,18 @@ pub(crate) fn instruction_args(kind: Kind, dir: Option<&Path>, builtin: bool) ->
     if !matches!(read, Some(Ok(_))) {
         own.clear();
     }
-    let parts = [builtin.then_some(BUILTIN_INSTRUCTIONS), Some(own.as_str())];
+    let folders: Vec<String> = related
+        .iter()
+        .filter_map(|folder| folder.to_str())
+        .map(|folder| format!("- {folder}"))
+        .collect();
+    let folders = folders.join("\n");
+    let group = (!folders.is_empty()).then(|| format!("{RELATED_FOLDERS}\n\n{folders}"));
+    let parts = [
+        builtin.then_some(BUILTIN_INSTRUCTIONS),
+        group.as_deref(),
+        Some(own.as_str()),
+    ];
     let text: Vec<&str> = parts
         .into_iter()
         .flatten()
@@ -269,20 +293,20 @@ mod tests {
         );
         for kind in Kind::ALL {
             assert!(
-                instruction_args(kind, Some(&dir), false).is_empty(),
+                instruction_args(kind, Some(&dir), false, &[]).is_empty(),
                 "nothing to say"
             );
-            assert!(instruction_args(kind, None, false).is_empty());
+            assert!(instruction_args(kind, None, false, &[]).is_empty());
         }
         assert_eq!(
-            instruction_args(Kind::Claude, None, true),
+            instruction_args(Kind::Claude, None, true, &[]),
             ["--append-system-prompt", rules],
             "no workspace: the built-in rules alone"
         );
         fs::write(dir.join("CLAUDE.md"), "be brief\n").unwrap();
         fs::write(dir.join("AGENTS.md"), "say \"hi\"\nuse C:\\tmp\n").unwrap();
         assert_eq!(
-            instruction_args(Kind::Claude, Some(&dir), true),
+            instruction_args(Kind::Claude, Some(&dir), true, &[]),
             [
                 "--append-system-prompt".to_owned(),
                 format!("{rules}\n\nbe brief")
@@ -290,19 +314,29 @@ mod tests {
             "the workspace file comes last"
         );
         assert_eq!(
-            instruction_args(Kind::Claude, Some(&dir), false),
+            instruction_args(Kind::Claude, Some(&dir), false, &[]),
             ["--append-system-prompt", "be brief"]
         );
         assert_eq!(
-            instruction_args(Kind::Codex, Some(&dir), false),
+            instruction_args(Kind::Codex, Some(&dir), false, &[]),
             ["-c", r#"developer_instructions="say \"hi\"\nuse C:\\tmp""#]
         );
-        let codex = instruction_args(Kind::Codex, Some(&dir), true);
+        let codex = instruction_args(Kind::Codex, Some(&dir), true, &[]);
         assert!(codex[1].starts_with("developer_instructions=\"# bungkus-mc session rules\\n"));
         assert!(!codex[1].contains('\n'), "one TOML string, no raw newline");
+        let related = [PathBuf::from("/w/api"), PathBuf::from("/w/docs")];
+        let grouped = instruction_args(Kind::Claude, Some(&dir), false, &related);
+        assert!(
+            grouped[1].starts_with("## Related folders\n\n"),
+            "{grouped:?}"
+        );
+        assert!(
+            grouped[1].ends_with("\n\n- /w/api\n- /w/docs\n\nbe brief"),
+            "the group, then the workspace file: {grouped:?}"
+        );
         fs::write(dir.join("AGENTS.md"), "  \n").unwrap();
         assert!(
-            instruction_args(Kind::Codex, Some(&dir), false).is_empty(),
+            instruction_args(Kind::Codex, Some(&dir), false, &[]).is_empty(),
             "empty file"
         );
         fs::remove_dir_all(&dir).unwrap();
