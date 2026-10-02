@@ -169,6 +169,11 @@ resume.**
   same dialog.
 - Each session's `agentSessionId` is in `sessions.json`; `r` runs the resume
   argv (§5) in the stored `cwd`.
+- A session that quit (or terminal close) stopped is stored with
+  `"resume": true`; the next start resumes each one whose `cwd` is a
+  project of the open workspace, with the same argv as `r`. Sessions
+  stopped with `x`, wrapped or failed stay as they are, and so does a
+  hooked session that never got a prompt (nothing was saved to resume).
 - SIGHUP/terminal close: same as quit, without the dialog, keep rule applied.
 
 Detach was considered and rejected for v0.1 (owner decision): both agents

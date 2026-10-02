@@ -203,6 +203,7 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<bool> {
     let uid = rustix::process::getuid().as_raw();
     let (hooks, _listener) = start_background(&mut model, &tx, uid);
     load_overrides(&mut model, env);
+    resume_sessions(&mut model, env, hooks.as_ref(), &tx, uid);
     if env.quick
         && let Some(cmd) = model.quick_session()
     {
@@ -272,6 +273,32 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<bool> {
             }
         }
     }
+}
+
+/// Resumes the sessions the last quit stopped ([`Model::auto_resume`]).
+/// Launching selects and focuses each session, so the project and focus
+/// mc started with are put back: the project by its folder, since the
+/// resumed sessions reorder the recent group of the list.
+fn resume_sessions(
+    model: &mut Model,
+    env: &Env,
+    hooks: Option<&Hooks>,
+    tx: &SyncSender<AppEvent>,
+    uid: u32,
+) {
+    let resumes = model.auto_resume();
+    if resumes.is_empty() {
+        return;
+    }
+    let selected = model.selected_project().map(|p| p.path.clone());
+    let focus = model.focus;
+    for cmd in resumes {
+        run_cmd(model, env, hooks, tx, uid, cmd);
+    }
+    if let Some(path) = selected {
+        model.select_project(&path);
+    }
+    (model.card, model.focus) = (0, focus);
 }
 
 /// Starts the hook socket and the daily update check; returns what
