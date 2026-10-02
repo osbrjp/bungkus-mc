@@ -88,6 +88,8 @@ pub(crate) enum Overlay {
     NewProject(crate::app::quick::NewProject),
     /// The `w` workspace switcher.
     Switcher(crate::app::workspaces::Switcher),
+    /// The `i` issues and pull requests popup.
+    Links(crate::app::links::Viewer),
     /// "Move these projects' folders to the Trash?"
     TrashProject(Vec<Project>),
     /// "Remove this project's unused worktrees?"
@@ -176,6 +178,15 @@ pub(crate) enum Cmd {
     OpenEditor(PathBuf),
     /// Open this project folder with the desktop's opener (`O`).
     OpenFolder(PathBuf),
+    /// Open this `https://` address with the desktop's opener (`P`, `I`,
+    /// `enter` in the `i` popup).
+    OpenUrl(String),
+    /// List the open pull requests and issues of this folder's repository
+    /// for the `i` popup.
+    ListLinks(PathBuf),
+    /// Read the text of this issue or pull request, in this folder, for
+    /// the `i` popup's text view.
+    ReadLink(PathBuf, crate::app::links::Link),
     /// Start the terminal pane's shell for this owner in this folder (`t`).
     OpenTerminal(crate::app::tools::Owner, PathBuf),
     /// Write the workspace's project groups to its `.bungkus-mc/config.json`.
@@ -313,6 +324,13 @@ pub(crate) struct Model {
     pub repos: std::collections::HashMap<PathBuf, crate::app::repo::Status>,
     /// Whether a background read of [`Model::repos`] is under way.
     pub repo_scan: bool,
+    /// The pull request and issue of each session folder's branch, as
+    /// last read through `gh`.
+    pub links: std::collections::HashMap<PathBuf, crate::app::links::Links>,
+    /// Whether a background read of [`Model::links`] is under way.
+    pub links_scan: bool,
+    /// When the links of the running sessions were last read again.
+    pub links_at: Option<Instant>,
     /// Whether an MCP config scan is running.
     pub mcp_scan: bool,
     /// Shows every key mc receives in the hint line (`BUNGKUS_MC_DEBUG_KEYS`),
@@ -457,6 +475,9 @@ impl Model {
             external: Vec::new(),
             repos: std::collections::HashMap::new(),
             repo_scan: false,
+            links: std::collections::HashMap::new(),
+            links_scan: false,
+            links_at: None,
             mcp_scan: false,
             poke: None,
             notice: None,
@@ -946,6 +967,9 @@ impl Model {
                 self.repos = repos.into_iter().collect();
                 self.repo_scan = false;
             }
+            AppEvent::Links(read) => self.set_links(read),
+            AppEvent::LinkList(folder, list) => self.set_link_list(&folder, list),
+            AppEvent::LinkBody(url, text) => self.set_link_body(&url, text),
             AppEvent::Mcp(changed) => self.set_mcp(changed),
             AppEvent::External(list) => {
                 self.external = list;
@@ -1311,6 +1335,7 @@ impl Model {
             }
             Overlay::NewProject(dialog) => self.new_project_key(dialog, key),
             Overlay::Switcher(switcher) => self.switcher_key(switcher, key),
+            Overlay::Links(viewer) => self.viewer_key(viewer, key),
             Overlay::TrashProject(projects) => confirms(key)
                 .then(|| Cmd::TrashProject(projects.into_iter().map(|p| p.path).collect())),
             Overlay::CleanWorktrees(project) => {
@@ -1766,6 +1791,7 @@ impl Model {
             Action::ToggleRest => self.toggle_rest(),
             Action::Editor => return self.open_editor(),
             Action::Folder => return self.open_folder(),
+            Action::PullRequest | Action::Issue | Action::Links => return self.link_key(action),
             Action::Terminal => return self.toggle_terminal(),
             Action::CloseTerminal => self.close_terminal(),
             Action::Update => return self.start_update(),
