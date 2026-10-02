@@ -177,22 +177,20 @@ impl Model {
             .map(|(_, t)| t)
     }
 
-    /// Hangs up on the shell of session `id`, which is leaving the list.
+    /// Returns whether session `id` has a shell running.
+    #[must_use]
+    pub(crate) fn has_shell(&self, id: SessionId) -> bool {
+        let owner = Owner::Session(id);
+        self.shells.iter().any(|(o, _)| *o == owner)
+    }
+
+    /// Hangs up on the shell of session `id`, which ended or is leaving
+    /// the list: a session's shell does not outlive it.
     pub(super) fn close_shell_of(&self, id: SessionId) {
         let owner = Owner::Session(id);
         if let Some((_, shell)) = self.shells.iter().find(|(o, _)| *o == owner) {
             // reason: a shell that already ended needs no signal.
             let _ = shell.pty.signal(rustix::process::Signal::HUP);
-        }
-    }
-
-    /// Gives the shell of session `old` to session `new`, which replaces
-    /// it (a resume).
-    pub(crate) fn move_shell(&mut self, old: SessionId, new: SessionId) {
-        for (owner, _) in &mut self.shells {
-            if *owner == Owner::Session(old) {
-                *owner = Owner::Session(new);
-            }
         }
     }
 
@@ -597,8 +595,7 @@ mod tests {
         assert_ne!(m.cards[m.selected_card().unwrap()].id, selected);
         assert!(!m.terminal_shown(), "the other session has no shell");
         let other = if selected == one { two } else { one };
-        m.move_shell(selected, other);
-        assert!(m.terminal_shown(), "the session that replaces one keeps it");
+        assert!(m.has_shell(selected) && !m.has_shell(other));
     }
 
     #[test]

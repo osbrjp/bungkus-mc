@@ -881,6 +881,7 @@ impl Model {
                 let now = self.now;
                 self.state_dirty = true;
                 let selected = self.selected_card().map(|i| self.cards[i].id) == Some(id);
+                self.close_shell_of(id);
                 if let Some(card) = self.card_mut(id) {
                     card.exited(code, now);
                     if let State::Failed(reason) = &card.state {
