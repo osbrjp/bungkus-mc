@@ -289,6 +289,27 @@ inline code, bold, italic and link text; no crate), wrapped and capped at
 2000 lines. The model keeps styled runs (`Ink`); `ui` gives them colours. `P`, `I` and `o` in the popup hand the URL to
 the desktop's opener, the same path as `O`. Without `gh`, a login or a
 GitHub remote every call fails and nothing is linked.
+### 3.7 Activity overlay (resource use, display only)
+
+`A` shows what mc uses of the device (`proc/usage.rs`, `app/activity.rs`).
+Nothing is sampled unless the overlay is open; then, every 2 s on a
+background thread:
+
+- macOS: `ps -axo pid=,ppid=,rss=,cputime=` and `sysctl -n hw.memsize`,
+  fixed argv, `LC_ALL=C`. Linux: `/proc/<pid>/stat` (ppid, `utime` +
+  `stime`, `rss` pages; page size and clock ticks from `rustix::param`)
+  and `MemTotal` of `/proc/meminfo`. Lines that do not fit are skipped.
+- CPU % = the CPU time a group gained between two samples over the wall
+  time between them (100 % = one core), so both OSes use one rule and the
+  first sample shows `-`.
+- Groups: mc's own pid; per running session the agent pid, its tracked
+  `descendants` (§3.3, so reparented ones count) and everything below
+  them by `ppid`; then the rest of mc's subtree (terminal-pane shells, the
+  editor popup). A pid is counted once.
+- Temperature: the hottest `/sys/class/thermal/thermal_zone*/temp` on
+  Linux. macOS has no unprivileged source short of `IOKit` FFI
+  (`unsafe`) or `sudo powermetrics`, so it shows `n/a`.
+- The figures never feed tracking or stopping; argv is never read.
 
 ## 4. Data flow
 
