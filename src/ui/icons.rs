@@ -199,15 +199,6 @@ impl IconSet {
             }
         }
     }
-
-    /// Returns the filled and empty cells of a limit bar.
-    #[must_use]
-    pub(crate) const fn bar(self) -> (char, char) {
-        match self {
-            Self::Ascii => ('#', '-'),
-            Self::Unicode | Self::Nerd => ('▮', '▯'),
-        }
-    }
 }
 
 /// The `nerd` glyph of an MCP server without a brand glyph (plug).
@@ -434,7 +425,7 @@ mod tests {
                 .iter()
                 .map(|i| set.icon(*i))
                 .chain(set.spinner().iter().copied());
-            for g in glyphs.chain([set.bar().0, set.bar().1]) {
+            for g in glyphs {
                 let width = ratatui::text::Span::raw(g.to_string()).width();
                 assert_eq!(width, 1, "{set:?} {g:?}");
             }

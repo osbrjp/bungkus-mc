@@ -334,19 +334,14 @@ fn card_lines(
         let line = mcp_line(&card.mcp, theme.icons);
         lines.push(body(&line, theme.fg(Token::FgMuted)));
     }
-    if mark == Mark::Focused {
-        for row in expanded_usage(card) {
-            lines.push(body(&row, text));
-        }
-    } else {
-        let (usage, ctx, token) = compact_usage(card);
-        lines.push(Line::from(vec![
-            edge.clone(),
-            Span::styled(gutter, theme.fg(gutter_token)),
-            Span::styled(format!("  {usage}"), text),
-            Span::styled(ctx, theme.fg(token)),
-        ]));
-    }
+    let lead = [
+        edge.clone(),
+        Span::styled(gutter, theme.fg(gutter_token)),
+        "  ".into(),
+    ];
+    let rows = usage_rows(card, mark == Mark::Focused, body_width, text, theme);
+    let prefixed = |row: Vec<Span<'static>>| lead.iter().cloned().chain(row).collect();
+    lines.extend(rows.into_iter().map(prefixed));
     let skip = card.subagents.len().saturating_sub(SUBAGENT_ROWS);
     for sub in card.subagents.iter().skip(skip) {
         let mut spans = vec![edge.clone(), Span::styled(gutter, theme.fg(gutter_token))];
@@ -402,6 +397,26 @@ fn mcp_line(servers: &[String], icons: IconSet) -> String {
     }
 }
 
+/// Returns the usage rows of a card: the expanded rows when it is the
+/// focused one, else the one compact line with its context figure in the
+/// threshold colour.
+fn usage_rows(
+    card: &Card,
+    expanded: bool,
+    width: usize,
+    text: Style,
+    theme: Theme,
+) -> Vec<Vec<Span<'static>>> {
+    if expanded {
+        return expanded_usage(card, width, text, theme);
+    }
+    let (usage, ctx, token) = compact_usage(card);
+    vec![vec![
+        Span::styled(usage, text),
+        Span::styled(ctx, theme.fg(token)),
+    ]]
+}
+
 /// Returns the context fill for display: `None` when unknown or once the
 /// session ended (the last report is not a live context, DESIGN §6.2).
 fn live_ctx(card: &Card) -> Option<f64> {
@@ -429,40 +444,93 @@ fn compact_usage(card: &Card) -> (String, String, Token) {
     (format!("{tok} tok · {cost} · "), ctx, token)
 }
 
-/// Returns the expanded usage rows of the selected card (DESIGN §6.3).
-fn expanded_usage(card: &Card) -> Vec<String> {
+/// Cells of the bars on the selected card: one per 10 %.
+const BAR: u8 = 10;
+
+/// Returns a bar row of the selected card: `label`, a [`crate::ui::bar`]
+/// of [`BAR`] cells, the percentage and (when `width` has room) `detail`,
+/// as `context  ██░░░░░░░░ 23% 45k/200k`.
+///
+/// The filled part takes `fill` (the row's threshold colour) and the rest
+/// `fg-muted`; the shapes differ too, so it reads as a bar without colour.
+fn bar_row(
+    label: &str,
+    pct: f64,
+    detail: &str,
+    fill: Token,
+    (width, text): (usize, Style),
+    theme: Theme,
+) -> Vec<Span<'static>> {
+    let (on, off) = crate::ui::bar(pct, BAR, theme.utf8);
+    let mut tail = format!(" {pct:.0}%");
+    let used = label.chars().count() + usize::from(BAR) + tail.len();
+    if used + detail.chars().count() <= width {
+        tail.push_str(detail);
+    }
+    vec![
+        Span::styled(label.to_owned(), text),
+        Span::styled(on, theme.fg(fill)),
+        Span::styled(off, theme.fg(Token::FgMuted)),
+        Span::styled(tail, text),
+    ]
+}
+
+/// Returns the expanded usage rows of the selected card (DESIGN §6.3),
+/// each cut to `width` and in `text` style. The context (while the
+/// session runs) and every plan-limit window are [`bar_row`]s: context
+/// `warn` from 80 % and `err` from 90 %, limits `warn` from 80 % and `err`
+/// from 95 %, as in the compact line and the getah bar.
+fn expanded_usage(card: &Card, width: usize, text: Style, theme: Theme) -> Vec<Vec<Span<'static>>> {
     let u = card.usage.clone().unwrap_or_default();
     let n = |v: Option<u64>| v.map_or_else(|| "-".to_owned(), tokens);
-    let mut rows = vec![format!("tokens   in {} · out {}", n(u.input), n(u.output))];
+    let plain = |s: String| vec![Span::styled(truncate(&s, width), text)];
+    let level = |pct: f64, err: f64| match pct {
+        p if p >= err => Token::Err,
+        p if p >= 80.0 => Token::Warn,
+        _ => Token::Ok,
+    };
+    let mut rows = vec![plain(format!(
+        "tokens   in {} · out {}",
+        n(u.input),
+        n(u.output)
+    ))];
     if card.kind == Kind::Claude {
-        rows.push(format!(
+        rows.push(plain(format!(
             "cache    read {} · write {}",
             n(u.cache_read),
             n(u.cache_write)
-        ));
+        )));
         let cost = u
             .cost_usd
             .map_or_else(|| "-".to_owned(), |c| format!("${c:.2} (list price)"));
-        rows.push(format!("cost     {cost}"));
+        rows.push(plain(format!("cost     {cost}")));
     }
-    rows.push(match (live_ctx(card), u.ctx_size) {
-        (Some(p), Some(size)) => {
-            let used = u.input.map_or_else(|| "-".to_owned(), tokens);
-            format!("context  {p:.0}% of {} · {used} used", tokens(size))
+    rows.push(match live_ctx(card) {
+        Some(pct) => {
+            let detail = match (u.input, u.ctx_size) {
+                (Some(used), Some(size)) => format!(" {}/{}", tokens(used), tokens(size)),
+                (None, Some(size)) => format!(" of {}", tokens(size)),
+                (_, None) => String::new(),
+            };
+            bar_row(
+                "context  ",
+                pct,
+                &detail,
+                level(pct, 90.0),
+                (width, text),
+                theme,
+            )
         }
-        (Some(p), None) => format!("context  {p:.0}%"),
-        (None, _) => "context  -".to_owned(),
+        None => plain("context  -".to_owned()),
     });
-    if !u.limits.is_empty() {
-        let windows: Vec<String> = u
-            .limits
-            .iter()
-            .map(|w| format!("{} {:.0}%", w.label, w.used_pct))
-            .collect();
-        rows.push(format!("limits   {}", windows.join(" · ")));
+    for (i, w) in u.limits.iter().enumerate() {
+        let head = if i == 0 { "limits" } else { "" };
+        let label = format!("{head:<9}{} ", w.label);
+        let fill = level(w.used_pct, 95.0);
+        rows.push(bar_row(&label, w.used_pct, "", fill, (width, text), theme));
     }
     if !card.mcp.is_empty() {
-        rows.push(format!("mcp      {}", card.mcp.join(" · ")));
+        rows.push(plain(format!("mcp      {}", card.mcp.join(" · "))));
     }
     rows
 }
@@ -507,6 +575,26 @@ fn detail(card: &Card, now: Instant) -> String {
 mod tests {
     use super::*;
     use crate::ui::theme::{Background, Profile, ThemeName};
+
+    #[test]
+    fn bar_rows_keep_the_detail_only_when_it_fits_and_colour_the_fill() {
+        let theme = Theme::new(ThemeName::Dark, Profile::NoColor, Background::Paint);
+        let row = |pct, width, theme| -> String {
+            let args = (width, Style::default());
+            bar_row("context  ", pct, " 45k/200k", Token::Ok, args, theme)
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect()
+        };
+        assert_eq!(row(23.0, 36, theme), "context  ██░░░░░░░░ 23% 45k/200k");
+        assert_eq!(row(23.0, 24, theme), "context  ██░░░░░░░░ 23%", "narrow");
+        let no_utf8 = theme.with_view(IconSet::Ascii, false, true);
+        assert_eq!(row(23.0, 24, no_utf8), "context  ##-------- 23%");
+        let args = (36, Style::default());
+        let spans = bar_row("limits   5h ", 96.0, "", Token::Err, args, theme);
+        assert_eq!(spans[1].style, theme.fg(Token::Err));
+        assert_eq!(spans[2].style, theme.fg(Token::FgMuted));
+    }
 
     #[test]
     fn a_card_in_a_repository_gets_the_git_line_below_its_state() {

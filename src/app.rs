@@ -901,8 +901,8 @@ fn worktree_for(
     let fresh = request.launch.resume.is_none() && !request.launch.pick;
     let worktrees = model.overrides.worktrees.unwrap_or(env.config.worktrees);
     (worktrees && shared && fresh && has_commit(project)).then(|| {
-        let name = request.launch.name.as_deref().unwrap_or_default();
-        worktree_name(name, request.launch.id)
+        let name = project.file_name().unwrap_or_default().to_string_lossy();
+        worktree_name(&name, request.launch.id)
     })
 }
 
@@ -927,8 +927,11 @@ fn worktree_args(args: &[String], worktree: Option<&str>) -> Vec<String> {
         .collect()
 }
 
-/// Returns a worktree (and branch) name for a session: its name in
-/// lowercase ASCII letters, digits and `-` (24 at most), then its short id.
+/// Returns the worktree (and branch) name of a session in project folder
+/// `name`, as `<project-name>-<session-id>` (`bungkus-mc-3ec9`): the
+/// folder's name in lowercase ASCII letters, digits and `-` (24 at most),
+/// then the session's short id without its `#`. The workspace's
+/// instructions give agents the same format for worktrees of their own.
 fn worktree_name(name: &str, id: SessionId) -> String {
     let slug: String = name
         .chars()
@@ -1392,7 +1395,15 @@ mod tests {
             },
             replaces,
         };
-        let name = Some("fix-the-login-beef".to_owned());
+        let name = Some("a-beef".to_owned());
+        assert_eq!(
+            worktree_name(
+                "Kedai Web_v2",
+                SessionId(uuid::Uuid::from_u128(0xbeef << 112))
+            ),
+            "kedai-web-v2-beef",
+            "<project-name>-<session-id>"
+        );
         let cases = [
             (Kind::Claude, &a, None, None, true, true, name.clone()),
             (Kind::Codex, &a, None, None, true, true, None),
