@@ -540,7 +540,9 @@ No capability flags, no registry.
 
 - **New:** `claude --session-id <uuid> --settings <json> [--model <id>] [--name <name>] -- <prompt?>`
 - **Worktree (issue #106):** a fresh Claude session started in a project
-  where another mc session already runs gets `--worktree <slug>-<short id>`
+  where another mc session already runs gets `--worktree
+  <project-name>-<session-id>` (`bungkus-mc-3ec9`: the project folder's
+  name as a slug, then the four characters of the card's `#` id)
   (config `worktrees`, default on; only in a repository with a commit,
   never at the workspace root, never for a resume or the past-session
   picker). Claude makes it under `<project>/.claude/worktrees/<name>` on
