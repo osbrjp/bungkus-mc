@@ -1072,8 +1072,7 @@ impl Model {
             return Some(Cmd::KittyFocus(side));
         }
         if self.focus == Focus::Output && self.overlay.is_none() {
-            self.interact_key(key);
-            return None;
+            return self.interact_key(key);
         }
         self.message = None;
         if let Some(overlay) = self.overlay.take() {
@@ -1413,16 +1412,23 @@ impl Model {
     }
 
     /// Focuses pane `n`: 1 projects, 2 sessions, 3 output (INTERACT when
-    /// the selected session runs).
-    pub(crate) fn focus_pane(&mut self, n: u8) {
+    /// the selected session runs), 4 the terminal pane
+    /// ([`Model::focus_terminal`]).
+    ///
+    /// # Returns
+    ///
+    /// The command that starts the project's shell, for pane 4 without one.
+    pub(crate) fn focus_pane(&mut self, n: u8) -> Option<Cmd> {
         match n {
             1 => self.focus = Focus::Projects,
             2 => self.focus = Focus::Sessions,
-            _ => {
+            3 => {
                 self.focus = Focus::Sessions;
                 self.interact();
             }
+            _ => return self.focus_terminal(),
         }
+        None
     }
 
     /// Opens a past session of the selected project that mc did not start:
@@ -1647,7 +1653,7 @@ impl Model {
                 self.open_picker();
             }
             Action::Stop => return self.stop_selected(),
-            Action::Pane(n) => self.focus_pane(n),
+            Action::Pane(n) => return self.focus_pane(n),
             Action::TrashProject => self.ask_trash(),
             Action::NewProject => self.start_new_project(),
             Action::CleanWorktrees => self.ask_clean_worktrees(),
@@ -1658,6 +1664,7 @@ impl Model {
             Action::Editor => return self.open_editor(),
             Action::Folder => return self.open_folder(),
             Action::Terminal => return self.toggle_terminal(),
+            Action::CloseTerminal => self.close_terminal(),
             Action::Update => return self.start_update(),
             Action::MoveQuick => self.start_move(false),
             Action::MakeProject => self.start_move(true),

@@ -12,10 +12,11 @@ use std::path::PathBuf;
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::app::model::{Cmd, Model};
+use crate::app::model::{Cmd, Focus, Model};
 use crate::term::SessionId;
 use crate::term::keys;
 use crate::term::session::Session;
+use crate::ui::keymap::{Action, Lookup, Scope, lookup};
 
 /// The editors that run in mc's popup; any other `$VISUAL`/`$EDITOR` is
 /// started on its own, as a window of the desktop.
@@ -159,8 +160,8 @@ impl Model {
     }
 
     /// Forgets the tool with PTY id `id` when it exited: the popup closes,
-    /// the project's terminal pane goes and the keys return to mc. A
-    /// failed editor says so.
+    /// the project's terminal pane goes and, when it had the keys, they go
+    /// up to the output pane (as `ctrl-k` does). A failed editor says so.
     ///
     /// # Returns
     ///
@@ -173,9 +174,13 @@ impl Model {
             }
             true
         } else if let Some(at) = self.shells.iter().position(|(_, t)| t.id == id) {
+            let keyed = self.term_view == TermView::Focused
+                && self.shell().is_some_and(|shell| shell.id == id);
             self.shells.remove(at);
-            if self.term_view == TermView::Focused {
+            if keyed {
                 self.term_view = TermView::Shown;
+                self.focus = Focus::Sessions;
+                self.interact();
             }
             true
         } else {
@@ -192,6 +197,12 @@ impl Model {
         if self.term_view != TermView::Focused {
             return None;
         }
+        self.shell_mut()
+    }
+
+    /// Returns the emulator of the selected project's shell, if it has one
+    /// running.
+    pub(super) fn shell_mut(&mut self) -> Option<&mut Session> {
         let dir = self.shell_dir()?.to_path_buf();
         let shell = self.shells.iter_mut().find(|(d, _)| *d == dir);
         shell.map(|(_, t)| &mut t.pty)
@@ -200,8 +211,9 @@ impl Model {
     /// Handles a key while a tool has the keys. The editor gets every key
     /// (it closes when the editor quits). In the terminal the exit chord
     /// gives the keys back to mc, `ctrl-h` goes left to the sessions pane
-    /// and `ctrl-k` up to the output pane (INTERACT); `ctrl-j` and `ctrl-l`
-    /// have no pane to go to and stay the shell's (enter, clear screen).
+    /// and `ctrl-k` up to the output pane (INTERACT), cmd/alt/ctrl + 1–4
+    /// focus that pane; `ctrl-j` and `ctrl-l` have no pane to go to and
+    /// stay the shell's (enter, clear screen).
     /// `ctrl-z` is swallowed: nothing could resume a suspended tool.
     ///
     /// # Returns
@@ -211,14 +223,25 @@ impl Model {
         let terminal = self.editor.is_none();
         let ctrl = |ch| key.modifiers == KeyModifiers::CONTROL && key.code == KeyCode::Char(ch);
         let leave = terminal && self.exit_chord.matches(&key);
+        let pane = if !terminal {
+            None
+        } else if ctrl('h') {
+            Some(2)
+        } else if ctrl('k') {
+            Some(3)
+        } else if let Lookup::Action(Action::Pane(n)) = lookup(Scope::Global, key, None) {
+            Some(n)
+        } else {
+            None
+        };
         let Some(pty) = self.keyed_tool() else {
             return ControlFlow::Continue(());
         };
         if leave {
             self.term_view = TermView::Shown;
-        } else if terminal && (ctrl('h') || ctrl('k')) {
+        } else if let Some(n) = pane {
             self.term_view = TermView::Shown;
-            self.focus_pane(if ctrl('h') { 2 } else { 3 });
+            return ControlFlow::Break(self.focus_pane(n));
         } else if !ctrl('z') {
             pty.scroll(alacritty_terminal::grid::Scroll::Bottom);
             pty.send(keys::encode(&key, pty.mode()));
@@ -252,11 +275,36 @@ impl Model {
             self.term_view = TermView::Hidden;
             return None;
         }
+        self.focus_terminal()
+    }
+
+    /// Shows the terminal pane and gives the selected project's shell the
+    /// keys (pane 4); INTERACT ends, since one program has the keys.
+    ///
+    /// # Returns
+    ///
+    /// The command that starts the shell when the project has none.
+    pub(super) fn focus_terminal(&mut self) -> Option<Cmd> {
+        if self.focus == Focus::Output {
+            self.focus = Focus::Sessions;
+        }
         if self.shell().is_some() {
             self.term_view = TermView::Focused;
             return None;
         }
         self.shell_dir().map(|p| Cmd::OpenTerminal(p.to_path_buf()))
+    }
+
+    /// Closes the selected project's shell (`T`), shown or hidden: hangs
+    /// up on it, as a terminal window that closes does. The pane goes
+    /// once the shell has ended ([`Model::tool_exited`]).
+    // ponytail: a program that ignores SIGHUP keeps its pane; add a
+    // SIGKILL after a grace period when one is reported.
+    pub(super) fn close_terminal(&self) {
+        if let Some(shell) = self.shell() {
+            // reason: a shell that already ended needs no signal.
+            let _ = shell.pty.signal(rustix::process::Signal::HUP);
+        }
     }
 
     /// Returns the output pane's inner size now, which every session's PTY
@@ -402,7 +450,7 @@ mod tests {
         let whole = crate::ui::panes(m.screen, m.zoom, m.widths).output.unwrap();
         let pane = m.panes(m.screen).terminal.unwrap();
         let screen = crate::ui::tests::render(&mut m, 120, 40);
-        assert!(screen.contains("terminal · ") && screen.contains(" TERMINAL "));
+        assert!(screen.contains("[4] terminal · ") && screen.contains(" TERMINAL "));
         assert_eq!(pane.height, whole.height / 3, "a third of the output pane");
         assert_eq!(output(&m).height + pane.height, whole.height);
 
@@ -416,6 +464,8 @@ mod tests {
         m.update(t());
         assert_eq!(m.term_view, TermView::Hidden);
         assert!(m.panes(m.screen).terminal.is_none() && output(&m) == whole);
+        let screen = crate::ui::tests::render(&mut m, 120, 40);
+        assert!(screen.contains(" [4] terminal · t shows "), "the marker");
         assert!(m.update(t()).is_none(), "the same shell comes back");
         assert_eq!(m.term_view, TermView::Focused);
 
@@ -466,5 +516,49 @@ mod tests {
 
         m.update(AppEvent::Pty(PtyEvent::Exited(id, Some(0))));
         assert!(m.shells.is_empty() && !m.terminal_shown());
+    }
+
+    #[test]
+    fn the_wheel_scrolls_the_terminal_and_pane_4_and_shift_t_reach_it() {
+        let mut m = sample(&["a", "b"]);
+        let path = m.selected_project().unwrap().path.clone();
+        let (mut shell, _writes) = tool(3);
+        let id = shell.id;
+        shell.pty.advance("line\r\n".repeat(30).as_bytes());
+        m.shells.push((path.clone(), shell));
+        m.term_view = TermView::Shown;
+        let pane = m.panes(m.screen).terminal.unwrap();
+        let wheel = |m: &mut Model, kind| {
+            m.update(AppEvent::Input(Event::Mouse(MouseEvent {
+                kind,
+                column: pane.x + 2,
+                row: pane.y + 2,
+                modifiers: KeyModifiers::NONE,
+            })));
+            m.shell().unwrap().pty.term().grid().display_offset()
+        };
+        assert_eq!(wheel(&mut m, MouseEventKind::ScrollUp), 3);
+        assert_eq!(wheel(&mut m, MouseEventKind::ScrollDown), 0);
+
+        let chord = |ch| {
+            AppEvent::Input(Event::Key(KeyEvent::new(
+                KeyCode::Char(ch),
+                KeyModifiers::ALT,
+            )))
+        };
+        m.term_view = TermView::Hidden;
+        assert_eq!(m.update(chord('4')), None);
+        assert_eq!(m.term_view, TermView::Focused, "pane 4 shows and focuses");
+        m.update(chord('2'));
+        let sessions = crate::app::model::Focus::Sessions;
+        assert_eq!((m.term_view, m.focus), (TermView::Shown, sessions));
+
+        assert_eq!(m.update(press(KeyCode::Char('T'))), None);
+        assert_eq!(m.shells.len(), 1, "the pane stays until the shell ended");
+        m.update(press(KeyCode::Char('j')));
+        m.update(AppEvent::Pty(PtyEvent::Exited(id, Some(0))));
+        assert!(m.shells.is_empty());
+        let other = m.selected_project().unwrap().path.clone();
+        assert_eq!(m.update(chord('4')), Some(Cmd::OpenTerminal(other)));
     }
 }

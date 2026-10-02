@@ -259,8 +259,9 @@ environment as an agent) held by the model next to the cards, not as one:
 no card, no hooks, no usage, nothing in `sessions.json`, not in the stop
 dialog. Its PTY events are told apart by id. While the terminal pane
 shows (the selected project has a shell and `t` did not hide it), the output pane and every session's PTY are a third shorter. A
-tool ends when its program exits or when mc does (the PTY closes, the
-kernel sends SIGHUP). Any other editor is spawned once with an argument
+tool ends when its program exits, when mc does (the PTY closes, the
+kernel sends SIGHUP), or, for a shell, on `T` (mc sends SIGHUP to its
+process group and forgets it once it has exited). Any other editor is spawned once with an argument
 vector, null stdio and its own process group, and left alone.
 
 ## 4. Data flow

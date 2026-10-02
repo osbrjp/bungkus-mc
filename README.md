@@ -130,13 +130,15 @@ pane; press one to run it.
 |------|------|
 | `j` `k` · `↓` `↑` · `gg` `G` | move |
 | `ctrl-h` · `ctrl-l` | pane left · right, also from inside INTERACT |
-| `cmd`/`alt`/`ctrl` + `1` `2` `3` | projects · sessions · output pane, also from inside INTERACT (`cmd` needs a [terminal mapping](#cmd--1-2-3-on-macos)) |
+| `cmd`/`alt`/`ctrl` + `1` `2` `3` `4` | projects · sessions · output · terminal pane, also from inside INTERACT (`cmd` needs a [terminal mapping](#cmd--1-2-3-on-macos)) |
 | `1`–`9` | jump to project N; type the next digit quickly for two digits (`1` `6` → 16) |
 | `/` | search projects (`↑` `↓` pick, `enter` open, `esc` clear) |
 | `!` · `ctrl-]` | jump to the next session that needs you, in any project |
 | `ctrl-j` `ctrl-k` · `ctrl-n` `ctrl-p` | down · up in every dialog, list and the `/` search (same as `↓` `↑`) |
 | `z` | zoom the output pane |
 | `R` | redraw |
+| `t` | show / hide the terminal pane `[4]`: your `$SHELL` below the output pane, one shell per project. The wheel scrolls it; while it is hidden a `[4] terminal` marker shows at the bottom of the output pane |
+| `T` | close the selected project's shell (`exit` or `ctrl-d` inside it does the same) |
 
 ### Sessions
 

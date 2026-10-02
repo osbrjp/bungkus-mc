@@ -33,41 +33,41 @@ pub(crate) enum Divider {
 
 impl Model {
     /// Handles a key in INTERACT: the exit chord and `ctrl-h` return to
-    /// the sessions pane, cmd/alt/ctrl + 1–3 focus that pane, `ctrl-j` goes
+    /// the sessions pane, cmd/alt/ctrl + 1–4 focus that pane, `ctrl-j` goes
     /// down to the terminal pane while it shows (otherwise it is the
     /// agent's), `ctrl-l` (already the rightmost pane) and `ctrl-z` are
     /// swallowed, everything else is encoded for the agent (and snaps
     /// its view back to the bottom).
-    pub(super) fn interact_key(&mut self, key: KeyEvent) {
+    ///
+    /// # Returns
+    ///
+    /// The command that starts the project's shell, for the terminal
+    /// pane's chord on a project without one.
+    pub(super) fn interact_key(&mut self, key: KeyEvent) -> Option<Cmd> {
         if self.exit_chord.matches(&key) {
             self.focus = Focus::Sessions;
-            return;
+            return None;
         }
         if let crate::ui::keymap::Lookup::Action(crate::ui::keymap::Action::Pane(n)) =
             crate::ui::keymap::lookup(crate::ui::keymap::Scope::Global, key, None)
         {
-            self.focus_pane(n);
-            return;
+            return self.focus_pane(n);
         }
         if key.modifiers == KeyModifiers::CONTROL {
             match key.code {
                 KeyCode::Char('h') => {
                     self.focus = Focus::Sessions;
-                    return;
+                    return None;
                 }
-                KeyCode::Char('l') => return,
-                KeyCode::Char('j') if self.terminal_shown() => {
-                    self.focus = Focus::Sessions;
-                    self.term_view = TermView::Focused;
-                    return;
-                }
+                KeyCode::Char('l') => return None,
+                KeyCode::Char('j') if self.terminal_shown() => return self.focus_terminal(),
                 _ => {}
             }
         }
         let ctrl_z =
             key.code == KeyCode::Char('z') && key.modifiers.contains(KeyModifiers::CONTROL);
         if ctrl_z {
-            return;
+            return None;
         }
         if let Some(pty) = self
             .selected_card()
@@ -77,6 +77,7 @@ impl Model {
             let bytes = keys::encode(&key, pty.mode());
             pty.send(bytes);
         }
+        None
     }
 
     /// Sends pasted text to the tool that has the keys, else to the agent
@@ -102,8 +103,9 @@ impl Model {
     /// Handles a mouse event: a pane's right border drags to resize it
     /// (saved on release), clicks focus panes (the terminal pane too) and
     /// select the project row or session under the pointer (or open and
-    /// close the rest of the projects), the wheel scrolls, and
-    /// events inside the output pane go to an agent that asked for them.
+    /// close the rest of the projects), the wheel scrolls the output or the
+    /// terminal pane under the pointer, and events inside the output pane
+    /// go to an agent that asked for them.
     pub(super) fn mouse(&mut self, event: MouseEvent) -> Option<Cmd> {
         if self.overlay.is_some() || self.popup.is_some() || self.editor.is_some() {
             return None;
@@ -167,9 +169,31 @@ impl Model {
             }
             MouseEventKind::ScrollUp if inside(panes.output) => self.scroll(WHEEL_LINES),
             MouseEventKind::ScrollDown if inside(panes.output) => self.scroll(-WHEEL_LINES),
+            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
+                if let Some(pane) = panes.terminal.filter(|r| r.contains(at)) {
+                    self.wheel_terminal(event, pane);
+                }
+            }
             _ => {}
         }
         None
+    }
+
+    /// Handles the wheel over the terminal pane `pane`: a program in it
+    /// that asked for the mouse gets the event, else the shell's
+    /// scrollback moves (the alternate screen has none).
+    fn wheel_terminal(&mut self, event: MouseEvent, pane: Rect) {
+        let Some(pty) = self.shell_mut() else {
+            return;
+        };
+        let col = event.column.saturating_sub(pane.x + 1);
+        let row = event.row.saturating_sub(pane.y + 1);
+        if let Some(bytes) = keys::mouse(event.kind, col, row, event.modifiers, pty.mode()) {
+            pty.send(bytes);
+        } else if !pty.mode().contains(TermMode::ALT_SCREEN) {
+            let up = event.kind == MouseEventKind::ScrollUp;
+            pty.scroll(Scroll::Delta(if up { WHEEL_LINES } else { -WHEEL_LINES }));
+        }
     }
 
     /// Starts, follows or ends a border drag; breaks with the command to
@@ -401,6 +425,10 @@ mod tests {
         assert!(drain(&writes).is_empty());
         send(&mut m, KeyCode::Char('k'), KeyModifiers::CONTROL);
         assert_eq!((m.term_view, m.focus), (TermView::Shown, Focus::Output));
+        send(&mut m, KeyCode::Char('j'), KeyModifiers::CONTROL);
+        m.update(AppEvent::Pty(crate::term::PtyEvent::Exited(id, Some(0))));
+        assert_eq!(m.focus, Focus::Output, "the shell ended: back up");
+        assert!(!m.terminal_shown());
     }
 
     #[test]
