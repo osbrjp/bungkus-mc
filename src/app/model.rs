@@ -90,6 +90,8 @@ pub(crate) enum Overlay {
     Switcher(crate::app::workspaces::Switcher),
     /// The `fp` / `ff` / `fg` finder.
     Finder(crate::app::finder::Finder),
+    /// The `i` issues and pull requests popup.
+    Links(crate::app::links::Viewer),
     /// "Move these projects' folders to the Trash?"
     TrashProject(Vec<Project>),
     /// "Remove this project's unused worktrees?"
@@ -179,14 +181,19 @@ pub(crate) enum Cmd {
     /// Open, from this folder, this file in it in the user's editor, at
     /// this line when given.
     OpenFile(PathBuf, PathBuf, Option<u32>),
-    /// Run ripgrep in this workspace for finder search `u64`: list its
-    /// files (`None`) or the lines matching this pattern.
-    Find(PathBuf, u64, Option<String>),
-    /// Read the lines of this file the finder previews: its top, or the
-    /// ones around this line.
-    Preview(PathBuf, Option<u32>),
+    /// Search or read for the finder, off the UI thread.
+    Finder(crate::app::finder::Request),
     /// Open this project folder with the desktop's opener (`O`).
     OpenFolder(PathBuf),
+    /// Open this `https://` address with the desktop's opener (`P`, `I`,
+    /// `enter` in the `i` popup).
+    OpenUrl(String),
+    /// List the open pull requests and issues of this folder's repository
+    /// for the `i` popup.
+    ListLinks(PathBuf),
+    /// Read the text of this issue or pull request, in this folder, for
+    /// the `i` popup's text view.
+    ReadLink(PathBuf, crate::app::links::Link),
     /// Start the terminal pane's shell for this owner in this folder (`t`).
     OpenTerminal(crate::app::tools::Owner, PathBuf),
     /// Write the workspace's project groups to its `.bungkus-mc/config.json`.
@@ -283,6 +290,9 @@ pub(crate) struct Model {
     pub list_rows: usize,
     /// The chord that leaves INTERACT.
     pub exit_chord: Chord,
+    /// When a plain `j` last went to the agent in INTERACT, while a `j` or
+    /// `k` right after it would still leave.
+    pub leave_j: Option<Instant>,
     /// Pane widths (dragged by the mouse, from `config.json`).
     pub widths: crate::ui::Widths,
     /// The pane border being dragged, if any.
@@ -321,6 +331,13 @@ pub(crate) struct Model {
     pub repos: std::collections::HashMap<PathBuf, crate::app::repo::Status>,
     /// Whether a background read of [`Model::repos`] is under way.
     pub repo_scan: bool,
+    /// The pull request and issue of each session folder's branch, as
+    /// last read through `gh`.
+    pub links: std::collections::HashMap<PathBuf, crate::app::links::Links>,
+    /// Whether a background read of [`Model::links`] is under way.
+    pub links_scan: bool,
+    /// When the links of the running sessions were last read again.
+    pub links_at: Option<Instant>,
     /// Whether an MCP config scan is running.
     pub mcp_scan: bool,
     /// Shows every key mc receives in the hint line (`BUNGKUS_MC_DEBUG_KEYS`),
@@ -452,6 +469,7 @@ impl Model {
             widths: crate::ui::Widths::default(),
             drag: None,
             exit_chord: Chord::DEFAULT,
+            leave_j: None,
             screen: Rect::new(0, 0, 120, 40),
             now: Instant::now(),
             frame: 0,
@@ -467,6 +485,9 @@ impl Model {
             external: Vec::new(),
             repos: std::collections::HashMap::new(),
             repo_scan: false,
+            links: std::collections::HashMap::new(),
+            links_scan: false,
+            links_at: None,
             mcp_scan: false,
             poke: None,
             notice: None,
@@ -957,6 +978,9 @@ impl Model {
                 self.repos = repos.into_iter().collect();
                 self.repo_scan = false;
             }
+            AppEvent::Links(read) => self.set_links(read),
+            AppEvent::LinkList(folder, list) => self.set_link_list(&folder, list),
+            AppEvent::LinkBody(url, text) => self.set_link_body(&url, text),
             AppEvent::Mcp(changed) => self.set_mcp(changed),
             AppEvent::External(list) => {
                 self.external = list;
@@ -970,8 +994,7 @@ impl Model {
             }
             AppEvent::Updated(result) => return self.updated(result),
             AppEvent::Worktrees(text) => self.message = Some(text),
-            AppEvent::Found(seq, lines) => return self.found(seq, lines),
-            AppEvent::Preview(file, line, lines, hit) => self.previewed(&file, line, lines, hit),
+            AppEvent::Finder(reply) => return self.finder_reply(reply),
             AppEvent::Pty(PtyEvent::Output(id, bytes)) => {
                 if let Some(pty) = self.tool_mut(id) {
                     pty.advance(&bytes);
@@ -1059,6 +1082,8 @@ impl Model {
             let text = format!("{} needs you: {}", card.id.short(), card.name);
             self.notice = Some((now, text.clone()));
             self.alerts.push(Alert::NeedsYou(text));
+        } else if card.state == State::YourTurn && before == State::Working {
+            self.notice = Some((now, format!("{} finished: {}", card.id.short(), card.name)));
         }
         let first_bind = !bound && card.agent_session.is_some();
         let watch = card.kind == Kind::Codex && card.running() && card.rollout_stop.is_none();
@@ -1325,6 +1350,7 @@ impl Model {
             Overlay::NewProject(dialog) => self.new_project_key(dialog, key),
             Overlay::Switcher(switcher) => self.switcher_key(switcher, key),
             Overlay::Finder(finder) => self.finder_key(finder, key),
+            Overlay::Links(viewer) => self.viewer_key(viewer, key),
             Overlay::TrashProject(projects) => confirms(key)
                 .then(|| Cmd::TrashProject(projects.into_iter().map(|p| p.path).collect())),
             Overlay::CleanWorktrees(project) => {
@@ -1715,6 +1741,14 @@ impl Model {
             .min(len.saturating_sub(1))
     }
 
+    /// Enters FILTER mode on the projects pane with an empty search (`/`).
+    fn start_filter(&mut self) {
+        self.focus = Focus::Projects;
+        self.filtering = true;
+        self.filter.clear();
+        self.selected = 0;
+    }
+
     /// Runs a keymap action.
     fn act(&mut self, action: Action) -> Option<Cmd> {
         let half = isize::try_from((self.list_rows / 2).max(1)).unwrap_or(1);
@@ -1755,12 +1789,7 @@ impl Model {
             }
             Action::Interact => self.interact(),
             Action::NextPane | Action::OpenProject => self.focus = Focus::Sessions,
-            Action::Filter => {
-                self.focus = Focus::Projects;
-                self.filtering = true;
-                self.filter.clear();
-                self.selected = 0;
-            }
+            Action::Filter => self.start_filter(),
             Action::NewSession
                 if self
                     .selected_project()
@@ -1781,6 +1810,7 @@ impl Model {
             Action::ToggleRest => self.toggle_rest(),
             Action::Editor => return self.open_editor(),
             Action::Folder => return self.open_folder(),
+            Action::PullRequest | Action::Issue | Action::Links => return self.link_key(action),
             Action::Terminal => return self.toggle_terminal(),
             Action::CloseTerminal => self.close_terminal(),
             Action::Update => return self.start_update(),
@@ -2544,6 +2574,26 @@ pub(crate) mod tests {
             State::NeedsYou,
             "garbage and unknown sessions are dropped"
         );
+    }
+
+    #[test]
+    fn the_mascot_says_when_a_session_finishes_its_turn() {
+        let mut m = sample(&["a"]);
+        let (id, _w) = with_session(&mut m, "s");
+        m.cards[0].expect_hooks();
+        m.update(hook_line(id, r#"{"hook_event_name":"SessionStart"}"#));
+        assert!(m.notice.is_none(), "starting is not finishing");
+        m.update(hook_line(id, r#"{"hook_event_name":"UserPromptSubmit"}"#));
+        m.update(hook_line(id, r#"{"hook_event_name":"Stop"}"#));
+        assert_eq!(m.cards[0].state, State::YourTurn);
+        assert!(
+            m.notice
+                .as_ref()
+                .is_some_and(|(_, text)| text.ends_with("finished: s")),
+            "{:?}",
+            m.notice
+        );
+        assert!(m.alerts.is_empty(), "the host terminal is not told");
     }
 
     /// Returns a socket line for `id` carrying the status-line fixture.

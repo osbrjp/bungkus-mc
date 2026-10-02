@@ -151,6 +151,8 @@ pane; press one to run it.
 | `ctrl-\` | leave INTERACT |
 | `r` | on a finished session: resume it. Anywhere else: open the agent's own list of this project's past sessions (`claude --resume` / `codex resume`) to pick any of them |
 | `x` | stop a session (lists what it started too) |
+| `P` · `I` | open the pull request · the issue of the session's branch in the browser. mc finds them itself through the `gh` CLI: the pull request GitHub has for the branch, and the issue from a branch named `i{issue#}-…` (else the first issue the pull request closes). The card shows their numbers after the branch |
+| `i` | issues & pull requests popup: the session's own first (`●`), then the repository's open ones; `j` `k` move, `enter` reads one in the popup (`j` `k` `d` `u` scroll, `esc` back), `o` opens it in the browser |
 | `d` | forget a finished session |
 
 ### Projects and workspaces
@@ -301,6 +303,12 @@ like `map ctrl+j neighboring_window down` plus a
 **What mc does:** nothing to configure for the keys themselves. mc sets
 the kitty user variable `IS_VIM=true` while it runs, so your existing
 passthrough sends those keys to mc instead of kitty.
+
+**Neovim inside mc:** vim-kitty-navigator sets `IS_VIM=false` on mc's
+kitty window when nvim quits (in the editor popup, the terminal pane or
+the agent's external editor). mc sets the variable back to `true` after
+every piece of output from a session or tool, so the keys keep reaching
+mc.
 
 **At mc's edges** the key goes back to kitty and moves to the neighbouring
 kitty window:

@@ -3,7 +3,7 @@
 //!
 //! `fp` matches project names, `ff` file names and `fg` file contents. The
 //! file names and the matching lines come from ripgrep, which the event
-//! loop runs off the UI thread ([`Cmd::Find`]); this module ranks, picks
+//! loop runs off the UI thread ([`Request::Find`]); this module ranks, picks
 //! and never reads a file itself.
 
 use std::path::{Path, PathBuf};
@@ -23,6 +23,27 @@ pub(crate) const PREVIEW_CONTEXT: usize = 8;
 
 /// Most file names taken from one workspace; the ones past it are not found.
 pub(crate) const FILES_MAX: usize = 200_000;
+
+/// Work the finder hands the event loop ([`Cmd::Finder`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Request {
+    /// Run ripgrep in this workspace for search `u64`: list its files
+    /// (`None`) or the lines matching this pattern.
+    Find(PathBuf, u64, Option<String>),
+    /// Read the lines of this file the preview shows: its top, or the ones
+    /// around this line.
+    Preview(PathBuf, Option<u32>),
+}
+
+/// What the event loop answers a [`Request`] with.
+#[derive(Debug)]
+pub(crate) enum Reply {
+    /// The lines ripgrep printed for search `u64`.
+    Found(u64, Vec<String>),
+    /// The lines read for the preview of this file at this line, and which
+    /// of them is that line.
+    Preview(PathBuf, Option<u32>, Vec<String>, Option<usize>),
+}
 
 /// What the finder searches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -166,7 +187,7 @@ impl Model {
         finder.rank();
         self.overlay = Some(Overlay::Finder(finder));
         self.find_seq += 1;
-        (source == Source::Files).then_some(Cmd::Find(root, self.find_seq, None))
+        (source == Source::Files).then_some(Cmd::Finder(Request::Find(root, self.find_seq, None)))
     }
 
     /// Takes ripgrep's lines for search `seq` into the open finder: the
@@ -176,7 +197,7 @@ impl Model {
     /// # Returns
     ///
     /// The read of the first row's preview.
-    pub(super) fn found(&mut self, seq: u64, lines: Vec<String>) -> Option<Cmd> {
+    fn found(&mut self, seq: u64, lines: Vec<String>) -> Option<Cmd> {
         if seq != self.find_seq {
             return None;
         }
@@ -218,13 +239,28 @@ impl Model {
         }
         finder.preview.clear();
         finder.hit = None;
-        target.map(|(file, line)| Cmd::Preview(file, line))
+        target.map(|(file, line)| Cmd::Finder(Request::Preview(file, line)))
+    }
+
+    /// Takes the event loop's answer into the open finder.
+    ///
+    /// # Returns
+    ///
+    /// The read of the first row's preview, after a search's answer.
+    pub(super) fn finder_reply(&mut self, reply: Reply) -> Option<Cmd> {
+        match reply {
+            Reply::Found(seq, lines) => self.found(seq, lines),
+            Reply::Preview(file, line, lines, hit) => {
+                self.previewed(&file, line, lines, hit);
+                None
+            }
+        }
     }
 
     /// Takes the lines read for the preview of `file` at `line` (`hit` is
     /// the matching one) into the finder, when its highlighted row is still
     /// that one.
-    pub(super) fn previewed(
+    fn previewed(
         &mut self,
         file: &Path,
         line: Option<u32>,
@@ -288,7 +324,8 @@ impl Model {
                     if finder.searching {
                         let root = self.root().map(Path::to_path_buf);
                         let pattern = Some(finder.query.clone());
-                        cmd = root.map(|root| Cmd::Find(root, self.find_seq, pattern));
+                        cmd = root
+                            .map(|root| Cmd::Finder(Request::Find(root, self.find_seq, pattern)));
                     } else {
                         finder.rows.clear();
                         finder.total = 0;
@@ -330,6 +367,22 @@ mod tests {
             .map(|ch| m.update(press(KeyCode::Char(ch))))
             .last()
             .flatten()
+    }
+
+    fn want_find(root: PathBuf, seq: u64, pattern: Option<String>) -> Cmd {
+        Cmd::Finder(Request::Find(root, seq, pattern))
+    }
+
+    fn want_preview(file: PathBuf, line: Option<u32>) -> Cmd {
+        Cmd::Finder(Request::Preview(file, line))
+    }
+
+    fn found(seq: u64, lines: Vec<String>) -> AppEvent {
+        AppEvent::Finder(Reply::Found(seq, lines))
+    }
+
+    fn previewed(file: PathBuf, line: Option<u32>, lines: Vec<String>, hit: usize) -> AppEvent {
+        AppEvent::Finder(Reply::Preview(file, line, lines, Some(hit)))
     }
 
     fn rows(m: &Model) -> Vec<&str> {
@@ -375,12 +428,12 @@ mod tests {
         let seq = m.find_seq + 1;
         assert_eq!(
             typed(&mut m, "ff"),
-            Some(Cmd::Find(root.clone(), seq, None))
+            Some(want_find(root.clone(), seq, None))
         );
         let files = ["a/src/main.rs", "a/main.rs", "a/docs/remain.md"];
-        m.update(AppEvent::Found(seq - 1, vec!["stale".into()]));
+        m.update(found(seq - 1, vec!["stale".into()]));
         assert!(rows(&m).is_empty(), "an older search is dropped");
-        m.update(AppEvent::Found(seq, files.map(String::from).to_vec()));
+        m.update(found(seq, files.map(String::from).to_vec()));
         assert_eq!(rows(&m), files);
         typed(&mut m, "main.rs");
         assert_eq!(rows(&m), ["a/main.rs", "a/src/main.rs"]);
@@ -398,22 +451,17 @@ mod tests {
         let root = m.root().unwrap().to_path_buf();
         typed(&mut m, "fgfn");
         let hits = ["a/x.rs:12:fn x() {", "a/y.rs:3:fn y() {"];
-        let found = AppEvent::Found(m.find_seq, hits.map(String::from).to_vec());
+        let found = found(m.find_seq, hits.map(String::from).to_vec());
         let x = root.join("a/x.rs");
-        assert_eq!(m.update(found), Some(Cmd::Preview(x.clone(), Some(12))));
+        assert_eq!(m.update(found), Some(want_preview(x.clone(), Some(12))));
         assert_eq!(
             m.update(press(KeyCode::Down)),
-            Some(Cmd::Preview(root.join("a/y.rs"), Some(3)))
+            Some(want_preview(root.join("a/y.rs"), Some(3)))
         );
         assert_eq!(m.update(press(KeyCode::Down)), None, "the same row");
-        m.update(AppEvent::Preview(x, Some(12), vec!["late".into()], Some(0)));
+        m.update(previewed(x, Some(12), vec!["late".into()], 0));
         let lines = vec!["use z;".to_owned(), "fn y() {".to_owned()];
-        m.update(AppEvent::Preview(
-            root.join("a/y.rs"),
-            Some(3),
-            lines,
-            Some(1),
-        ));
+        m.update(previewed(root.join("a/y.rs"), Some(3), lines, 1));
         let screen = crate::ui::tests::render(&mut m, 120, 40);
         assert!(
             screen.contains("│ use z;") && !screen.contains("late"),
@@ -431,11 +479,8 @@ mod tests {
         assert_eq!(typed(&mut m, "fg"), None);
         let grep = typed(&mut m, "fn");
         let seq = m.find_seq;
-        assert_eq!(grep, Some(Cmd::Find(root.clone(), seq, Some("fn".into()))));
-        m.update(AppEvent::Found(
-            seq,
-            vec!["a/src/main.rs:12:fn main() {".into()],
-        ));
+        assert_eq!(grep, Some(want_find(root.clone(), seq, Some("fn".into()))));
+        m.update(found(seq, vec!["a/src/main.rs:12:fn main() {".into()]));
         let screen = crate::ui::tests::render(&mut m, 80, 24);
         assert!(
             screen.contains("> a/src/main.rs:12:fn main() {"),
@@ -447,7 +492,7 @@ mod tests {
         );
         typed(&mut m, "fgx");
         assert_eq!(m.update(press(KeyCode::Backspace)), None, "nothing to grep");
-        m.update(AppEvent::Found(m.find_seq - 1, vec!["late".into()]));
+        m.update(found(m.find_seq - 1, vec!["late".into()]));
         assert!(rows(&m).is_empty());
     }
 }

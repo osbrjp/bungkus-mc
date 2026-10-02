@@ -99,7 +99,12 @@ fn rows(inner: Rect, model: &Model, theme: Theme) -> Vec<(Line<'static>, Option<
                 (true, false) => Mark::Shown,
             };
             let card = &model.cards[i];
-            let around = (model.repos.get(&card.folder()), model.has_shell(card.id));
+            let folder = card.folder();
+            let around = (
+                model.repos.get(&folder),
+                model.links.get(&folder),
+                model.has_shell(card.id),
+            );
             let mut lines = card_lines(card, around, mark, width, spin, model.now, theme);
             lines.push(Line::from(""));
             lines
@@ -262,12 +267,17 @@ fn minutes(from: Instant, to: Instant) -> u64 {
 ///
 /// Column 0 carries `mark`: the focus marker on the title line, or the
 /// same bar the projects pane uses for its selected row on every line.
-/// `repo` is the state of the session's folder and `shell` whether the
+/// `repo` is the state of the session's folder, `linked` the issue and
+/// pull request of its branch (their numbers end the git line) and `shell` whether the
 /// session has a shell in the terminal pane: `>_` before the title
 /// line's right-hand word.
 fn card_lines(
     card: &Card,
-    (repo, shell): (Option<&crate::app::repo::Status>, bool),
+    (repo, linked, shell): (
+        Option<&crate::app::repo::Status>,
+        Option<&crate::app::links::Links>,
+        bool,
+    ),
     mark: Mark,
     width: usize,
     spin: char,
@@ -339,7 +349,15 @@ fn card_lines(
     };
     let mut lines = vec![title, body(&detail(card, now), text)];
     if let Some(repo) = repo {
-        lines.push(body(&repo.label(body_width), theme.fg(Token::FgMuted)));
+        let tags = linked.map(crate::app::links::Links::label);
+        let label = match tags.filter(|tags| !tags.is_empty()) {
+            Some(tags) => {
+                let room = body_width.saturating_sub(tags.chars().count() + 3);
+                format!("{} · {tags}", repo.label(room))
+            }
+            None => repo.label(body_width),
+        };
+        lines.push(body(&label, theme.fg(Token::FgMuted)));
     }
     let in_use = card.mcp.iter().filter(|name| card.mcp_in_use(name));
     let in_use: Vec<String> = in_use.cloned().collect();
@@ -498,15 +516,14 @@ fn bar_row(
 
 /// Returns the expanded usage rows of the selected card (DESIGN §6.3),
 /// each cut to `width` and in `text` style. The context (while the
-/// session runs) and every plan-limit window are [`bar_row`]s: context
-/// `warn` from 80 % and `err` from 90 %, limits `warn` from 80 % and `err`
-/// from 95 %, as in the compact line and the getah bar.
+/// session runs) is a [`bar_row`]: `warn` from 80 % and `err` from 90 %,
+/// as in the compact line. Plan limits are in the getah bar only.
 fn expanded_usage(card: &Card, width: usize, text: Style, theme: Theme) -> Vec<Vec<Span<'static>>> {
     let u = card.usage.clone().unwrap_or_default();
     let n = |v: Option<u64>| v.map_or_else(|| "-".to_owned(), tokens);
     let plain = |s: String| vec![Span::styled(truncate(&s, width), text)];
-    let level = |pct: f64, err: f64| match pct {
-        p if p >= err => Token::Err,
+    let level = |pct: f64| match pct {
+        p if p >= 90.0 => Token::Err,
         p if p >= 80.0 => Token::Warn,
         _ => Token::Ok,
     };
@@ -533,23 +550,10 @@ fn expanded_usage(card: &Card, width: usize, text: Style, theme: Theme) -> Vec<V
                 (None, Some(size)) => format!(" of {}", tokens(size)),
                 (_, None) => String::new(),
             };
-            bar_row(
-                "context  ",
-                pct,
-                &detail,
-                level(pct, 90.0),
-                (width, text),
-                theme,
-            )
+            bar_row("context  ", pct, &detail, level(pct), (width, text), theme)
         }
         None => plain("context  -".to_owned()),
     });
-    for (i, w) in u.limits.iter().enumerate() {
-        let head = if i == 0 { "limits" } else { "" };
-        let label = format!("{head:<9}{} ", w.label);
-        let fill = level(w.used_pct, 95.0);
-        rows.push(bar_row(&label, w.used_pct, "", fill, (width, text), theme));
-    }
     let names = card.mcp.iter().map(String::as_str);
     let (used, idle): (Vec<_>, Vec<_>) = names.partition(|name| card.mcp_in_use(name));
     for (label, servers) in [("mcp      ", used), ("mcp idle ", idle)] {
@@ -620,7 +624,7 @@ mod tests {
         let no_utf8 = theme.with_view(IconSet::Ascii, false, true);
         assert_eq!(row(23.0, 24, no_utf8), "context  ##-------- 23%");
         let args = (36, Style::default());
-        let spans = bar_row("limits   5h ", 96.0, "", Token::Err, args, theme);
+        let spans = bar_row("context  ", 96.0, "", Token::Err, args, theme);
         assert_eq!(spans[1].style, theme.fg(Token::Err));
         assert_eq!(spans[2].style, theme.fg(Token::FgMuted));
     }
@@ -639,14 +643,14 @@ mod tests {
         );
         let repo = crate::app::repo::Status::parse("# branch.head main\n? x\n").unwrap();
         let text = |repo| -> Vec<String> {
-            card_lines(&card, (repo, false), Mark::None, 36, '*', now, theme)
+            card_lines(&card, (repo, None, false), Mark::None, 36, '*', now, theme)
                 .iter()
                 .map(ToString::to_string)
                 .collect()
         };
         assert_eq!(text(None).len(), 3);
         assert!(!text(None)[0].contains(">_"), "no shell: no mark");
-        let with_shell = card_lines(&card, (None, true), Mark::None, 36, '*', now, theme);
+        let with_shell = card_lines(&card, (None, None, true), Mark::None, 36, '*', now, theme);
         let title = with_shell[0].to_string();
         assert!(title.ends_with(" >_ 0m") && title.chars().count() == 36);
         let lines = text(Some(&repo));
@@ -669,7 +673,7 @@ mod tests {
         card.mcp = vec!["github".into(), "miko".into(), "slack".into()];
         card.mcp_used = vec!["miko".into(), "github".into()];
         let line = |theme, mark, n: usize| {
-            card_lines(&card, (None, false), mark, 36, '*', now, theme)[n]
+            card_lines(&card, (None, None, false), mark, 36, '*', now, theme)[n]
                 .to_string()
                 .trim()
                 .to_owned()
@@ -688,7 +692,7 @@ mod tests {
         assert!(line(theme, Mark::None, 0).contains(" C "), "the letter");
         card.mcp_used.clear();
         assert_eq!(
-            card_lines(&card, (None, false), Mark::None, 36, '*', now, theme).len(),
+            card_lines(&card, (None, None, false), Mark::None, 36, '*', now, theme).len(),
             3
         );
     }

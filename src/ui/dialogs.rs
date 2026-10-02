@@ -840,3 +840,132 @@ pub(super) fn draw_switcher(
         hint,
     );
 }
+
+/// Most rows the issues and pull requests popup shows at once; the list
+/// scrolls to keep the highlighted row in view.
+const LINK_ROWS: usize = 16;
+
+/// Draws the `i` popup: the session's own issue and pull request (marked
+/// `●`), then the repository's open pull requests and issues, each with
+/// its number, title and state.
+pub(super) fn draw_links(
+    frame: &mut Frame,
+    area: Rect,
+    viewer: &crate::app::links::Viewer,
+    theme: Theme,
+) {
+    use crate::app::links::{Link, LinkKind};
+
+    if let Some(body) = &viewer.body {
+        draw_link_body(frame, area, body, theme);
+        return;
+    }
+    let width: u16 = 76;
+    let title_room = usize::from(width).saturating_sub(30);
+    let muted = theme.fg(Token::FgMuted);
+    let lines: Vec<Line> = match &viewer.rows {
+        None => vec![Line::styled("  asking gh…", muted)],
+        Some(rows) if rows.is_empty() => vec![Line::styled(
+            "  nothing open (needs the gh CLI, logged in, in a GitHub repository)",
+            muted,
+        )],
+        Some(rows) => {
+            let first = (viewer.selected + 1).saturating_sub(LINK_ROWS);
+            let row = |(i, link): (usize, &Link)| {
+                let chosen = i == viewer.selected;
+                let style = if chosen {
+                    bold_if(theme.fg(Token::Accent), true)
+                } else {
+                    theme.fg(Token::Fg)
+                };
+                let marker = if chosen { "> " } else { "  " };
+                let own = if i < viewer.linked { "●" } else { " " };
+                let kind = match link.kind {
+                    LinkKind::Issue => "issue",
+                    LinkKind::Pr => "PR",
+                };
+                let title = truncate(&link.title, title_room);
+                Line::from(vec![
+                    Span::styled(format!("  {marker}"), style),
+                    Span::styled(format!("{own} "), theme.fg(Token::Ok)),
+                    Span::styled(format!("{kind:<5} #{:<5} ", link.number), style),
+                    Span::styled(format!("{title:<title_room$} "), style),
+                    Span::styled(link.state.clone(), muted),
+                ])
+            };
+            let shown = rows.iter().enumerate().skip(first).take(LINK_ROWS);
+            shown.map(row).collect()
+        }
+    };
+    let list_rows = u16::try_from(lines.len()).unwrap_or(u16::MAX);
+    let rect = centred(area, width, list_rows + 5);
+    frame.render_widget(Clear, rect);
+    let block = dialog_block("issues & pull requests", theme);
+    let inner = block.inner(rect);
+    frame.render_widget(block, rect);
+    let [_, list, _, hint] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(list_rows),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .areas(inner);
+    frame.render_widget(Paragraph::new(lines), list);
+    frame.render_widget(
+        Line::styled("j/k move · enter read · o browser · esc close  ", muted)
+            .alignment(Alignment::Right),
+        hint,
+    );
+}
+
+/// Most text rows the popup's text view shows; fewer on a short screen.
+const BODY_ROWS: u16 = 24;
+
+/// Draws the popup's text view: the issue's or pull request's number and
+/// title in the border, its text from the scrolled line on, and the
+/// position (`first line/lines`) before the hint.
+fn draw_link_body(frame: &mut Frame, area: Rect, body: &crate::app::links::Body, theme: Theme) {
+    use crate::app::links::{BODY_WIDTH, LinkKind};
+
+    let muted = theme.fg(Token::FgMuted);
+    let rows = BODY_ROWS.min(area.height.saturating_sub(7)).max(1);
+    let kind = match body.link.kind {
+        LinkKind::Issue => "issue",
+        LinkKind::Pr => "PR",
+    };
+    let head = format!("{kind} #{} · ", body.link.number);
+    let room = BODY_WIDTH.saturating_sub(head.chars().count());
+    let title = format!("{head}{}", truncate(&body.link.title, room));
+    let (lines, place): (Vec<Line>, String) = match &body.lines {
+        None => (vec![Line::styled("  asking gh…", muted)], String::new()),
+        Some(text) => {
+            let shown = text.iter().skip(body.scroll).take(usize::from(rows));
+            let lines = shown.map(|line| Line::styled(format!("  {line}"), theme.fg(Token::Fg)));
+            (
+                lines.collect(),
+                format!("{}/{} · ", body.scroll + 1, text.len()),
+            )
+        }
+    };
+    let rect = centred(area, 76, rows + 5);
+    frame.render_widget(Clear, rect);
+    let block = dialog_block(&title, theme);
+    let inner = block.inner(rect);
+    frame.render_widget(block, rect);
+    let [_, text, _, hint] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(rows),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .areas(inner);
+    frame.render_widget(Paragraph::new(lines), text);
+    frame.render_widget(
+        Line::styled(
+            format!("{place}j/k d/u scroll · o browser · esc back  "),
+            muted,
+        )
+        .alignment(Alignment::Right),
+        hint,
+    );
+}

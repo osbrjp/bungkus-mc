@@ -329,22 +329,22 @@ projects left, sessions over output on the right** (§4.3). Minimum size **80×2
 │   teh-cli      x 1 │┃ ┃  cache    read 402k · write 19k  ┃│  ⏺ Bash(ls ~/.claude/projects)           ▄████████████▄  │
 │ | warung-api       │┃ ┃  cost     $1.42 (list price)     ┃│    ⎿  -Users-me                         ▀▀▀▀▀▀█▀▀█▀▀▀▀▀▀ │
 │                    │┃ ┃  context  37% of 200k · 74k used ┃│       -Users-me-Documents                     █  █       │
-│                    │┃ ┃  limits   5h 42% · 7d 18%        ┃│       ...                                    ▀▀ ▀▀       │
-│                    │┃ ┃  * audit cart flow           / 3m┃│                                                          │
-│                    │┃ ┃  * stripe api check          / 3m┃│  ⏺ Bash(ls ~/.claude/projects/-Users-me/*.jsonl)         │
-│                    │┃ ┃  * a11y review               + 1m┃│                                                          │
-│                    │┃                                    ┃│  Allow Bash to run this command?                         │
-│                    │┃  / X #77c0 flaky payment test   41m┃│                                                          │
-│                    │┃    working · shell                 ┃│  ❯ 1. Yes                                                │
-│                    │┃    312k tok · - · ctx 22%          ┃│    2. Yes, and don't ask again for ls in this project    │
-│                    │┃                                    ┃│    3. No, and tell Claude what to do differently         │
-│                    │┃  ~ C #d402 seo audit      your turn┃│                                                          │
+│                    │┃ ┃  * audit cart flow           / 3m┃│       ...                                    ▀▀ ▀▀       │
+│                    │┃ ┃  * stripe api check          / 3m┃│                                                          │
+│                    │┃ ┃  * a11y review               + 1m┃│  ⏺ Bash(ls ~/.claude/projects/-Users-me/*.jsonl)         │
+│                    │┃                                    ┃│                                                          │
+│                    │┃  / X #77c0 flaky payment test   41m┃│  Allow Bash to run this command?                         │
+│                    │┃    working · shell                 ┃│                                                          │
+│                    │┃    312k tok · - · ctx 22%          ┃│  ❯ 1. Yes                                                │
+│                    │┃                                    ┃│    2. Yes, and don't ask again for ls in this project    │
+│                    │┃  ~ C #d402 seo audit      your turn┃│    3. No, and tell Claude what to do differently         │
 │                    │┃    done: "Three fixes, see above"  ┃│                                                          │
 │                    │┃    140k tok · $0.52 · ctx 21%      ┃│                                                          │
 │                    │┃                                    ┃│                                                          │
 │                    │┃  + C #9be2 bump deps        wrapped┃│                                                          │
 │                    │┃    22m · 38 tools · 2 subagents    ┃│                                                          │
 │                    │┃    61k tok · $0.98 · ctx -         ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
 │                    │┃                                    ┃│                                                          │
 │                    │┃                                    ┃│                                                          │
 │                    │┃                                    ┃│                                                          │
@@ -507,6 +507,12 @@ whether there is a header line.
   then `clean` or `N changed` (staged, unstaged, unmerged and untracked
   files), then `↑N` / `↓N` against the upstream when not zero. The branch
   is cut short first. Read every 5 s; absent outside a repository.
+  When the branch has an issue or a pull request on GitHub (issue #188)
+  their numbers end the line: `i188-… · clean · #188 PR #189`. The pull
+  request is the one `gh pr view` finds for the branch; the issue is the
+  number in a branch named `i{issue#}-…`, else the first issue the pull
+  request closes. Read through `gh` when the branch changes and every
+  minute for running sessions; absent without `gh` or a login.
 - MCP line, `fg-muted`: the MCP servers the session has used (a tool
   call named them, ARCHITECTURE §5.5), sorted by name; absent until the
   first such call. Servers that are only configured are not on it. ascii
@@ -534,8 +540,7 @@ whether there is a header line.
   `accent`) in column 0 of every line, with its name in `accent`.
 - Truncation: every line is cut to the inner width with a trailing `…`.
   Lines with a right-aligned field (elapsed, state word, subagent time) keep
-  the right field and truncate the left text. The usage `limits` line drops
-  its `↻` reset times first, then truncates; the `cost` line drops its
+  the right field and truncate the left text. The `cost` line drops its
   parenthetical first. The card mocks below are inner width 36; the
   expanded mock in §6.3 has the focus marker in column 1, leaving 35.
 
@@ -709,18 +714,23 @@ of truth: Figma file `HwlCHEFqRm9hfOfUbtuL4h`, node `17:3`
 (the frame generator with the geometry exported from Figma). Preview page:
 https://claude.ai/artifact/EGZhX83Qvh42tgeVLYxqvK.
 
-**Strip (screens ≥ 120×36).** With a session selected, the output pane
-gives its top three rows to a strip with the mini mascot (8×3, ASCII 3
-rows) at the right, so it never covers agent output (the PTY is three rows
-shorter); its mood follows the selected session. A click on it plays
+**Strip (every screen size).** The output pane always gives its top
+three rows to a strip with the mini mascot (8×3, ASCII 3 rows) at the
+right, so it never covers agent output (the PTY is three rows shorter) and
+a notification always has a place to show; its mood follows the selected
+session (idle with none). A click on it plays
 duck–hop–duck–hop–duck–look–blink (one pose per 350 ms tick; a single hop
 without motion) and shows a speech bubble with a random line from
-`QUOTES` (never the same twice in a row) for 4 s. A notification (a
-session needs you, a session failed: the same text the host terminal is
-told, §9) shows in the same bubble for 8 s, cut to the strip's width; a
-click's quote goes first. With no session the
-pane shows the big centred empty-state mascot as before. Smaller screens
-keep the corner mascot below. Pane titles carry their `cmd`/`alt`/`ctrl`
+`QUOTES` (never the same twice in a row) for 4 s. A notification shows in
+the same bubble for 8 s, cut to the strip's width; a click's quote goes
+first. The mascot announces three things, for any session in any project:
+a task completed (`#a3f1 finished: <name>`, on working → your turn; the
+bubble only, the host terminal is not told), a session needs you and a
+session failed (the same text the host terminal is told, §9). With no
+session the pane shows the big centred empty-state mascot under the strip,
+so both mascots are on screen. The mocks in §4 that show a full-size
+mascot in the pane's corner, or `/xx\` in its title bar, predate the
+strip. Pane titles carry their `cmd`/`alt`/`ctrl`
 digit: `[1] projects`, `[2] sessions`, `[3] output`, `[4] terminal`. While
 the terminal pane is hidden and the selected session's shell still runs,
 the output pane's bottom border carries `[4] terminal · t shows · T closes`
@@ -768,9 +778,9 @@ Usage rules for every bungkus product:
   decoration. Each eye cell renders as a bold `x`, fg `#0b120d`, bg leaf
   `#34ab52`.
 - Never draw the mascot over agent output, over cards, or in a status bar.
-  In mc it lives in the output pane's empty state (centred) and, while a
-  session runs, in the output pane's **top-right corner** — but only over
-  blank cells (below). Elsewhere: splash screens, `--version`, READMEs.
+  In mc it lives in the output pane's empty state (centred) and, always,
+  in the strip at the output pane's **top-right corner**, which the agent's
+  screen never reaches (above). Elsewhere: splash screens, `--version`, READMEs.
 - Never recolour it to theme tokens (the legs token is the one
   exception, for visibility); never stretch it; the terminal sprites below
   are the only pixel forms.
@@ -848,7 +858,7 @@ idle      lookL     duck      hop       stepL
   ▀  ▀      ▀  ▀    ▀▀█▀▀█▀▀    ▀  ▀     ▀   ▀
 ```
 
-**Mini sprite** (8×6 px → 8 cols × 3 rows), used when the session is busy;
+**Mini sprite** (8×6 px → 8 cols × 3 rows), used in the strip;
 the same frame set:
 
 ```
@@ -866,17 +876,12 @@ TTTGGUUU    hop   = ..GGGG.. / .GEGGEG. / TTTGGUUU / ..L..L.. / ..L..L.. / .....
    selected): centred, full size, with `Nothing wrapped yet.` / `n to
    start a session`; sequence `idle×2, lookL×2, idle, lookR×2, idle,
    blink, idle, duck, hop, duck, idle`.
-2. **While a session runs:** top-right corner of the output pane, one
-   column in from the right border, starting on the pane's first content
-   row. **Full** sprite (16×7 cells) when the session is quiet; **mini**
-   (8×3) when it is busy — the PTY produced output in the last ~1 s,
-   including the echo of the user's typing.
-   - **Never over output.** The sprite is drawn only when every target
-     cell in the emulator's visible screen is blank (space on the default
-     background). Otherwise the pane's top border carries a 4-char
-     title-bar form at its right end: `/..\` (in `ok`), or `/xx\` (in
-     `err`) when failed. The check runs every frame; it is at most 16×7
-     cells.
+2. **Always:** the strip at the top of the output pane, the **mini**
+   sprite (8×3) one column in from the right border, on every screen size
+   and in every view of the pane (a session, the empty state, a stopped
+   session, the quick-session note).
+   - **Never over output.** The strip's three rows are the mascot's and
+     its bubble's; the agent's screen starts under them.
    - **Mood follows the session state** (350 ms ticks on the global
      clock): needs you `duck, hop, duck, idle, lookL×3, idle` (it sits
      top-right, so looking left is looking at the agent's prompt);
@@ -888,7 +893,7 @@ TTTGGUUU    hop   = ..GGGG.. / .GEGGEG. / TTTGGUUU / ..L..L.. / ..L..L.. / .....
    tick is armed from the view state, so a hidden or static mascot costs
    no wake-ups.
 4. When the locale has no half-blocks (non-UTF-8) the 4-line ASCII form is
-   used instead (corner or centred alike):
+   used instead (strip or centred alike):
 
 ```
     /\
@@ -1159,22 +1164,21 @@ the room (§5.1); `/ filter` and `, settings` are listed in `?` help only.
  ┃  cache    read 402k · write 19k  
  ┃  cost     $1.42 (list price)     
  ┃  context  ████░░░░░░ 37% 74k/200k
- ┃  limits   5h ████░░░░░░ 42%
- ┃           7d ██░░░░░░░░ 18%        
  ┃  * research hooks            / 3m
  ┃  * research codex            / 3m
 ```
 
-Shown only while the sessions pane is focused (§5.2). `context` and each
-plan-limit window show a 10-cell progress bar (solid `█` then shaded `░`,
+Shown only while the sessions pane is focused (§5.2). Plan limits are not
+on the card; they are in the getah bar (§6.1). `context` shows a 10-cell
+progress bar (solid `█` then shaded `░`,
 the look of indicatif's default bar; filled to the nearest cell, one at
-least for any use), then the percentage; `context` adds used / reported
+least for any use), then the percentage and used / reported
 `context_window_size` when the card is wide enough (200k here; 1M has
 been observed). The filled part is `ok`, `warn` from 80 % and `err` from
-90 % (context) or 95 % (limits); the rest is `fg-muted`.
+90 %; the rest is `fg-muted`.
 Per-subagent tokens are not shown (no source outside transcripts). A routed
 session adds a `model    haiku · routed 0.82` line (§10). A Codex card has
-no `cache`/`cost` lines and its `limits` line reads `5h 10% · 7d 3%`.
+no `cache`/`cost` lines.
 
 ## 7. Motion
 
@@ -1228,6 +1232,8 @@ the same frame.
 | `,`                                               | settings: workspace, default agent, theme, icons, editor (§5.8) |
 | `o`                                               | open the selected project in the user's editor (the `editor` setting, else `$VISUAL`, else `$EDITOR`): `vi`/`vim`/`nvim` run in a popup over the panes (mode word `EDITOR`, every key goes to it, it closes when the editor quits); any other editor is started on its own with the folder as its argument; with none of the three set, the first of `nvim` / `vim` / `vi` on `PATH` in the same popup, else the desktop's opener (`open` / `xdg-open`) |
 | `O`                                               | open the selected project's folder with the desktop's opener (`open` / `xdg-open`): Finder or the file manager |
+| `P` · `I`                                         | open the pull request (`P`) or the issue (`I`) of the selected session's branch in the browser, with the desktop's opener (`open` / `xdg-open`). With none linked (or no session selected) the hint line says so |
+| `i`                                               | issues & pull requests popup (§5.5): the session's own issue and pull request first (marked `●`), then the repository's open pull requests and issues (30 each at most), each with number, title and state. `j`/`k` · `↓`/`↑` move, `enter` shows the row's text in the popup (as written, Markdown not rendered; wrapped to 70 columns, wide characters counting two; title in the border, `first line/lines` before the hint; `j`/`k` scroll, `d`/`u` or `pgdn`/`pgup` by 10 lines, `g`/`G` to the ends, `esc`, `q` or `h` back to the list), `o` opens the row in the browser from either (the popup stays), `esc` or `q` closes. `asking gh…` shows until `gh` answered |
 | `t`                                               | show / hide the terminal pane: the user's `$SHELL` in the lower third of the output pane, in mc's own emulator (no tmux or other program). Every session has its own shell, started in the folder the session works in (its worktree when it has one) the first time `t` is pressed on it; the pane follows the selected session and is absent on one without a shell, and its title names the session. With no session of mc's selected (a project without sessions, an outside session) the shell belongs to the project folder, or to the workspace root on a row that is no folder. A session's shell does not outlive it: when the session ends (it exits, `x` stops it) or is forgotten, mc hangs up on its shell. A card whose session has a shell carries `>_` in `ok` before the right-hand word of its title line, shown or hidden. Showing it gives it the keys (mode word `TERMINAL`); `ctrl-\` gives them back to mc and leaves it showing; `ctrl-h` goes left to the sessions pane and `ctrl-k` up to the output pane (INTERACT), from where `ctrl-j` comes back down while the pane shows; `ctrl-j`/`ctrl-l` in the terminal stay the shell's (enter, clear screen), except in kitty, where they move to the kitty window below / to the right as from the other panes; `cmd`/`alt`/`ctrl` + `4` shows the pane and gives it the keys from any pane (starting the shell when there is none), and + `1`–`3` leave it for that pane; hiding keeps the shells running and leaves a `[4] terminal` marker on the output pane's bottom border; `exit` (or `ctrl-d`) closes one, and when it had the keys they go up to the output pane, as `ctrl-k` does |
 | `T`                                               | close the selected session's shell, shown or hidden: mc hangs up on it (SIGHUP), as a terminal window that closes does; the pane goes when the shell has ended |
 | `?`                                               | help                                    |
@@ -1283,6 +1289,7 @@ acceptance and permission answers are typed. Exceptions:
 |----------------------|-------------------------------------------------------------------|
 | `ctrl-\` (default)   | leave INTERACT: NORMAL with the **sessions pane** focused. Configurable: `interactExit` in config, any single chord (suggested alternate: `ctrl-^`) |
 | `ctrl-h`             | leave INTERACT to the sessions pane, as everywhere (the agent never sees it) |
+| `jj` · `jk` (fast)   | leave INTERACT to the sessions pane when the second key follows the `j` within 200 ms. The `j` has already reached the agent, so mc sends one backspace to take it back; slower pairs are ordinary typing |
 | `ctrl-l`             | swallowed: the output pane is already the rightmost (the agent never sees it) |
 | `cmd`/`alt`/`ctrl` + `1`–`3` | focus projects / sessions / output (the agent never sees them); also in NORMAL. Cmd only arrives when the terminal does not keep it for its tabs |
 | `ctrl-z`             | swallowed (a suspended agent cannot be resumed from inside a pane)  |
@@ -1387,7 +1394,7 @@ launches the agent with the mapped model. What the user sees:
 | quit with running sessions     | dialog (§5.5); each descendant line is `<name> <:ports> pid <n>`, ports omitted when unknown |
 | session wrapped                | `Bungkus! #a3f1 wrapped in 22m — 38 tools, 2 subagents.`                   |
 | session failed                 | `#a3f1 failed: <last line>. enter to view · r to resume`                   |
-| structure unavailable          | cross-eyed corner mascot + `Live tree unavailable for this session — output still works.` |
+| structure unavailable          | cross-eyed strip mascot + `Live tree unavailable for this session — output still works.` |
 | Codex hooks not trusted        | `Codex hooks are not trusted yet: run codex, then /hooks to approve. Output still works.` |
 | Codex resume without hooks     | `not resumable — hooks off`                                                |
 | routing first use              | dialog (§10)                                                               |

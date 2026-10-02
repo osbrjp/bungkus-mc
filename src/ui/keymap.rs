@@ -67,6 +67,13 @@ pub(crate) enum Action {
     Editor,
     /// Open the selected project's folder with the desktop's opener.
     Folder,
+    /// Open the selected session's pull request in the browser.
+    PullRequest,
+    /// Open the selected session's issue in the browser.
+    Issue,
+    /// List the session's and the repository's open issues and pull
+    /// requests in a popup.
+    Links,
     /// Show or hide the terminal pane below the output pane.
     Terminal,
     /// Close the selected project's shell.
@@ -515,6 +522,30 @@ pub(crate) const BINDINGS: &[Binding] = &[
         scope: Scope::Global,
     },
     Binding {
+        keys: &[Key::Press(KeyCode::Char('P'), KeyModifiers::SHIFT), c('P')],
+        label: "P",
+        action: Action::PullRequest,
+        help: "open the PR",
+        hint: None,
+        scope: Scope::Global,
+    },
+    Binding {
+        keys: &[Key::Press(KeyCode::Char('I'), KeyModifiers::SHIFT), c('I')],
+        label: "I",
+        action: Action::Issue,
+        help: "open the issue",
+        hint: None,
+        scope: Scope::Global,
+    },
+    Binding {
+        keys: &[c('i')],
+        label: "i",
+        action: Action::Links,
+        help: "issues & PRs",
+        hint: None,
+        scope: Scope::Global,
+    },
+    Binding {
         keys: &[c('t')],
         label: "t",
         action: Action::Terminal,
@@ -695,6 +726,9 @@ impl Action {
             | Self::Resume
             | Self::Forget
             | Self::QuickSession
+            | Self::PullRequest
+            | Self::Issue
+            | Self::Links
             | Self::MoveQuick
             | Self::MakeProject => Group::Sessions,
             Self::NewProject
@@ -742,7 +776,7 @@ pub(crate) fn help_groups(scope: Scope) -> Vec<(Group, Vec<(&'static str, &'stat
 /// pass everything else to the agent; listed in the key menu.
 pub(crate) const AGENT_KEYS: [(&str, &str); 4] = [
     ("ctrl-\\", "leave · menu"),
-    ("ctrl-h", "to sessions"),
+    ("ctrl-h · jj · jk", "to sessions"),
     ("ctrl-m", "move (popup)"),
     ("cmd/alt-1..4", "focus a pane"),
 ];

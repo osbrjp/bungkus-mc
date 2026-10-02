@@ -268,6 +268,26 @@ kernel sends SIGHUP), or, for a shell, on `T` or when its session ends (mc sends
 to its process group and forgets it once it has exited). Any other editor is spawned once with an argument
 vector, null stdio and its own process group, and left alone.
 
+### 3.6 Issues and pull requests (`src/app/links.rs`)
+
+mc links a session to the pull request and issue of the branch its folder
+is on, through the user's own `gh` CLI (fixed argv, no shell, null stdin,
+own process group; mc holds no token). Per folder: `gh pr view --json
+number,title,state,url,closingIssuesReferences`, then `gh issue view <n>
+--json number,title,state,url` for the number in a branch named
+`i{issue#}-…`; without one the issue is the first the pull request
+closes. The read
+runs on a background thread, one at a time, after the 5 s repository
+status: for a folder whose branch is not the one last read, and every 60 s
+for the folders of running sessions. Results are kept per folder in the
+model (not in `sessions.json`; they are read again on start) and arrive
+as `AppEvent::Links`. The `i` popup asks `gh pr list` and `gh issue list`
+(30 each) when it opens, and `gh issue view <url> --json body` (or `gh pr
+view`) when `enter` asks for a row's text, which is sanitised line by
+line, wrapped and capped at 2000 lines. `P`, `I` and `o` in the popup hand the URL to
+the desktop's opener, the same path as `O`. Without `gh`, a login or a
+GitHub remote every call fails and nothing is linked.
+
 ## 4. Data flow
 
 ### 4.1 Live output
@@ -918,9 +938,9 @@ name. No recursion, no project file.
    `recv_timeout(deadline)` with `deadline = min(next animation tick, each
    Term's sync_timeout())`, then drains with `try_recv` and renders once;
    the 350 ms animation tick exists only while something animated is
-   visible and `motion` is on; the corner mascot's blank-cell check runs
-   per render on at most 16×7 cells; "busy" = PTY output within the last
-   1 s (an `Instant` set in the `PtyOutput` handler — typing echo counts).
+   visible and `motion` is on; the mascot strip is three rows of the
+   output pane the PTY never gets, so drawing it needs no per-frame check
+   of the agent's screen.
 9. Shutdown (§3.2) runs on the UI thread with a "stopping…" render between
    steps (the waits are short and bounded); the raw-mode guard's `Drop`
    restores the terminal last.
