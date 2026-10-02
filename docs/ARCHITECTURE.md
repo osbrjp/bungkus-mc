@@ -621,23 +621,43 @@ name → first prompt line → `untitled`. Stored in `sessions.json` as
 
 ### 5.5 MCP servers on the card (`mcp.rs`)
 
-A card lists the MCP servers its session is configured with (DESIGN §5.2).
-Hooks and the status line do not report them, so `agent/mcp.rs` reads the
-agents' own config files once, when the session is launched:
+A card lists the MCP servers of its session (DESIGN §5.2). Neither agent
+reports them, so `agent/mcp.rs` combines two sources:
+
+**1. The agents' own config files** — what is configured.
 
 | Agent | Files | Names |
 |-------|-------|-------|
 | Claude | `<project>/.mcp.json`; `.claude.json` in `$CLAUDE_CONFIG_DIR`, else the home directory | keys of `mcpServers` in the project file, in the user file, and in the user file's `projects[<project>]`; less that entry's `disabledMcpjsonServers` / `disabledMcpServers` |
 | Codex | `config.toml` in `$CODEX_HOME`, else `~/.codex` | `[mcp_servers.<name>]` table headers (a line scan, no TOML crate) |
 
+**2. Hook events** — what is used. A `PreToolUse` whose `tool_name` is
+`mcp__<server>__<tool>` adds `<server>` (less Claude's `claude_ai_` /
+`plugin_` prefix). This is the only source for claude.ai connectors and
+plugin servers, which are in no config file; they show from their first
+tool call.
+
+Cost (measured on a 220 KB `.claude.json`, release build):
+
+- The files are checked at launch and every 5 s (`EXTERNAL_EVERY`) on a
+  background thread, never on the UI thread. A check is two `stat` calls
+  per running session (about 5 µs); the card keeps the files' mtime and
+  size, and nothing is opened while they are unchanged.
+- A changed file is parsed as a stream (`serde_json::from_reader`,
+  `IgnoredAny` for everything but the names): about 2 ms, with a read
+  buffer of 8 KiB instead of the file in memory. Claude rewrites
+  `.claude.json` often while it works, so this runs regularly; an event is
+  sent only when a file changed.
+- Held per card: the names (≤ 12 × ≤ 24 characters) and one stamp.
+
+Rules:
+
 - **Names only.** Commands, arguments and `env` values are never kept;
   names are sanitised, cut to 24 characters, sorted, at most 12.
-- **Configured, not connected.** A server that failed to start still shows;
-  servers from plugins, claude.ai connectors and managed settings are not
-  in these files and do not show. A server added while the session runs
-  shows after the next launch or resume.
+- **Configured or used, not "connected".** A configured server that failed
+  to start still shows; servers from managed settings show only once used.
 - A missing, malformed or over-8-MiB file gives no names; nothing is
-  persisted.
+  persisted, and a server a tool call named stays listed for the session.
 
 ## 6. Usage figures — sources, verified vs assumed
 

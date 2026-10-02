@@ -545,16 +545,16 @@ mod tests {
             None,
             now,
         );
-        card.mcp = vec!["blender".into(), "github".into()];
+        card.mcp = vec!["github".into(), "miko".into()];
         let line = |theme, mark, n: usize| {
             card_lines(&card, None, mark, 36, '*', now, theme)[n]
                 .to_string()
                 .trim()
                 .to_owned()
         };
-        assert_eq!(line(theme, Mark::None, 2), "mcp blender · github");
+        assert_eq!(line(theme, Mark::None, 2), "mcp github · miko");
         let nerd = theme.with_view(IconSet::Nerd, true, true);
-        assert_eq!(line(nerd, Mark::None, 2), "\u{f1e6} blender  \u{f09b}");
-        assert_eq!(line(nerd, Mark::Focused, 6), "mcp      blender · github");
+        assert_eq!(line(nerd, Mark::None, 2), "\u{f09b}  \u{f1e6} miko");
+        assert_eq!(line(nerd, Mark::Focused, 6), "mcp      github · miko");
     }
 }

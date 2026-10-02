@@ -76,6 +76,9 @@ pub(crate) enum AppEvent {
     External(Vec<crate::external::External>),
     /// The git branch and status of the session folders in a repository.
     Repos(Vec<(PathBuf, repo::Status)>),
+    /// The configured MCP servers of sessions whose config files changed,
+    /// with the files' state when they were read.
+    Mcp(Vec<(SessionId, Vec<String>, agent::mcp::Stamp)>),
     /// The host terminal went away (input closed).
     HostGone,
     /// A newer release exists (the hourly check).
@@ -254,6 +257,7 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<bool> {
             if matches!(event, AppEvent::External(_) | AppEvent::Worktrees(_)) {
                 rescan(&mut model);
                 scan_repos(&mut model, &tx);
+                scan_mcp(&mut model, &tx);
             }
             let Some(cmd) = model.update(event) else {
                 continue;
@@ -482,6 +486,38 @@ fn scan_repos(model: &mut Model, tx: &SyncSender<AppEvent>) {
     });
 }
 
+/// Reads the MCP servers of every running session whose config files
+/// changed, on a background thread (at launch and every
+/// [`EXTERNAL_EVERY`]), and reports them as [`AppEvent::Mcp`].
+///
+/// A session whose files are as its card last saw them costs two `stat`
+/// calls. One scan runs at a time.
+fn scan_mcp(model: &mut Model, tx: &SyncSender<AppEvent>) {
+    let sessions: Vec<_> = model
+        .cards
+        .iter()
+        .filter(|card| card.running())
+        .map(|card| (card.id, card.kind, card.project.clone(), card.mcp_stamp))
+        .collect();
+    if sessions.is_empty() || model.mcp_scan {
+        return;
+    }
+    model.mcp_scan = true;
+    let tx = tx.clone();
+    thread::spawn(move || {
+        let var = |name: &str| std::env::var(name).ok();
+        let changed: Vec<_> = sessions
+            .into_iter()
+            .filter_map(|(id, kind, project, seen)| {
+                let stamp = agent::mcp::stamp(kind, &project, var);
+                (seen != Some(stamp)).then(|| (id, agent::mcp::servers(kind, &project, var), stamp))
+            })
+            .collect();
+        // reason: mc may have quit meanwhile.
+        let _ = tx.send(AppEvent::Mcp(changed));
+    });
+}
+
 /// Lists the workspace again (every [`EXTERNAL_EVERY`]), so a folder made
 /// outside mc (a new git worktree, a clone) shows up in the projects pane;
 /// the selection stays on its project.
@@ -696,7 +732,6 @@ fn launch(
     };
     let extra_args = extra_args(model, &agent.args, kind, worktree.as_deref());
     card.worktree = worktree;
-    card.mcp = agent::mcp::servers(kind, &project, |name| std::env::var(name).ok());
     let argv = agent::argv(kind, &program, &extra_args, &launch);
     let id = launch.id.0.hyphenated().to_string();
     let mut extra = vec![("BUNGKUS_MC_SESSION", OsStr::new(&id))];
@@ -750,6 +785,7 @@ fn launch(
         }
     }
     model.add_card(card);
+    scan_mcp(model, tx);
 }
 
 /// Starts `command` (program first, looked up on `PATH`) in a PTY of

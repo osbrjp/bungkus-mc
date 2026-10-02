@@ -267,7 +267,7 @@ A TUI does not choose the font. We choose code points.
 | INTERACT      | U+F11C (kbd)   | `►`     | `>`   | N |
 | limit bar     | —              | `▮▯`    | `#-`  | N |
 | agent badge   | `C` / `X` letter in `accent`, all sets |
-| MCP server    | U+F1E6 (plug) + name; brand glyph alone (once per brand) when a word of the name is: `github` U+F09B, `gitlab` U+F296, `slack` U+F198, `chrome` U+F268, `playwright`/`puppeteer`/`browser` U+F0AC (globe), `aws`/`amazon` U+F270, `gmail` U+F0E0, `google`/`drive` U+F1A0, `postgres`/`sqlite`/`mysql`/`supabase` U+F1C0 (database), `docker` U+F308 | name | name | N |
+| MCP server    | logo alone (once per logo) when a word of the name is in `MCP_BRANDS` (`ui/icons.rs`: about 120 rows — GitHub, GitLab, Slack, Figma, Blender, Chrome, Playwright, Google Drive, Gmail, AWS, Azure, Cloudflare, Vercel, Supabase, Postgres, MongoDB, Redis, Docker, Kubernetes, Notion, Jira, Sentry, Stripe, …); else the glyph of its kind from `MCP_KINDS` (CMS such as Payload, files, memory, database, web, search, terminal, docs, …) or U+F1E6 (plug), then the name. Code points come from Nerd Fonts' `glyphnames.json`; some logos (Figma, Playwright, Notion, …) need Nerd Fonts 3.3 or newer | name | name | N |
 
 Nerd Font code points are private-use; patched "Mono" variants render them
 1 cell, "Propo" variants may not (set `icons: "ascii"` then). Glyphs
@@ -507,11 +507,11 @@ whether there is a header line.
   then `clean` or `N changed` (staged, unstaged, unmerged and untracked
   files), then `↑N` / `↓N` against the upstream when not zero. The branch
   is cut short first. Read every 5 s; absent outside a repository.
-- MCP line, `fg-muted`: the MCP servers configured for the session when
-  it started (ARCHITECTURE §5.5), sorted by name; absent when there are
-  none. ascii and unicode sets: `mcp` then the names joined by ` · `. nerd
-  set: per server its brand glyph alone (§3), or the plug glyph and the
-  name when it has none, two spaces apart. The expanded card (§6.3) shows
+- MCP line, `fg-muted`: the MCP servers the session is configured with
+  or has used (ARCHITECTURE §5.5), sorted by name and kept current while
+  it runs; absent when there are none. ascii and unicode sets: `mcp` then the names joined by ` · `. nerd
+  set: per server its logo alone (§3), or a kind glyph or the plug and
+  the name when it has none, two spaces apart. The expanded card (§6.3) shows
   an `mcp` row with every name in all sets instead, so a glyph can always
   be read as a word.
 - Gutter column: `┃` in `warn` for needs-you, `err` for failed, space otherwise.
