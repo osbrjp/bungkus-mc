@@ -1,25 +1,25 @@
- bungkus-mc  kedai-web › sessions      x 1 failed · | 1 working · v0.1.0-beta.5
-┏ [2] sessions · kedai-web ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃ ┃x C #a3f1 checkout redesign                                           failed┃
-┃ ┃  exit 1 · boom                                                             ┃
-┃ ┃  - tok · - · ctx -                                                         ┃
-┃              ╔ quit? ═════════════════════════════════════════╗              ┃
-┃> | C #a3f2 fl║                                                ║            0m┃
-┃    output onl║  Stopping 1 session and what it started:       ║              ┃
-┃    tokens   i║                                                ║              ┃
-┃    cache    r║ >[stop] C #a3f2 flaky payment test             ║              ┃
-┃    cost     -║  [stop] zsh pid 4460                           ║              ┃
-┃    context  -║  [stop] node pid 4470                          ║              ┃
-┃              ║  [stop] vite :5173 pid 4471                    ║              ┃
-┃  + C #a3f3 bu║  [stop] esbuild helper pid 4480                ║       wrapped┃
-┃    0m · 0 too║  [keep] com.docker.backend pid 4500            ║              ┃
-┃    - tok · - ║  [stop] postgres :5432 pid 4502                ║              ┃
-┃              ║                                                ║              ┃
-┃              ║             space keep/stop · y quit · n stay  ║              ┃
-┃              ╚════════════════════════════════════════════════╝              ┃
-┃                                                                              ┃
-┃                                                                              ┃
-┃                                                                              ┃
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
- NORMAL  enter → agent · n new · x stop · ? keys
+ bungkus-mc  ~/Works/OSBR › kedai-web  x 1 failed · | 1 working · v0.1.0-beta.6
+┌ [1] projects ──────┐┏ [2] sessions · kedai-web ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+│ / search           │┃> | C #a3f2 flaky payment test                        0m┃
+│:| 1 kedai… | 1 x 1 │┃    output only · live tree unavailable                 ┃
+│ + 4 more (e)       │┃    tokens   in - · out -                               ┃
+│              ╔ quit? ═════════════════════════════════════════╗              ┃
+│              ║                                                ║              ┃
+│              ║  Stopping 1 session and what it started:       ║━━━━━━━━━━━━━━┛
+│              ║                                                ║ ─────────────┐
+│              ║ >[stop] C #a3f2 flaky payment test             ║──┐    ▄██▄   │
+│              ║  [stop] zsh pid 4460                           ║m │◂ ▄██████▄ │
+│              ║  [stop] node pid 4470                          ║──┘    ▀  ▀   │
+│              ║  [stop] vite :5173 pid 4471                    ║              │
+│              ║  [stop] esbuild helper pid 4480                ║              │
+│              ║  [keep] com.docker.backend pid 4500            ║              │
+│              ║  [stop] postgres :5432 pid 4502                ║              │
+│              ║                                                ║              │
+│              ║             space keep/stop · y quit · n stay  ║              │
+│              ╚════════════════════════════════════════════════╝              │
+│                    ││                                                        │
+│                    ││                                                        │
+│                    ││                                                        │
+└────────────────────┘└────────────────────────────────────────────────────────┘
+ NORMAL  enter → agent · n new · x stop · o edit · t term · ? keys
 cursor: hidden

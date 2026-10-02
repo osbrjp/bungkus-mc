@@ -46,12 +46,47 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
     let block = pane(&title, focused, theme);
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    let indices = model.project_cards();
-    let external = project.map_or_else(Vec::new, |p| model.external_in(&p.path));
-    if indices.is_empty() && external.is_empty() {
+    let lines = rows(inner, model, theme);
+    if lines.is_empty() {
         draw_empty(frame, inner, model, theme);
         return;
     }
+    // The selected block: a card without its blank line, or an outside
+    // session's two lines.
+    let chosen = |(_, row): &(Line, Option<usize>)| *row == Some(model.card);
+    let top = lines.iter().position(chosen).unwrap_or(0);
+    let height = lines.iter().filter(|line| chosen(line)).count();
+    let lines: Vec<Line> = lines.into_iter().map(|(line, _)| line).collect();
+    frame.render_widget(Paragraph::new(lines), inner);
+    crate::ui::shade(frame, inner, top, height, theme);
+}
+
+/// Returns the row of the sessions pane (a card, or an outside session
+/// after the cards: what [`Model::card`] counts) drawn at screen row
+/// `row` of pane `area`, for mouse hit tests.
+///
+/// # Returns
+///
+/// `None` on the border, between cards, on the "outside" heading and
+/// below the list.
+#[must_use]
+pub(crate) fn session_at(area: Rect, model: &Model, row: u16) -> Option<usize> {
+    let inner = pane("", false, model.theme).inner(area);
+    let line = row.checked_sub(inner.y).filter(|l| *l < inner.height)?;
+    let lines = rows(inner, model, model.view_theme());
+    lines.get(usize::from(line)).and_then(|(_, row)| *row)
+}
+
+/// Returns the lines of the sessions pane inside `inner`, top one first,
+/// each with the row it belongs to (the blank line under a card and the
+/// "outside" heading belong to none). The list starts at the first card
+/// that still lets the selected one fit. Empty when the project has no
+/// session.
+fn rows(inner: Rect, model: &Model, theme: Theme) -> Vec<(Line<'static>, Option<usize>)> {
+    let project = model.selected_project();
+    let focused = model.focus == Focus::Sessions;
+    let indices = model.project_cards();
+    let external = project.map_or_else(Vec::new, |p| model.external_in(&p.path));
     let width = usize::from(inner.width);
     let spin = spinner(model.frame, theme);
     let cards: Vec<Vec<Line>> = indices
@@ -77,22 +112,24 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
         start -= 1;
         used += cards[start].len();
     }
-    let shown =
-        |from: usize, to: usize| -> usize { cards.iter().take(to).skip(from).map(Vec::len).sum() };
-    // The selected block: a card without its blank line, or an outside
-    // session's two lines below the cards and their heading.
-    let (top, height) = match cards.get(model.card) {
-        Some(card) => (shown(start, model.card), card.len() - 1),
-        None => (
-            shown(start, cards.len()) + 1 + 2 * (model.card - cards.len()),
-            2,
-        ),
-    };
-    let mut lines: Vec<Line> = cards.into_iter().skip(start).flatten().collect();
+    let mut lines: Vec<(Line, Option<usize>)> = cards
+        .into_iter()
+        .enumerate()
+        .skip(start)
+        .flat_map(|(pos, card)| {
+            let last = card.len() - 1;
+            card.into_iter()
+                .enumerate()
+                .map(move |(n, line)| (line, (n < last).then_some(pos)))
+        })
+        .collect();
     if !external.is_empty() {
-        lines.push(Line::styled(
-            " outside · enter take over · x stop",
-            theme.fg(Token::FgMuted),
+        lines.push((
+            Line::styled(
+                " outside · enter take over · x stop",
+                theme.fg(Token::FgMuted),
+            ),
+            None,
         ));
         for (pos, ext) in external.into_iter().enumerate() {
             let selected = focused && pos + indices.len() == model.card;
@@ -101,11 +138,12 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
             } else {
                 "in its own terminal".to_owned()
             };
-            lines.extend(external_lines(ext, selected, &place, width, spin, theme));
+            let row = Some(pos + indices.len());
+            let ext = external_lines(ext, selected, &place, width, spin, theme);
+            lines.extend(ext.map(|line| (line, row)));
         }
     }
-    frame.render_widget(Paragraph::new(lines), inner);
-    crate::ui::shade(frame, inner, top, height, theme);
+    lines
 }
 
 /// Returns a session running outside mc as two lines: marker, glyph,
@@ -292,44 +330,91 @@ fn card_lines(
     if let Some(repo) = repo {
         lines.push(body(&repo.label(body_width), theme.fg(Token::FgMuted)));
     }
-    if mark == Mark::Focused {
-        for row in expanded_usage(card) {
-            lines.push(body(&row, text));
-        }
-    } else {
-        let (usage, ctx, token) = compact_usage(card);
-        lines.push(Line::from(vec![
-            edge.clone(),
-            Span::styled(gutter, theme.fg(gutter_token)),
-            Span::styled(format!("  {usage}"), text),
-            Span::styled(ctx, theme.fg(token)),
-        ]));
+    if !card.mcp.is_empty() && mark != Mark::Focused {
+        let line = mcp_line(&card.mcp, theme.icons);
+        lines.push(body(&line, theme.fg(Token::FgMuted)));
     }
+    let lead = [
+        edge.clone(),
+        Span::styled(gutter, theme.fg(gutter_token)),
+        "  ".into(),
+    ];
+    let rows = usage_rows(card, mark == Mark::Focused, body_width, text, theme);
+    let prefixed = |row: Vec<Span<'static>>| lead.iter().cloned().chain(row).collect();
+    lines.extend(rows.into_iter().map(prefixed));
     let skip = card.subagents.len().saturating_sub(SUBAGENT_ROWS);
     for sub in card.subagents.iter().skip(skip) {
-        let mark = if sub.ended.is_some() {
-            theme.icons.icon(Icon::Wrapped)
-        } else {
-            spin
-        };
-        let time = format!("{}m", minutes(sub.started, sub.ended.unwrap_or(now)));
-        let right_len = time.len() + 2;
-        let desc = truncate(&sub.description, body_width.saturating_sub(right_len + 2));
-        let pad = body_width.saturating_sub(desc.chars().count() + 2 + right_len);
-        lines.push(Line::from(vec![
-            edge.clone(),
-            Span::styled(gutter, theme.fg(gutter_token)),
-            Span::styled(
-                format!("  {} ", theme.icons.icon(Icon::Subagent)),
-                theme.fg(Token::FgMuted),
-            ),
-            Span::styled(desc, text),
-            Span::raw(" ".repeat(pad)),
-            Span::styled(format!("{mark} "), theme.fg(Token::Ok)),
-            Span::styled(time, theme.fg(Token::FgMuted)),
-        ]));
+        let mut spans = vec![edge.clone(), Span::styled(gutter, theme.fg(gutter_token))];
+        spans.extend(subagent_spans(sub, body_width, spin, now, text, theme));
+        lines.push(Line::from(spans));
     }
     lines
+}
+
+/// Returns a subagent row after the card's two edge columns: glyph,
+/// description, then its state glyph and time at the right of `width`.
+fn subagent_spans(
+    sub: &crate::app::sessions::Subagent,
+    width: usize,
+    spin: char,
+    now: Instant,
+    text: Style,
+    theme: Theme,
+) -> [Span<'static>; 5] {
+    let mark = if sub.ended.is_some() {
+        theme.icons.icon(Icon::Wrapped)
+    } else {
+        spin
+    };
+    let time = format!("{}m", minutes(sub.started, sub.ended.unwrap_or(now)));
+    let right_len = time.len() + 2;
+    let desc = truncate(&sub.description, width.saturating_sub(right_len + 2));
+    let pad = width.saturating_sub(desc.chars().count() + 2 + right_len);
+    [
+        Span::styled(
+            format!("  {} ", theme.icons.icon(Icon::Subagent)),
+            theme.fg(Token::FgMuted),
+        ),
+        Span::styled(desc, text),
+        Span::raw(" ".repeat(pad)),
+        Span::styled(format!("{mark} "), theme.fg(Token::Ok)),
+        Span::styled(time, theme.fg(Token::FgMuted)),
+    ]
+}
+
+/// Returns the compact MCP line (DESIGN §5.2): glyphs in the `nerd` set,
+/// `mcp` and the names otherwise. Servers of one brand share one glyph.
+fn mcp_line(servers: &[String], icons: IconSet) -> String {
+    let mut labels: Vec<String> = Vec::new();
+    for label in servers.iter().map(|s| icons.mcp(s)) {
+        if !labels.contains(&label) {
+            labels.push(label);
+        }
+    }
+    match icons {
+        IconSet::Nerd => labels.join("  "),
+        IconSet::Ascii | IconSet::Unicode => format!("mcp {}", labels.join(" · ")),
+    }
+}
+
+/// Returns the usage rows of a card: the expanded rows when it is the
+/// focused one, else the one compact line with its context figure in the
+/// threshold colour.
+fn usage_rows(
+    card: &Card,
+    expanded: bool,
+    width: usize,
+    text: Style,
+    theme: Theme,
+) -> Vec<Vec<Span<'static>>> {
+    if expanded {
+        return expanded_usage(card, width, text, theme);
+    }
+    let (usage, ctx, token) = compact_usage(card);
+    vec![vec![
+        Span::styled(usage, text),
+        Span::styled(ctx, theme.fg(token)),
+    ]]
 }
 
 /// Returns the context fill for display: `None` when unknown or once the
@@ -359,37 +444,93 @@ fn compact_usage(card: &Card) -> (String, String, Token) {
     (format!("{tok} tok · {cost} · "), ctx, token)
 }
 
-/// Returns the expanded usage rows of the selected card (DESIGN §6.3).
-fn expanded_usage(card: &Card) -> Vec<String> {
+/// Cells of the bars on the selected card: one per 10 %.
+const BAR: u8 = 10;
+
+/// Returns a bar row of the selected card: `label`, a [`crate::ui::bar`]
+/// of [`BAR`] cells, the percentage and (when `width` has room) `detail`,
+/// as `context  ██░░░░░░░░ 23% 45k/200k`.
+///
+/// The filled part takes `fill` (the row's threshold colour) and the rest
+/// `fg-muted`; the shapes differ too, so it reads as a bar without colour.
+fn bar_row(
+    label: &str,
+    pct: f64,
+    detail: &str,
+    fill: Token,
+    (width, text): (usize, Style),
+    theme: Theme,
+) -> Vec<Span<'static>> {
+    let (on, off) = crate::ui::bar(pct, BAR, theme.utf8);
+    let mut tail = format!(" {pct:.0}%");
+    let used = label.chars().count() + usize::from(BAR) + tail.len();
+    if used + detail.chars().count() <= width {
+        tail.push_str(detail);
+    }
+    vec![
+        Span::styled(label.to_owned(), text),
+        Span::styled(on, theme.fg(fill)),
+        Span::styled(off, theme.fg(Token::FgMuted)),
+        Span::styled(tail, text),
+    ]
+}
+
+/// Returns the expanded usage rows of the selected card (DESIGN §6.3),
+/// each cut to `width` and in `text` style. The context (while the
+/// session runs) and every plan-limit window are [`bar_row`]s: context
+/// `warn` from 80 % and `err` from 90 %, limits `warn` from 80 % and `err`
+/// from 95 %, as in the compact line and the getah bar.
+fn expanded_usage(card: &Card, width: usize, text: Style, theme: Theme) -> Vec<Vec<Span<'static>>> {
     let u = card.usage.clone().unwrap_or_default();
     let n = |v: Option<u64>| v.map_or_else(|| "-".to_owned(), tokens);
-    let mut rows = vec![format!("tokens   in {} · out {}", n(u.input), n(u.output))];
+    let plain = |s: String| vec![Span::styled(truncate(&s, width), text)];
+    let level = |pct: f64, err: f64| match pct {
+        p if p >= err => Token::Err,
+        p if p >= 80.0 => Token::Warn,
+        _ => Token::Ok,
+    };
+    let mut rows = vec![plain(format!(
+        "tokens   in {} · out {}",
+        n(u.input),
+        n(u.output)
+    ))];
     if card.kind == Kind::Claude {
-        rows.push(format!(
+        rows.push(plain(format!(
             "cache    read {} · write {}",
             n(u.cache_read),
             n(u.cache_write)
-        ));
+        )));
         let cost = u
             .cost_usd
             .map_or_else(|| "-".to_owned(), |c| format!("${c:.2} (list price)"));
-        rows.push(format!("cost     {cost}"));
+        rows.push(plain(format!("cost     {cost}")));
     }
-    rows.push(match (live_ctx(card), u.ctx_size) {
-        (Some(p), Some(size)) => {
-            let used = u.input.map_or_else(|| "-".to_owned(), tokens);
-            format!("context  {p:.0}% of {} · {used} used", tokens(size))
+    rows.push(match live_ctx(card) {
+        Some(pct) => {
+            let detail = match (u.input, u.ctx_size) {
+                (Some(used), Some(size)) => format!(" {}/{}", tokens(used), tokens(size)),
+                (None, Some(size)) => format!(" of {}", tokens(size)),
+                (_, None) => String::new(),
+            };
+            bar_row(
+                "context  ",
+                pct,
+                &detail,
+                level(pct, 90.0),
+                (width, text),
+                theme,
+            )
         }
-        (Some(p), None) => format!("context  {p:.0}%"),
-        (None, _) => "context  -".to_owned(),
+        None => plain("context  -".to_owned()),
     });
-    if !u.limits.is_empty() {
-        let windows: Vec<String> = u
-            .limits
-            .iter()
-            .map(|w| format!("{} {:.0}%", w.label, w.used_pct))
-            .collect();
-        rows.push(format!("limits   {}", windows.join(" · ")));
+    for (i, w) in u.limits.iter().enumerate() {
+        let head = if i == 0 { "limits" } else { "" };
+        let label = format!("{head:<9}{} ", w.label);
+        let fill = level(w.used_pct, 95.0);
+        rows.push(bar_row(&label, w.used_pct, "", fill, (width, text), theme));
+    }
+    if !card.mcp.is_empty() {
+        rows.push(plain(format!("mcp      {}", card.mcp.join(" · "))));
     }
     rows
 }
@@ -436,6 +577,26 @@ mod tests {
     use crate::ui::theme::{Background, Profile, ThemeName};
 
     #[test]
+    fn bar_rows_keep_the_detail_only_when_it_fits_and_colour_the_fill() {
+        let theme = Theme::new(ThemeName::Dark, Profile::NoColor, Background::Paint);
+        let row = |pct, width, theme| -> String {
+            let args = (width, Style::default());
+            bar_row("context  ", pct, " 45k/200k", Token::Ok, args, theme)
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect()
+        };
+        assert_eq!(row(23.0, 36, theme), "context  ██░░░░░░░░ 23% 45k/200k");
+        assert_eq!(row(23.0, 24, theme), "context  ██░░░░░░░░ 23%", "narrow");
+        let no_utf8 = theme.with_view(IconSet::Ascii, false, true);
+        assert_eq!(row(23.0, 24, no_utf8), "context  ##-------- 23%");
+        let args = (36, Style::default());
+        let spans = bar_row("limits   5h ", 96.0, "", Token::Err, args, theme);
+        assert_eq!(spans[1].style, theme.fg(Token::Err));
+        assert_eq!(spans[2].style, theme.fg(Token::FgMuted));
+    }
+
+    #[test]
     fn a_card_in_a_repository_gets_the_git_line_below_its_state() {
         let theme = Theme::new(ThemeName::Dark, Profile::NoColor, Background::Paint);
         let now = Instant::now();
@@ -458,5 +619,30 @@ mod tests {
         let lines = text(Some(&repo));
         assert_eq!(lines.len(), 4);
         assert_eq!(lines[2].trim(), "main · 1 changed");
+    }
+
+    #[test]
+    fn a_card_lists_its_mcp_servers_as_glyphs_or_names() {
+        let theme = Theme::new(ThemeName::Dark, Profile::NoColor, Background::Paint);
+        let now = Instant::now();
+        let mut card = Card::new(
+            crate::term::SessionId::new(),
+            Kind::Claude,
+            "/p".into(),
+            Some("s"),
+            None,
+            now,
+        );
+        card.mcp = vec!["github".into(), "miko".into()];
+        let line = |theme, mark, n: usize| {
+            card_lines(&card, None, mark, 36, '*', now, theme)[n]
+                .to_string()
+                .trim()
+                .to_owned()
+        };
+        assert_eq!(line(theme, Mark::None, 2), "mcp github · miko");
+        let nerd = theme.with_view(IconSet::Nerd, true, true);
+        assert_eq!(line(nerd, Mark::None, 2), "\u{f09b}  \u{f1e6} miko");
+        assert_eq!(line(nerd, Mark::Focused, 6), "mcp      github · miko");
     }
 }

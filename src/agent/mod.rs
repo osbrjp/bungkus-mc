@@ -7,6 +7,7 @@
 pub(crate) mod claude;
 pub(crate) mod codex;
 pub(crate) mod codex_usage;
+pub(crate) mod mcp;
 pub(crate) mod usage;
 
 use std::ffi::{OsStr, OsString};
@@ -161,6 +162,61 @@ pub(crate) fn argv(kind: Kind, program: &Path, args: &[String], launch: &Launch)
     out
 }
 
+/// Most bytes of a Codex instruction file mc passes on, since its text
+/// travels in the argument vector.
+const INSTRUCTIONS_MAX: u64 = 64 * 1024;
+
+/// Returns the arguments that give `kind` the workspace's own
+/// instructions from `dir` (`<workspace>/.bungkus-mc`), or none when the
+/// agent's file is missing, empty, unreadable or not UTF-8.
+///
+/// Claude reads `CLAUDE.md` itself (`--append-system-prompt-file <path>`).
+/// Codex has no file flag, so the text of `AGENTS.md` (its first
+/// [`INSTRUCTIONS_MAX`] bytes) goes in as the `developer_instructions`
+/// config value, written as a TOML string so no content can be read as
+/// another value. Both add to the agent's own instructions; neither
+/// replaces `CLAUDE.md` / `AGENTS.md` files in the project.
+#[must_use]
+pub(crate) fn instruction_args(kind: Kind, dir: &Path) -> Vec<String> {
+    use std::io::Read;
+    match kind {
+        Kind::Claude => {
+            let file = dir.join("CLAUDE.md");
+            match file.to_str().filter(|_| file.is_file()) {
+                Some(path) => vec!["--append-system-prompt-file".into(), path.into()],
+                None => Vec::new(),
+            }
+        }
+        Kind::Codex => {
+            let mut text = String::new();
+            let read = std::fs::File::open(dir.join("AGENTS.md"))
+                .and_then(|file| file.take(INSTRUCTIONS_MAX).read_to_string(&mut text));
+            if read.is_err() || text.trim().is_empty() {
+                return Vec::new();
+            }
+            let value = format!("developer_instructions={}", toml_string(text.trim()));
+            vec!["-c".into(), value]
+        }
+    }
+}
+
+/// Returns `text` as a TOML basic string, quotes included.
+fn toml_string(text: &str) -> String {
+    let body: String = text
+        .chars()
+        .map(|c| match c {
+            '"' => "\\\"".to_owned(),
+            '\\' => "\\\\".to_owned(),
+            '\n' => "\\n".to_owned(),
+            '\r' => "\\r".to_owned(),
+            '\t' => "\\t".to_owned(),
+            c if c.is_control() => format!("\\u{:04X}", u32::from(c)),
+            c => c.to_string(),
+        })
+        .collect();
+    format!("\"{body}\"")
+}
+
 /// Returns the first executable file named `name` in the `PATH` list.
 ///
 /// # Arguments
@@ -184,6 +240,31 @@ mod tests {
     use std::fs;
 
     use super::*;
+
+    #[test]
+    fn workspace_instructions_reach_each_agent_its_own_way() {
+        let dir = std::env::temp_dir().join(format!("mc-instructions-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        for kind in Kind::ALL {
+            assert!(instruction_args(kind, &dir).is_empty(), "no file: nothing");
+        }
+        fs::write(dir.join("CLAUDE.md"), "be brief\n").unwrap();
+        fs::write(dir.join("AGENTS.md"), "say \"hi\"\nuse C:\\tmp\n").unwrap();
+        assert_eq!(
+            instruction_args(Kind::Claude, &dir),
+            [
+                "--append-system-prompt-file",
+                dir.join("CLAUDE.md").to_str().unwrap()
+            ]
+        );
+        assert_eq!(
+            instruction_args(Kind::Codex, &dir),
+            ["-c", r#"developer_instructions="say \"hi\"\nuse C:\\tmp""#]
+        );
+        fs::write(dir.join("AGENTS.md"), "  \n").unwrap();
+        assert!(instruction_args(Kind::Codex, &dir).is_empty(), "empty file");
+        fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn builds_launch_argv_per_agent() {

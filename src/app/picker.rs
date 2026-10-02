@@ -1,16 +1,12 @@
 //! The `n` picker: agent, model, name and prompt for a new session
 //! (DESIGN §5.5).
 //!
-//! The agent starts on the default agent from settings. The name follows
-//! the prompt's first line until the user types a name of their own.
+//! The agent starts on the default agent from settings. The name stays
+//! empty unless the user types one, so the agent names the session itself.
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::agent::Kind;
-use crate::ui::sanitise::truncate;
-
-/// Longest name the picker derives from a prompt (DESIGN §5.5).
-const DERIVED_NAME_MAX: usize = 40;
 
 /// The picker row in focus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,10 +41,8 @@ pub(crate) struct Picker {
     pub agent: Kind,
     /// Index into `agent.models()`.
     pub model: usize,
-    /// Name as typed or derived.
+    /// Name as typed; empty leaves the naming to the agent.
     pub name: String,
-    /// Whether the user typed the name (it then stops following the prompt).
-    name_edited: bool,
     /// Prompt as typed.
     pub prompt: String,
     /// Which agents are installed, in `Kind::ALL` order.
@@ -66,7 +60,6 @@ impl Picker {
             agent,
             model: 0,
             name: String::new(),
-            name_edited: false,
             prompt: String::new(),
             installed,
             project,
@@ -146,21 +139,11 @@ impl Picker {
         }
     }
 
-    /// Applies a text edit to the focused text row; the name follows the
-    /// prompt until it is edited itself.
+    /// Applies a text edit to the focused text row.
     fn edit(&mut self, f: impl FnOnce(&mut String)) {
         match self.row {
-            Row::Name => {
-                f(&mut self.name);
-                self.name_edited = !self.name.is_empty();
-            }
-            Row::Prompt => {
-                f(&mut self.prompt);
-                if !self.name_edited {
-                    let first = self.prompt.lines().next().unwrap_or_default().trim();
-                    self.name = truncate(first, DERIVED_NAME_MAX);
-                }
-            }
+            Row::Name => f(&mut self.name),
+            Row::Prompt => f(&mut self.prompt),
             Row::Agent | Row::Model => {}
         }
     }
@@ -181,17 +164,16 @@ mod tests {
     }
 
     #[test]
-    fn name_follows_the_prompt_until_edited() {
+    fn the_name_stays_empty_until_the_user_types_one() {
         let mut p = Picker::new(Kind::Claude, [true, true], "kedai-web".into());
         typed(&mut p, "fix the flaky date test");
-        assert_eq!(p.name, "fix the flaky date test");
+        assert_eq!(p.name, "", "the agent names the session");
         press(&mut p, KeyCode::BackTab);
         assert_eq!(p.row, Row::Name);
-        press(&mut p, KeyCode::Backspace);
-        typed(&mut p, "X");
+        typed(&mut p, "dates");
         press(&mut p, KeyCode::Tab);
         typed(&mut p, " more");
-        assert_eq!(p.name, "fix the flaky date tesX");
+        assert_eq!((p.name.as_str(), p.prompt.len()), ("dates", 28));
         assert_eq!(press(&mut p, KeyCode::Enter), Outcome::Start);
     }
 

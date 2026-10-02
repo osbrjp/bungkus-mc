@@ -35,8 +35,8 @@ pub(crate) struct Config {
     pub notify: Notify,
     /// Process cleanup settings.
     pub cleanup: Cleanup,
-    /// State glyph set.
-    pub icons: crate::ui::icons::IconSet,
+    /// State glyph set; `auto` picks by the installed fonts.
+    pub icons: crate::ui::icons::IconChoice,
     /// Whether spinners and the mascot move.
     pub motion: bool,
     /// Outer widths of the projects and sessions panes.
@@ -81,7 +81,7 @@ impl Default for Config {
             mouse: true,
             notify: Notify::default(),
             cleanup: Cleanup::default(),
-            icons: crate::ui::icons::IconSet::default(),
+            icons: crate::ui::icons::IconChoice::default(),
             motion: true,
             panes: crate::ui::Widths::default(),
             workspaces: Vec::new(),
@@ -144,6 +144,47 @@ pub(crate) enum ConfigError {
     /// The file is valid JSON but not an object.
     #[error("config.json is not a JSON object")]
     NotObject,
+}
+
+/// The folder at a workspace's root that holds what is specific to that
+/// workspace: `config.json` ([`Overrides`]) and the agents' instruction
+/// files (ARCHITECTURE §7).
+pub(crate) const WORKSPACE_DIR: &str = ".bungkus-mc";
+
+/// What a workspace's own `.bungkus-mc/config.json` may set instead of the
+/// global `config.json`; an unset key keeps the global value.
+///
+/// Only settings about the work in the workspace are here. What mc runs
+/// (agent commands and arguments) is never read from a workspace folder,
+/// which can come from elsewhere (SECURITY.md).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub(crate) struct Overrides {
+    /// The agent the `n` picker preselects.
+    pub default_agent: Option<Kind>,
+    /// Whether a Claude session joining a project where another session
+    /// runs gets its own git worktree.
+    pub worktrees: Option<bool>,
+    /// How mc announces needs-you and failed sessions.
+    pub notify: Option<Notify>,
+    /// Process cleanup settings.
+    pub cleanup: Option<Cleanup>,
+}
+
+/// Loads the overrides of the workspace at `root`; a missing file sets
+/// nothing.
+///
+/// # Errors
+///
+/// * [`ConfigError::Io`] - the file exists but cannot be read.
+/// * [`ConfigError::Invalid`] - the JSON is malformed or a value has the
+///   wrong type; the caller uses the global values and says so.
+pub(crate) fn load_overrides(root: &Path) -> Result<Overrides, ConfigError> {
+    match std::fs::read(root.join(WORKSPACE_DIR).join("config.json")) {
+        Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Overrides::default()),
+        Err(e) => Err(e.into()),
+    }
 }
 
 /// Loads `config.json`; a missing file is the default config.
@@ -273,6 +314,32 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("mc-config-{}-{name}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         dir.join("config.json")
+    }
+
+    #[test]
+    fn workspace_overrides_set_only_what_they_name() {
+        let root = temp("overrides").parent().unwrap().to_path_buf();
+        assert_eq!(load_overrides(&root).unwrap(), Overrides::default());
+        let dir = root.join(WORKSPACE_DIR);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("config.json");
+        std::fs::write(
+            &file,
+            r#"{"defaultAgent":"codex","worktrees":false,"cleanup":{"keep":["vite"]},
+               "agents":{"claude":{"command":"/tmp/evil"}}}"#,
+        )
+        .unwrap();
+        let got = load_overrides(&root).unwrap();
+        assert_eq!(got.default_agent, Some(Kind::Codex));
+        assert_eq!(got.worktrees, Some(false));
+        assert_eq!(got.notify, None, "unset: the global value stays");
+        assert_eq!(got.cleanup.unwrap().keep, ["vite"]);
+        std::fs::write(&file, r#"{"notify": 3}"#).unwrap();
+        assert!(matches!(
+            load_overrides(&root),
+            Err(ConfigError::Invalid(_))
+        ));
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]

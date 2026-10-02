@@ -242,6 +242,21 @@ A thread lists them every 5 s (`src/external.rs`) and sends
   project like `r` does, so it becomes an ordinary card. Codex rows are
   refused: nothing tells mc which Codex session a process is.
 
+### 3.5 The user's tools: editor popup and terminal pane
+
+`o` and `t` run programs of the user's, not agents (`src/app/tools.rs`):
+vim (`$VISUAL`/`$EDITOR` when it is `vi`/`vim`/`nvim`, with `.` in the
+project) in the popup, and `$SHELL` in the terminal pane below the output
+pane, one shell per project, kept by folder. mc needs no other program
+for either (no tmux, no terminal app): both use its own PTY and emulator. Each is a `Session` (same PTY, emulator, threads and scrubbed
+environment as an agent) held by the model next to the cards, not as one:
+no card, no hooks, no usage, nothing in `sessions.json`, not in the stop
+dialog. Its PTY events are told apart by id. While the terminal pane
+shows (the selected project has a shell and `t` did not hide it), the output pane and every session's PTY are a third shorter. A
+tool ends when its program exits or when mc does (the PTY closes, the
+kernel sends SIGHUP). Any other editor is spawned once with an argument
+vector, null stdio and its own process group, and left alone.
+
 ## 4. Data flow
 
 ### 4.1 Live output
@@ -525,7 +540,9 @@ No capability flags, no registry.
 
 - **New:** `claude --session-id <uuid> --settings <json> [--model <id>] [--name <name>] -- <prompt?>`
 - **Worktree (issue #106):** a fresh Claude session started in a project
-  where another mc session already runs gets `--worktree <slug>-<short id>`
+  where another mc session already runs gets `--worktree
+  <project-name>-<session-id>` (`bungkus-mc-3ec9`: the project folder's
+  name as a slug, then the four characters of the card's `#` id)
   (config `worktrees`, default on; only in a repository with a commit,
   never at the workspace root, never for a resume or the past-session
   picker). Claude makes it under `<project>/.claude/worktrees/<name>` on
@@ -603,6 +620,46 @@ name → first prompt line → `untitled`. Stored in `sessions.json` as
 | Process-tree parsing (`ps` format, `/proc`) | descendants not listed/killed | fixture tests per OS; the kill list is never *wider* on parse failure |
 | `alacritty_terminal` API on a minor bump | build break | one module (`term`); exact-minor pin; `Cargo.lock` |
 | Jev API/schema change | routing falls back | one module, timeout, fake-server tests (§13) |
+
+### 5.5 MCP servers on the card (`mcp.rs`)
+
+A card lists the MCP servers of its session (DESIGN §5.2). Neither agent
+reports them, so `agent/mcp.rs` combines two sources:
+
+**1. The agents' own config files** — what is configured.
+
+| Agent | Files | Names |
+|-------|-------|-------|
+| Claude | `<project>/.mcp.json`; `.claude.json` in `$CLAUDE_CONFIG_DIR`, else the home directory | keys of `mcpServers` in the project file, in the user file, and in the user file's `projects[<project>]`; less that entry's `disabledMcpjsonServers` / `disabledMcpServers` |
+| Codex | `config.toml` in `$CODEX_HOME`, else `~/.codex` | `[mcp_servers.<name>]` table headers (a line scan, no TOML crate) |
+
+**2. Hook events** — what is used. A `PreToolUse` whose `tool_name` is
+`mcp__<server>__<tool>` adds `<server>` (less Claude's `claude_ai_` /
+`plugin_` prefix). This is the only source for claude.ai connectors and
+plugin servers, which are in no config file; they show from their first
+tool call.
+
+Cost (measured on a 220 KB `.claude.json`, release build):
+
+- The files are checked at launch and every 5 s (`EXTERNAL_EVERY`) on a
+  background thread, never on the UI thread. A check is two `stat` calls
+  per running session (about 5 µs); the card keeps the files' mtime and
+  size, and nothing is opened while they are unchanged.
+- A changed file is parsed as a stream (`serde_json::from_reader`,
+  `IgnoredAny` for everything but the names): about 2 ms, with a read
+  buffer of 8 KiB instead of the file in memory. Claude rewrites
+  `.claude.json` often while it works, so this runs regularly; an event is
+  sent only when a file changed.
+- Held per card: the names (≤ 12 × ≤ 24 characters) and one stamp.
+
+Rules:
+
+- **Names only.** Commands, arguments and `env` values are never kept;
+  names are sanitised, cut to 24 characters, sorted, at most 12.
+- **Configured or used, not "connected".** A configured server that failed
+  to start still shows; servers from managed settings show only once used.
+- A missing, malformed or over-8-MiB file gives no names; nothing is
+  persisted, and a server a tool call named stays listed for the session.
 
 ## 6. Usage figures — sources, verified vs assumed
 
@@ -717,7 +774,28 @@ command unchanged.
 | routing consent | `${XDG_STATE_HOME:-~/.local/state}/bungkus/mc/consent.json` (`{"routing": "2026-09-30T…"}`) | 0600 |
 | debug log (`--debug` only) | `${XDG_STATE_HOME:-~/.local/state}/bungkus/mc/mc.log` | 0600 |
 | socket | `clean(${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}})/bungkus-mc-<uid>/<pid>.sock` | dir 0700, sock 0600 |
+| workspace overrides | `<workspace>/.bungkus-mc/config.json` (hand-edited, read only) | the user's |
+| workspace instructions | `<workspace>/.bungkus-mc/CLAUDE.md`, `<workspace>/.bungkus-mc/AGENTS.md` (read only) | the user's |
 | update-check cache | `${XDG_CACHE_HOME:-~/.cache}/bungkus-mc/latest-release` (macOS: `~/Library/Caches`, matching bungkus-cli's `os.UserCacheDir`) | 0600 |
+
+**The workspace's own folder.** `<workspace>/.bungkus-mc/` holds what is
+specific to one workspace; mc only reads it, at start and on every
+workspace switch. A hidden folder is never listed as a project.
+
+- `config.json` overrides the global file for that workspace, key by key:
+  `defaultAgent`, `worktrees`, `notify`, `cleanup.keep`. An unset key keeps
+  the global value; a file that cannot be parsed sets nothing and the
+  message line says so. Every other key is ignored there: what mc runs
+  (`agents.*.command`/`args`) and what belongs to the terminal (panes,
+  mouse, icons, motion, the exit chord, theme) stay global.
+- `CLAUDE.md` is appended to the system prompt of every Claude session mc
+  starts or resumes in the workspace (`--append-system-prompt-file
+  <path>`); `AGENTS.md` reaches every Codex session as the
+  `developer_instructions` config value (`-c developer_instructions=<TOML
+  string>`, the first 64 KiB, since the text travels in argv; it takes the
+  place of a `developer_instructions` in `~/.codex/config.toml`). Both add
+  to the instruction files the agents read from the project themselves.
+  Sessions started outside mc get neither.
 
 `config.json` (all keys optional; workspace can also be the first CLI argument):
 
@@ -728,7 +806,7 @@ command unchanged.
   "theme": "auto",
   "background": "paint",
   "motion": true,
-  "icons": "ascii",
+  "icons": "auto",
   "mouse": true,
   "notify": "bell",
   "interactExit": "ctrl-\\",
@@ -827,7 +905,7 @@ src/
   ui/                # panes, dialogs, first run, keymap.rs (single source of keys/help), theme.rs (token spec impl),
                      # mascot.rs (pixel maps, frames, moods), sanitise.rs (the one string sanitiser)
   term/              # session.rs (PTY + Term + reader/writer/waiter threads), keys.rs (encoder, from the spike), replies.rs (OSC 10/11, CSI 14 t)
-  agent/             # mod.rs (Kind, Launch, argv), usage.rs (Usage), claude.rs, codex.rs, codex_usage.rs; testdata/{claude,codex}/
+  agent/             # mod.rs (Kind, Launch, argv), usage.rs (Usage), claude.rs, codex.rs, codex_usage.rs, mcp.rs; testdata/{claude,codex}/
   ipc/               # server.rs (UnixListener), hook.rs and statusline.rs (the silent subcommands), wire types
   proc/              # scan (linux.rs: /proc + pidfd; macos.rs: ps), ports.rs (lsof), kill.rs, keep rule
   route/             # Jev tier judgement → model id, key runner, secret-shape guard, consent
@@ -932,7 +1010,7 @@ Go code any more:
 | mouse | `ratatui::crossterm` `EnableMouseCapture` | `mouse: false`; wheel = scrollback; forwarded to the agent when it enabled mouse modes; modifier-drag for selection documented |
 | synchronized output | `BeginSynchronizedUpdate`/`End…` per frame (host side); alacritty's `sync_timeout()` + `stop_sync()` for the agent side (§4.1) | — |
 | OSC 8 | not emitted by ratatui; header link written raw only where supported | stripped from agent output |
-| Nerd Font / glyphs | undetectable | `icons` setting, **default ascii**; borders follow the locale |
+| Nerd Font / glyphs | the terminal's font is undetectable; `icons: auto` looks for a file or folder named `*nerd*` in the font folders (`~/Library/Fonts`, `~/.local/share/fonts`, `~/.fonts`, `/Library/Fonts`, `/usr/local/share/fonts`, `/usr/share/fonts`, 3 levels deep), skipped on a non-UTF-8 locale and over SSH | `ascii`; the `icons` setting overrides; borders follow the locale |
 | light/dark | one OSC 11 query at start, reply awaited with `rustix::event::poll` on stdin (200 ms) before the input reader starts (§3.1) | `theme` setting |
 | notifications | OSC 9/99/777 raw writes by terminal, BEL fallback; title via OSC 2 with XTWINOPS push/pop | `notify` setting |
 | tmux / zellij | `TERM=tmux-256color`; OSC 8 ≥ 3.4 | test matrix |

@@ -219,12 +219,15 @@ the green.
 A TUI does not choose the font. We choose code points.
 
 - **Recommended fonts** (README, not enforced): any monospace font; a Nerd
-  Font only if the user opts into the `nerd` icon set.
-- **Three glyph sets**, `icons: "ascii" | "unicode" | "nerd"` (config or
-  `--icons`). **Default `ascii`** (decided by the product owner): the font
-  cannot be detected, and ASCII state glyphs are unambiguous in every
-  terminal and width setting. `unicode` and `nerd` are opt-in. All glyphs
-  are 1 cell. The mockups in this file show the ascii default.
+  Font gets the `nerd` icon set.
+- **Three glyph sets**, `icons: "auto" | "ascii" | "unicode" | "nerd"`
+  (config or `--icons`). **Default `auto`** (decided by the product
+  owner): `nerd` when a Nerd Font is installed on the device, else
+  `ascii`, whose state glyphs are unambiguous in every terminal and width
+  setting. The terminal's own font cannot be detected, so an installed
+  font is the signal (ARCHITECTURE §12); a user whose terminal uses
+  another font sets `ascii`. `unicode` is opt-in. All glyphs are 1 cell.
+  The mockups in this file show the ascii fallback.
 - **Borders and separators are not part of the icon set.** Box-drawing
   borders, the `·` separator and the mascot's half-block sprite are used
   whenever the locale is UTF-8; only a non-UTF-8 locale (or
@@ -251,7 +254,7 @@ A TUI does not choose the font. We choose code points.
   asserts the emulator's column positions match the width sum — see
   CODING_RULES.md.
 
-| Meaning       | nerd (U+)      | unicode | ascii (default) | width class |
+| Meaning       | nerd (U+)      | unicode | ascii (fallback) | width class |
 |---------------|----------------|---------|-----------------|-------------|
 | running       | spinner        | braille `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` | `\|/-\` | N |
 | your turn     | U+F0E7 (bolt)  | `»`     | `~`   | N |
@@ -262,11 +265,12 @@ A TUI does not choose the font. We choose code points.
 | subagent      | U+F0DA (caret) | `◦`     | `*`   | N |
 | focus marker  | U+F0DA         | `▸`     | `>`   | N |
 | INTERACT      | U+F11C (kbd)   | `►`     | `>`   | N |
-| limit bar     | —              | `▮▯`    | `#-`  | N |
+| progress bar  | `█░` in every set on a UTF-8 terminal, `#-` without UTF-8 (not an icon: the same block characters as the mascot) | | | |
 | agent badge   | `C` / `X` letter in `accent`, all sets |
+| MCP server    | logo alone (once per logo) when a word of the name is in `MCP_BRANDS` (`ui/icons.rs`: about 120 rows — GitHub, GitLab, Slack, Figma, Blender, Chrome, Playwright, Google Drive, Gmail, AWS, Azure, Cloudflare, Vercel, Supabase, Postgres, MongoDB, Redis, Docker, Kubernetes, Notion, Jira, Sentry, Stripe, …); else the glyph of its kind from `MCP_KINDS` (CMS such as Payload, files, memory, database, web, search, terminal, docs, …) or U+F1E6 (plug), then the name. Code points come from Nerd Fonts' `glyphnames.json`; some logos (Figma, Playwright, Notion, …) need Nerd Fonts 3.3 or newer | name | name | N |
 
 Nerd Font code points are private-use; patched "Mono" variants render them
-1 cell, "Propo" variants may not — another reason `nerd` is opt-in. Glyphs
+1 cell, "Propo" variants may not (set `icons: "ascii"` then). Glyphs
 are emitted only through `theme::icon(Icon)` (an enum, so a missing glyph
 is a compile error); a table test asserts widths.
 
@@ -310,9 +314,8 @@ them to `config.json` as `"panes": {"projects": 22, "sessions": 38}`.
 
 Rows: line 1 header, lines 2…H−1 panes (outer height H−2), line H getah bar.
 
-Breakpoints: **≥ 100 columns → three panes**; **< 100 → single-pane stack**
-(one pane at a time, breadcrumb in the header, `h`/`l` move through the
-stack). Minimum size **80×24**; below that a single centred line:
+Breakpoints: **≥ 100 columns → three panes side by side**; **< 100 →
+projects left, sessions over output on the right** (§4.3). Minimum size **80×24**; below that a single centred line:
 `bungkus-mc needs at least 80×24 (now 72×20)`. No other tiers.
 
 ### 4.1 Main screen, 120×40 (sessions pane focused, agent waiting on a permission prompt)
@@ -399,39 +402,41 @@ is the **mini** 8×3 sprite (here mid-step, "working" mood). The mock is
 the zoomed view (`z`, 3 content rows shown); unzoomed, the same banner
 sits on the output pane beside the other two.
 
-### 4.3 Narrow, 80×24 (single-pane stack, sessions shown)
+### 4.3 Narrow, 80×24 (sessions stacked over the output)
 
 ```
- bungkus-mc  kedai-web › sessions                      1 needs you · 2 working 
-┏ sessions · kedai-web ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃>┃! C #a3f1 write proposal                                                 12m┃
-┃ ┃  needs you · permission: Bash                                              ┃
-┃ ┃  tokens   in 486k · out 13k                                                ┃
-┃ ┃  cache    read 402k · write 19k                                            ┃
-┃ ┃  cost     $1.42 (claude list price)                                        ┃
-┃ ┃  context  37% of 200k · 74k used                                           ┃
-┃ ┃  limits   5h 42% ↻14:00 · 7d 18% ↻Mon                                      ┃
-┃ ┃  * research hooks                                                      / 3m┃
-┃ ┃  * research codex                                                      / 3m┃
-┃ ┃  * research go tui libs                                                + 1m┃
-┃                                                                              ┃
-┃  / X #77c0 flaky date test                                                41m┃
-┃    working · shell                                                           ┃
-┃    312k tok · - · ctx 22%                                                    ┃
-┃                                                                              ┃
-┃  + C #9be2 bump deps                                                  wrapped┃
-┃    22m · 38 tools · 2 subagents                                              ┃
-┃    61k tok · $0.98 · ctx -                                                   ┃
-┃                                                                              ┃
-┃                                                                              ┃
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
- NORMAL  j/k · enter → agent (ctrl-\ back) · n new · ? help         C 42% X 10% 
+ bungkus-mc  ~/Works/OSBR › kedai-web  x 1 failed · | 1 working · v0.1.0-beta.5
+┌ [1] projects ──────┐┌ [2] sessions · kedai-web ──────────────────────────────┐
+│ / search           ││: | C #a3f2 flaky payment test                        0m│
+│:| 1 kedai… | 1 x 1 ││:   output only · live tree unavailable                 │
+│ + 4 more (e)       ││:   - tok · - · ctx -                                   │
+│                    ││                                                        │
+│                    ││  + C #a3f3 bump deps                            wrapped│
+│                    │└────────────────────────────────────────────────────────┘
+│                    │╔ [3] output · C #a3f2 · f… · INTERACT · ctrl-\ to leave ╗
+│                    │║              ┌─────────────────────────────┐    ▄██▄   ║
+│                    │║              │ #a3f1 failed: exit 1 · boom │◂ ▄██████▄ ║
+│                    │║              └─────────────────────────────┘    ▀  ▀   ║
+│                    │║> fix the flaky date test                               ║
+│                    │║  run it twice                                          ║
+│                    │║                                                        ║
+│                    │║                                                        ║
+│                    │║                                                        ║
+│                    │║                                                        ║
+│                    │║                                                        ║
+│                    │║                                                        ║
+│                    │║                                                        ║
+│                    │║                                                        ║
+└────────────────────┘╚════════════════════════════════════════════════════════╝
+ INTERACT  keys go to claude · ctrl-\ back to mc
 ```
 
-The header carries the breadcrumb (`kedai-web › sessions`); limits
-collapse to the 5-hour figure per vendor. (This mock predates the corner
-mascot; in the narrow stack the output pane is a separate screen and gets
-the same corner treatment.)
+Below 100 columns the projects pane keeps the left and the right column
+stacks the sessions pane (a third of it, at least 7 rows) over the output
+pane; the terminal pane (`t`) still takes the output pane's lower third,
+so it sits at the bottom right. Every pane stays on screen, so the header
+keeps the workspace breadcrumb; limits collapse to the 5-hour figure per
+vendor.
 
 ### 4.4 Errors: cross eyes, corner or title bar
 
@@ -490,6 +495,7 @@ whether there is a header line.
 ┃! C #a3f1 write proposal        12m   gutter · state glyph · agent badge · #id · title · right: elapsed or state word
 ┃  needs you · permission: Bash        line 2: state word · detail (tool / prompt kind / exit line) [· model when routed]
 ┃  i110-fix · 3 changed ↑2 ↓1          git line (only in a repository): branch · `clean` or changed files · ahead/behind upstream
+┃  mcp github · slack                  MCP line (only with MCP servers): `mcp` + names; glyphs in the nerd set
 ┃  499k tok · $1.42 · ctx 37%          usage line: compact usage (`-` when unknown)
 ┃  * research hooks             / 3m   one line per subagent (flat list): glyph · description · state glyph · time
 ```
@@ -501,6 +507,13 @@ whether there is a header line.
   then `clean` or `N changed` (staged, unstaged, unmerged and untracked
   files), then `↑N` / `↓N` against the upstream when not zero. The branch
   is cut short first. Read every 5 s; absent outside a repository.
+- MCP line, `fg-muted`: the MCP servers the session is configured with
+  or has used (ARCHITECTURE §5.5), sorted by name and kept current while
+  it runs; absent when there are none. ascii and unicode sets: `mcp` then the names joined by ` · `. nerd
+  set: per server its logo alone (§3), or a kind glyph or the plug and
+  the name when it has none, two spaces apart. The expanded card (§6.3) shows
+  an `mcp` row with every name in all sets instead, so a glyph can always
+  be read as a word.
 - Gutter column: `┃` in `warn` for needs-you, `err` for failed, space otherwise.
 - Title = **the session's name**, as the agent itself knows it (decided):
   Claude's session name (set at launch with `--name`, renamed inside the
@@ -558,14 +571,14 @@ Subagents use the same glyphs at one indent with `*` (`◦`); their status
 comes from `background_tasks` on Stop/SubagentStop (authoritative), else
 from SubagentStart/Stop.
 
-Sidebar row = `<marker><spinner> <name>` … `<badge>`. The marker is `>`
+Sidebar row = `<marker><spinner> <name>` … `<working> <badge>`. The marker is `>`
 when the projects pane is focused, `▌` (ascii `:`) when it is not, space
 otherwise. The **spinner column** shows the global-clock frame `| / - \`
 for a project with any running session (static `|` under `motion:
 false`), space otherwise. The **badge** is the worst *non-running* state
 among the project's sessions, precedence **failed > needs you > your
-turn**, as `<glyph> <count>`; "working" is carried by the spinner alone,
-so there is no `/ n` badge. The header tally's `/` and every card's
+turn**, as `<glyph> <count>`; before it, `<spinner> <n>` says how many
+sessions are working (nothing when none is). The header tally's `/` and every card's
 working glyph tick with the same clock.
 
 ### 5.4 Badge
@@ -598,10 +611,12 @@ with no prompt; missing agents are listed greyed with "not on PATH". The
 `model` row defaults to `auto` when routing is on (§10) and to the agent's
 default otherwise; `←`/`→` (or `h`/`l`) change it — that is the override.
 With routing off the row reads `default · haiku · sonnet · opus` (Claude)
-or `default · <ids from config>` (Codex). The `name` row is prefilled from
-the prompt as you type (first line, ≤ 40 chars, leading verbs like
-"fix"/"add" kept) and passed to Claude as `--name`; for Codex it is only
-mc's card title (no launch flag). Empty name and empty prompt → `untitled`.
+or `default · <ids from config>` (Codex). The `name` row stays empty
+unless the user types one: a typed name is passed to Claude as `--name`
+(for Codex it is only mc's card title, no launch flag); with none, no
+`--name` is passed and Claude names the session itself, the card showing
+the prompt's first line until that name arrives. Empty name and empty
+prompt → `untitled`.
 
 The quit dialog (also the `x` dialog) lists everything that will be
 stopped — sessions first, then the descendants tracked in ARCHITECTURE.md
@@ -682,7 +697,10 @@ rows) at the right, so it never covers agent output (the PTY is three rows
 shorter); its mood follows the selected session. A click on it plays
 duck–hop–duck–hop–duck–look–blink (one pose per 350 ms tick; a single hop
 without motion) and shows a speech bubble with a random line from
-`QUOTES` (never the same twice in a row) for 4 s. With no session the
+`QUOTES` (never the same twice in a row) for 4 s. A notification (a
+session needs you, a session failed: the same text the host terminal is
+told, §9) shows in the same bubble for 8 s, cut to the strip's width; a
+click's quote goes first. With no session the
 pane shows the big centred empty-state mascot as before. Smaller screens
 keep the corner mascot below. Pane titles carry their `cmd`/`alt`/`ctrl`
 digit: `[1] projects`, `[2] sessions`, `[3] output`.
@@ -1047,7 +1065,7 @@ per vendor (`C` Claude from the status line, `X` Codex from the usage
 reader, ARCHITECTURE.md §6.3), each labelled by its window (Codex's
 `window_minutes` → `5h`/`7d`). Limits are per account, not per session.
 When only one vendor has reported, its figures get 5-cell bars
-(`5h ###-- 42% · 7d #---- 18%`, unicode `▮▯`); `warn` colour from 80 %,
+(`5h ██░░░ 42% · 7d █░░░░ 18%`; `#-` without UTF-8; filled to the nearest cell, one at least for any use); `warn` colour from 80 %,
 `err` from 95 %. Below 100 columns: `C 42% X 10%` (5-hour window only).
 Omitted entirely when no session has reported limits (API-key users):
 nothing is shown rather than `-`, because the bar is global. When a
@@ -1080,14 +1098,20 @@ the room (§5.1); `/ filter` and `, settings` are listed in `?` help only.
  ┃  tokens   in 486k · out 13k      
  ┃  cache    read 402k · write 19k  
  ┃  cost     $1.42 (list price)     
- ┃  context  37% of 200k · 74k used 
- ┃  limits   5h 42% · 7d 18%        
+ ┃  context  ████░░░░░░ 37% 74k/200k
+ ┃  limits   5h ████░░░░░░ 42%
+ ┃           7d ██░░░░░░░░ 18%        
  ┃  * research hooks            / 3m
  ┃  * research codex            / 3m
 ```
 
-Shown only while the sessions pane is focused (§5.2). `context` shows the
-reported `context_window_size` (200k here; 1M has been observed).
+Shown only while the sessions pane is focused (§5.2). `context` and each
+plan-limit window show a 10-cell progress bar (solid `█` then shaded `░`,
+the look of indicatif's default bar; filled to the nearest cell, one at
+least for any use), then the percentage; `context` adds used / reported
+`context_window_size` when the card is wide enough (200k here; 1M has
+been observed). The filled part is `ok`, `warn` from 80 % and `err` from
+90 % (context) or 95 % (limits); the rest is `fg-muted`.
 Per-subagent tokens are not shown (no source outside transcripts). A routed
 session adds a `model    haiku · routed 0.82` line (§10). A Codex card has
 no `cache`/`cost` lines and its `limits` line reads `5h 10% · 7d 3%`.
@@ -1141,6 +1165,8 @@ the same frame.
 | `1`–`9`                                           | jump to the project with that number (the numbers left of the names follow the searched list). The selection moves on every digit; a digit within 0.7 s of the previous one extends the number (`1` → 1, then `6` → 16), a number with no project leaves the last jump in place, and any other key ends the number (bungkus-cli's wizard rule) |
 | `w`                                               | settings, on the workspace field (§5.8) |
 | `,`                                               | settings: workspace, default agent, theme (§5.8) |
+| `o`                                               | open the selected project in the user's editor (`$VISUAL`, else `$EDITOR`): `vi`/`vim`/`nvim` run in a popup over the panes (mode word `EDITOR`, every key goes to it, it closes when the editor quits); any other editor is started on its own with the folder as its argument; with neither variable set, the desktop's opener (`open` / `xdg-open`) |
+| `t`                                               | show / hide the terminal pane: the user's `$SHELL` in the lower third of the output pane, in mc's own emulator (no tmux or other program). Every project has its own shell, started in its folder the first time `t` is pressed there; the pane follows the selected project and is absent on one without a shell. Showing it gives it the keys (mode word `TERMINAL`); `ctrl-\` gives them back to mc and leaves it showing; `ctrl-h` goes left to the sessions pane and `ctrl-k` up to the output pane (INTERACT), from where `ctrl-j` comes back down while the pane shows; `ctrl-j`/`ctrl-l` in the terminal stay the shell's (enter, clear screen); hiding keeps the shells running; `exit` closes one |
 | `?`                                               | help                                    |
 | `R`                                               | redraw |
 | `q` · `ctrl-c`                                    | quit (confirm if anything is running)   |
@@ -1155,6 +1181,7 @@ cleared by the next key).
 | `enter`     | focus the sessions pane of the selected project               |
 | `j` `k`     | move the sidebar selection; the sessions pane switches to that project |
 | `n`         | new session for the selected project (same picker as below)   |
+| `e`         | show / hide the projects that are not recent. Recent projects lead the list, 5 at most (a repository and its worktrees counting as one): the ones a session runs in now, then the most recently used by their latest session start; more than 5 only when more than 5 have a running session, so one that needs you never folds away; the others fold behind the line `+ <n> more (e)` (`-` while they show). `j`/`↓` on the last recent project opens them too. With no recent project, or only recent ones, the list is not grouped; a search finds every project |
 
 `n` `enter` from the projects pane therefore starts a session for the
 highlighted project with the default agent and no prompt.
@@ -1222,8 +1249,10 @@ through); `ctrl-\` is not among them.
 ### 8.6 Mouse
 
 Click focuses a pane / selects a row (and exits INTERACT if the click is
-outside the output pane); a click on the output pane focuses it, i.e.
-enters INTERACT; wheel scrolls the pane under the pointer. Text selection: with mouse reporting on,
+outside the output pane); a click on a project or a session selects it, a click on the
+`+ <n> more` line shows or hides the rest of the projects; a click on the
+terminal pane gives it the keys and a click anywhere else takes them back;
+a click on the output pane focuses it, i.e. enters INTERACT; wheel scrolls the pane under the pointer. Text selection: with mouse reporting on,
 terminals need a modifier to select (kitty/Ghostty/iTerm2 `shift`-drag,
 WezTerm/Alacritty `shift`, Terminal.app `option`-drag) — shown in the help
 overlay; `--no-mouse` / `mouse: false` turns reporting off entirely.

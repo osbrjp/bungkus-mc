@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use crate::agent::Kind;
+use crate::agent::mcp::{self, Stamp};
 use crate::agent::usage::Usage;
 use crate::ipc::HookEvent;
 use crate::proc::{Descendants, Proc};
@@ -158,6 +159,13 @@ pub(crate) struct Card {
     /// The git worktree it runs in (`claude --worktree <name>`, under the
     /// project's `.claude/worktrees/`); a resume goes back into it.
     pub worktree: Option<String>,
+    /// Names of its MCP servers, sorted: the configured ones
+    /// ([`crate::agent::mcp::servers`]) and the ones in `mcp_used`.
+    pub mcp: Vec<String>,
+    /// Servers its tool calls named ([`crate::agent::mcp::used`]).
+    mcp_used: Vec<String>,
+    /// The config files' state when `mcp` was last read from them.
+    pub mcp_stamp: Option<Stamp>,
 }
 
 impl Card {
@@ -223,6 +231,41 @@ impl Card {
             move_to: None,
             prompted: false,
             worktree: None,
+            mcp: Vec::new(),
+            mcp_used: Vec::new(),
+            mcp_stamp: None,
+        }
+    }
+
+    /// Sets the configured MCP servers as read at `stamp`; the servers its
+    /// tool calls named stay listed.
+    pub(crate) fn set_mcp(&mut self, configured: Vec<String>, stamp: Stamp) {
+        self.mcp = configured;
+        self.mcp_stamp = Some(stamp);
+        for server in self.mcp_used.clone() {
+            self.list_mcp(server);
+        }
+    }
+
+    /// Adds `server` to the list unless a listed name is the same server
+    /// ([`mcp::same`]) or the list is full.
+    fn list_mcp(&mut self, server: String) {
+        let listed = self.mcp.iter().any(|name| mcp::same(name, &server));
+        if !listed && self.mcp.len() < mcp::SERVERS_MAX {
+            self.mcp.push(server);
+            self.mcp.sort_unstable();
+        }
+    }
+
+    /// Lists the MCP server of `tool` when it is one and not listed yet
+    /// (a claude.ai connector or a plugin's server is in no config file).
+    fn note_mcp(&mut self, tool: &str) {
+        let Some(server) = mcp::used(tool) else {
+            return;
+        };
+        if self.mcp_used.len() < mcp::SERVERS_MAX && !self.mcp_used.contains(&server) {
+            self.mcp_used.push(server.clone());
+            self.list_mcp(server);
         }
     }
 
@@ -426,6 +469,9 @@ impl Card {
                 }
                 if event.name == "PreToolUse" {
                     self.tool_calls = self.tool_calls.saturating_add(1);
+                    if let Some(tool) = &event.tool_name {
+                        self.note_mcp(tool);
+                    }
                     let spawn = event.tool_name.as_deref().is_some_and(spawns);
                     if spawn {
                         self.pending
@@ -548,6 +594,32 @@ mod tests {
 
     fn event(line: &str) -> HookEvent {
         crate::ipc::trim(&serde_json::from_str(line).unwrap())
+    }
+
+    #[test]
+    fn mcp_servers_are_the_configured_ones_and_the_ones_tool_calls_name() {
+        let now = Instant::now();
+        let mut c = card(Some("s"), None);
+        let call = |tool: &str| {
+            event(&format!(
+                r#"{{"hook_event_name":"PreToolUse","tool_name":"{tool}"}}"#
+            ))
+        };
+        c.reduce(&call("mcp__claude_ai_Figma__get_screenshot"), now);
+        c.reduce(&call("mcp__claude_ai_Figma__get_metadata"), now);
+        c.reduce(&call("Bash"), now);
+        assert_eq!(c.mcp, ["Figma"]);
+        c.set_mcp(vec!["blender".into(), "slack".into()], [None, None]);
+        assert_eq!(c.mcp, ["Figma", "blender", "slack"], "a refresh keeps it");
+        c.reduce(&call("mcp__blender__get_scene_info"), now);
+        c.set_mcp(vec!["slack".into()], [None, None]);
+        assert_eq!(c.mcp, ["Figma", "blender", "slack"]);
+        assert_eq!(c.mcp_stamp, Some([None, None]));
+        c.set_mcp(vec!["my.server".into()], [None, None]);
+        c.reduce(&call("mcp__my_server__run"), now);
+        assert_eq!(c.mcp, ["Figma", "blender", "my.server"], "one server");
+        c.set_mcp((0..12).map(|n| format!("s{n:02}")).collect(), [None, None]);
+        assert_eq!(c.mcp.len(), mcp::SERVERS_MAX, "a full list takes no more");
     }
 
     #[test]

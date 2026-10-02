@@ -54,6 +54,12 @@ pub(crate) enum Action {
     CleanWorktrees,
     /// Install a newer release and restart mc on it (`U`).
     Update,
+    /// Show or hide the projects that are not recent.
+    ToggleRest,
+    /// Open the selected project in the user's editor (vim in a popup).
+    Editor,
+    /// Show or hide the terminal pane below the output pane.
+    Terminal,
     /// Start a quick session at the workspace root (a popup).
     QuickSession,
     /// Move the selected quick session into a project.
@@ -222,6 +228,14 @@ pub(crate) const BINDINGS: &[Binding] = &[
         help: "clean worktrees",
         hint: None,
         scope: Scope::Sessions,
+    },
+    Binding {
+        keys: &[c('e')],
+        label: "e",
+        action: Action::ToggleRest,
+        help: "more projects",
+        hint: Some("e more"),
+        scope: Scope::Projects,
     },
     Binding {
         keys: &[c('m')],
@@ -432,6 +446,22 @@ pub(crate) const BINDINGS: &[Binding] = &[
         scope: Scope::Global,
     },
     Binding {
+        keys: &[c('o')],
+        label: "o",
+        action: Action::Editor,
+        help: "open in editor",
+        hint: Some("o edit"),
+        scope: Scope::Global,
+    },
+    Binding {
+        keys: &[c('t')],
+        label: "t",
+        action: Action::Terminal,
+        help: "terminal on/off",
+        hint: Some("t term"),
+        scope: Scope::Global,
+    },
+    Binding {
         keys: &[c('w')],
         label: "w",
         action: Action::Workspace,
@@ -595,12 +625,15 @@ impl Action {
             | Self::TrashProject
             | Self::UndoTrash
             | Self::Visual
+            | Self::Editor
+            | Self::ToggleRest
             | Self::CleanWorktrees => Group::Projects,
             Self::Workspace
             | Self::Settings
             | Self::Help
             | Self::Redraw
             | Self::Update
+            | Self::Terminal
             | Self::Quit => Group::App,
         }
     }
