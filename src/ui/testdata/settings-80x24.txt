@@ -3,12 +3,12 @@
 ┃ / search           ┃│ No sessions in kedai-web. n to start one.              │
 ┃>  1 kedai-web      ┃│                                                        │
 ┃   2 teh-cli        ┃│                                                        │
-┃                    ┃│                                                        │
 ┃  ╔ settings ══════════════════════════════════════════════════════════════╗  │
-┃  ║                                                                        ║──┘
-┃  ║   workspace   ┃~/Works/OSBR                                          ┃ ║──┐
-┃  ║ > agent       > claude    codex (not on PATH)                          ║  │
+┃  ║                                                                        ║  │
+┃  ║   workspace   ┃~/Works/OSBR                                          ┃ ║──┘
+┃  ║ > agent       > claude    codex (not on PATH)                          ║──┐
 ┃  ║   theme         auto  > dark    light                                  ║  │
+┃  ║   icons       > auto    ascii    unicode    nerd                       ║  │
 ┃  ║   editor      > other                                                  ║  │
 ┃  ║               + ~/.local/bin/claude   - codex not on PATH              ║  │
 ┃  ║               saved for: all workspaces · w switches                   ║  │

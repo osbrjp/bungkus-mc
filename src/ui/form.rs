@@ -9,6 +9,7 @@ use ratatui::widgets::{Clear, Paragraph};
 use crate::agent::Kind;
 use crate::app::form::{Field, Form};
 use crate::store::config::AgentScope;
+use crate::ui::icons::{Icon, IconChoice};
 use crate::ui::mascot::{self, Mascot};
 use crate::ui::theme::{Theme, ThemeChoice, ThemeName, Token};
 use crate::ui::{bold_if, centred, dialog};
@@ -80,7 +81,9 @@ pub(super) fn draw_wizard(
         Field::Editor if form.typing_editor() => {
             "type a command · ← → choose · enter next · esc back"
         }
-        Field::Agent | Field::Theme | Field::Editor => "← → choose · enter next · esc back",
+        Field::Agent | Field::Theme | Field::Icons | Field::Editor => {
+            "← → choose · enter next · esc back"
+        }
         Field::Done => "enter start · esc back",
     };
     frame.render_widget(
@@ -94,7 +97,7 @@ fn title_lines(field: Field, theme: Theme) -> Vec<Line<'static>> {
     let (step, name) = match field {
         Field::Workspace => (1, "workspace"),
         Field::Agent => (2, "default agent"),
-        Field::Theme => (3, "theme"),
+        Field::Theme | Field::Icons => (3, "theme"),
         Field::Editor => (4, "editor"),
         Field::Done => (5, "all set"),
     };
@@ -131,6 +134,7 @@ fn step_rows(form: &Form, theme: Theme, host_light: Option<bool>) -> Vec<Line<'s
             indent(&theme_note(form.theme, host_light), muted),
             preview_line(theme),
         ],
+        Field::Icons => vec![label_line("icons", icons_spans(form, theme, true))],
         Field::Editor => vec![
             label_line("editor", editor_spans(form, theme, true)),
             Line::from(""),
@@ -160,6 +164,10 @@ fn step_rows(form: &Form, theme: Theme, host_light: Option<bool>) -> Vec<Line<'s
     }
 }
 
+/// Builds the options of one choice row: the form, the theme, and whether
+/// the row has focus.
+type Spans = fn(&Form, Theme, bool) -> Vec<Span<'static>>;
+
 /// Draws the settings dialog over the panes (DESIGN §5.5 dialog rules).
 ///
 /// # Arguments
@@ -178,7 +186,7 @@ pub(super) fn draw_settings(
 ) {
     let browsing = form.field == Field::Workspace;
     let list_rows = if browsing { 9 } else { 0 };
-    let rect = centred(area, 74, 13 + list_rows);
+    let rect = centred(area, 74, 14 + list_rows);
     frame.render_widget(Clear, rect);
     let block = dialog("settings", theme);
     let inner = block.inner(rect);
@@ -189,6 +197,7 @@ pub(super) fn draw_settings(
         list,
         agent,
         theme_row,
+        icons,
         editor,
         note,
         error,
@@ -198,6 +207,7 @@ pub(super) fn draw_settings(
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Length(list_rows),
+        Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Length(1),
@@ -220,34 +230,22 @@ pub(super) fn draw_settings(
     if browsing {
         draw_browser(frame, shift(list), form, theme);
     }
-    frame.render_widget(focused_row(agent, Field::Agent), agent);
-    frame.render_widget(
-        label_line(
-            "agent",
-            agent_spans(form, theme, form.field == Field::Agent),
-        ),
-        shift(agent),
-    );
-    frame.render_widget(focused_row(theme_row, Field::Theme), theme_row);
-    frame.render_widget(
-        label_line(
-            "theme",
-            theme_spans(form, theme, form.field == Field::Theme),
-        ),
-        shift(theme_row),
-    );
-    frame.render_widget(focused_row(editor, Field::Editor), editor);
-    frame.render_widget(
-        label_line(
-            "editor",
-            editor_spans(form, theme, form.field == Field::Editor),
-        ),
-        shift(editor),
-    );
+    let choices: [(Rect, Field, &str, Spans); 4] = [
+        (agent, Field::Agent, "agent", agent_spans),
+        (theme_row, Field::Theme, "theme", theme_spans),
+        (icons, Field::Icons, "icons", icons_spans),
+        (editor, Field::Editor, "editor", editor_spans),
+    ];
+    for (row, field, label, spans) in choices {
+        frame.render_widget(focused_row(row, field), row);
+        let value = spans(form, theme, form.field == field);
+        frame.render_widget(label_line(label, value), shift(row));
+    }
     editor_cursor(frame, shift(note), form);
     let note_text = match form.field {
         Field::Agent => found_text(form),
         Field::Theme => theme_note(form.theme, host_light),
+        Field::Icons => icons_note(form),
         Field::Editor => editor_note(form),
         Field::Workspace | Field::Done => {
             "projects = folders with CLAUDE.md, AGENTS.md or .git".into()
@@ -278,7 +276,7 @@ fn settings_hint(form: &Form) -> &'static str {
         Field::Editor if form.typing_editor() => {
             "type a command · ← → change · ↑↓ field · enter save · esc cancel "
         }
-        Field::Agent | Field::Theme | Field::Editor | Field::Done => {
+        Field::Agent | Field::Theme | Field::Icons | Field::Editor | Field::Done => {
             "j/k ↑↓ field · h/l ← → change · enter save · esc cancel "
         }
     }
@@ -400,6 +398,44 @@ fn theme_spans(form: &Form, theme: Theme, focused: bool) -> Vec<Span<'static>> {
             ]
         })
         .collect()
+}
+
+/// Returns the icon set choice row.
+fn icons_spans(form: &Form, theme: Theme, focused: bool) -> Vec<Span<'static>> {
+    IconChoice::ALL
+        .iter()
+        .flat_map(|c| {
+            [
+                choice(c.label(), form.icons == *c, focused, theme),
+                Span::raw("  "),
+            ]
+        })
+        .collect()
+}
+
+/// Returns the line under the icon set choice: what the choice means and
+/// its state glyphs, so glyphs the terminal's font lacks show as boxes
+/// before the choice is saved.
+fn icons_note(form: &Form) -> String {
+    let set = form.icons.resolve(|| form.nerd_font);
+    let sample: String = [
+        Icon::YourTurn,
+        Icon::NeedsYou,
+        Icon::Failed,
+        Icon::Wrapped,
+        Icon::Stopped,
+    ]
+    .iter()
+    .flat_map(|icon| [set.icon(*icon), ' '])
+    .collect();
+    let what = match (form.icons, form.nerd_font) {
+        (IconChoice::Auto, true) => "a Nerd Font is installed: nerd",
+        (IconChoice::Auto, false) => "no Nerd Font is installed: ascii",
+        (IconChoice::Ascii, _) => "plain ascii, right in every terminal",
+        (IconChoice::Unicode, _) => "narrow unicode symbols",
+        (IconChoice::Nerd, _) => "needs a Nerd Font in your terminal",
+    };
+    format!("{what} · {}", sample.trim_end())
 }
 
 /// Returns the editor choice row: the listed editors, then `other` for a

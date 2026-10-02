@@ -117,8 +117,9 @@ Other ways to open mc: `bungkus-mc -q [WORKSPACE]` (quick session popup),
 
 Path: `~/.config/bungkus/mc/config.json` (`$XDG_CONFIG_HOME/bungkus/mc/` when
 that variable is set). All keys are optional; a missing file means defaults.
-The wizard and the settings screen already write `workspace`, `defaultAgent`
-and `theme`, so most users need this file only for the other keys.
+The wizard and the settings screen already write `workspace`, `defaultAgent`,
+`theme`, `icons` and `editor`, so most users need this file only for the
+other keys.
 
 A starting point (leave out what the user does not need):
 
@@ -163,7 +164,10 @@ Editing rules:
 ## 5. Icons and Nerd Fonts
 
 `icons` picks the state glyph set: `auto` | `ascii` | `unicode` | `nerd`.
-The same values work once with `bungkus-mc --icons SET`.
+The same values work once with `bungkus-mc --icons SET`. The quickest way
+to change it is the `icons` row of the settings screen (`,` in mc): it
+applies the set while the dialog is open and shows the glyphs, so the user
+sees boxes before saving.
 
 `auto` (the default) uses `nerd` when a Nerd Font is **installed** on the
 machine, else `ascii`. It looks for a file or folder with `nerd` in its

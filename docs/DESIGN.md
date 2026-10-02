@@ -1057,12 +1057,16 @@ row saves.
 ```
 
 **Settings screen** — `,` in NORMAL (and `w`, which opens it on the
-workspace field). A dialog with all four fields; `tab`/`shift-tab` (and
+workspace field). A dialog with all five fields; `tab`/`shift-tab` (and
 `↑`/`↓` off the workspace field) move between them, `←`/`→` change a
 choice (on the editor row with `other` chosen, letters type its command
 on the line below, so `h`/`j`/`k`/`l` do not move there), and on the workspace field the same folder browser opens under it
 (`↑`/`↓` pick, `→` open, `←` up); `enter` saves and rescans, `esc` cancels
-and reverts the theme preview. On the agent row a line under the choices
+and reverts the theme and icon preview. The `icons` row (`auto`, `ascii`,
+`unicode`, `nerd`; not a wizard step) applies the set to the whole screen
+while the dialog is open, and the line under the rows says what the choice
+means and shows its five state glyphs, so a set the terminal's font lacks
+shows as boxes before it is saved. On the agent row a line under the choices
 says where the default agent is saved, `saved for: all workspaces` (the
 global `config.json`) or `saved for: this workspace only` (the workspace's
 `.bungkus-mc/config.json`), and `w` switches between the two; the screen
@@ -1081,9 +1085,9 @@ INTERACT: every key there goes to the agent.
 ┃  ║   workspace   ┃~/Works/OSBR                                          ┃ ║  ┃
 ┃  ║ > agent       > claude    codex (not on PATH)                          ║  ┃
 ┃  ║   theme         auto  > dark    light                                  ║  ┃
+┃  ║   icons       > auto    ascii    unicode    nerd                       ║  ┃
 ┃  ║   editor      > nvim    vim    code    other                           ║  ┃
 ┃  ║               + ~/.local/bin/claude   - codex not on PATH              ║  ┃
-┃  ║                                                                        ║  ┃
 ┃  ║                                                                        ║  ┃
 ┃  ║                                                                        ║  ┃
 ┃  ║                                                                        ║  ┃
@@ -1211,7 +1215,7 @@ the same frame.
 | `/`                                               | search projects: the search row at the top of the projects pane takes the text (FILTER mode: type, `↑`/`↓` pick, `enter` opens the project's sessions and keeps the search, `esc` clears). Works from the sessions pane too |
 | `1`–`9`                                           | jump to the project with that number (the numbers left of the names follow the searched list). The selection moves on every digit; a digit within 0.7 s of the previous one extends the number (`1` → 1, then `6` → 16), a number with no project leaves the last jump in place, and any other key ends the number (bungkus-cli's wizard rule) |
 | `w`                                               | settings, on the workspace field (§5.8) |
-| `,`                                               | settings: workspace, default agent, theme (§5.8) |
+| `,`                                               | settings: workspace, default agent, theme, icons, editor (§5.8) |
 | `o`                                               | open the selected project in the user's editor (the `editor` setting, else `$VISUAL`, else `$EDITOR`): `vi`/`vim`/`nvim` run in a popup over the panes (mode word `EDITOR`, every key goes to it, it closes when the editor quits); any other editor is started on its own with the folder as its argument; with none of the three set, the first of `nvim` / `vim` / `vi` on `PATH` in the same popup, else the desktop's opener (`open` / `xdg-open`) |
 | `O`                                               | open the selected project's folder with the desktop's opener (`open` / `xdg-open`): Finder or the file manager |
 | `t`                                               | show / hide the terminal pane: the user's `$SHELL` in the lower third of the output pane, in mc's own emulator (no tmux or other program). Every session has its own shell, started in the folder the session works in (its worktree when it has one) the first time `t` is pressed on it; the pane follows the selected session and is absent on one without a shell, and its title names the session. With no session of mc's selected (a project without sessions, an outside session) the shell belongs to the project folder, or to the workspace root on a row that is no folder. A session's shell does not outlive it: when the session ends (it exits, `x` stops it) or is forgotten, mc hangs up on its shell. A card whose session has a shell carries `>_` in `ok` before the right-hand word of its title line, shown or hidden. Showing it gives it the keys (mode word `TERMINAL`); `ctrl-\` gives them back to mc and leaves it showing; `ctrl-h` goes left to the sessions pane and `ctrl-k` up to the output pane (INTERACT), from where `ctrl-j` comes back down while the pane shows; `ctrl-j`/`ctrl-l` in the terminal stay the shell's (enter, clear screen), except in kitty, where they move to the kitty window below / to the right as from the other panes; `cmd`/`alt`/`ctrl` + `4` shows the pane and gives it the keys from any pane (starting the shell when there is none), and + `1`–`3` leave it for that pane; hiding keeps the shells running and leaves a `[4] terminal` marker on the output pane's bottom border; `exit` (or `ctrl-d`) closes one, and when it had the keys they go up to the output pane, as `ctrl-k` does |
