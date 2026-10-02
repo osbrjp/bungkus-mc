@@ -148,6 +148,7 @@ A starting point (leave out what the user does not need):
 | `workspaces` | saved workspaces for the `w` switcher (mc writes this) |
 | `cleanup.keep` | process names the quit dialog starts as `[keep]`, e.g. `["postgres"]` |
 | `worktrees` | `true` (default) · `false`: a Claude session joining a project where another mc session runs gets its own git worktree |
+| `ghConfigDirs` | `{ "~/Works": "~/.config/gh-work" }`: workspace folder → `gh` config folder; children under that workspace get `GH_CONFIG_DIR`, so `gh` uses the account signed in to that folder (`GH_CONFIG_DIR=<folder> gh auth login`, run by the user) |
 | `panes` | `{ "projects": 22, "sessions": 38 }`; projects 16–40, sessions 28–72 (mc writes this when a border is dragged) |
 
 Editing rules:

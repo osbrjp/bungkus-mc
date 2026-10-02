@@ -5,6 +5,7 @@
 //! `icons`, `editor`, `panes`, `workspaces`) and keeps every other key, and the key order, exactly as the
 //! user wrote it (ARCHITECTURE §7).
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
@@ -56,6 +57,34 @@ pub(crate) struct Config {
     /// ids, branching, worktrees); a workspace's own instruction files
     /// apply either way.
     pub instructions: bool,
+    /// The `gh` config folder per workspace folder (both may start with
+    /// `~`); see [`Config::gh_config_dir`].
+    pub gh_config_dirs: BTreeMap<String, String>,
+}
+
+impl Config {
+    /// Returns the `gh` config folder (`GH_CONFIG_DIR`) for a child that
+    /// runs in `dir`, so each workspace can act as its own GitHub account.
+    ///
+    /// The entry of `ghConfigDirs` whose workspace folder contains `dir`
+    /// wins, the longest one when several do. An entry whose folders are
+    /// not absolute after `~` is expanded is skipped. mc only names the
+    /// folder: it never reads it, and no token passes through mc
+    /// (SECURITY.md).
+    ///
+    /// # Arguments
+    ///
+    /// * `dir`  - The folder the child starts in.
+    /// * `home` - The user's home directory, if known.
+    #[must_use]
+    pub(crate) fn gh_config_dir(&self, dir: &Path, home: Option<&Path>) -> Option<PathBuf> {
+        self.gh_config_dirs
+            .iter()
+            .filter_map(|(workspace, gh)| Some((expand(workspace, home)?, expand(gh, home)?)))
+            .filter(|(workspace, _)| dir.starts_with(workspace))
+            .max_by_key(|(workspace, _)| workspace.as_os_str().len())
+            .map(|(_, gh)| gh)
+    }
 }
 
 /// The `cleanup` config block.
@@ -98,6 +127,7 @@ impl Default for Config {
             workspaces: Vec::new(),
             worktrees: true,
             instructions: true,
+            gh_config_dirs: BTreeMap::new(),
         }
     }
 }
@@ -566,6 +596,35 @@ mod tests {
             save(&path, &settings),
             Err(ConfigError::NotObject)
         ));
+    }
+
+    #[test]
+    fn gh_config_dir_is_the_longest_workspace_that_contains_the_folder() {
+        let home = Path::new("/Users/me");
+        let config: Config = serde_json::from_str(
+            r#"{"ghConfigDirs":{"~/Works":"~/.config/gh-work","~/Works/oss":"/gh/oss",
+                "relative":"/gh/never","~/Bad":"relative"}}"#,
+        )
+        .unwrap();
+        let cases = [
+            ("/Users/me/Works/app", Some("/Users/me/.config/gh-work")),
+            ("/Users/me/Works", Some("/Users/me/.config/gh-work")),
+            ("/Users/me/Works/oss/tool", Some("/gh/oss")),
+            ("/Users/me/Workshop/app", None),
+            ("/Users/me/Bad/app", None),
+            ("/Users/me/Personal/app", None),
+        ];
+        for (dir, want) in cases {
+            assert_eq!(
+                config.gh_config_dir(Path::new(dir), Some(home)),
+                want.map(PathBuf::from),
+                "{dir}"
+            );
+        }
+        assert_eq!(
+            Config::default().gh_config_dir(Path::new("/Users/me/Works"), Some(home)),
+            None
+        );
     }
 
     #[test]

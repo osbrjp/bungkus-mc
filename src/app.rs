@@ -440,9 +440,9 @@ fn run_cmd(
         },
         Cmd::RemoveWorktree(project, name) => forget_worktree(model, &project, &name, tx),
         Cmd::CleanWorktrees(project) => clean_worktrees(model, &project, tx),
-        Cmd::OpenEditor(project) => open_editor(model, &project, tx),
+        Cmd::OpenEditor(project) => open_editor(model, &env.config, &project, tx),
         Cmd::OpenFolder(project) => open_folder(model, project),
-        Cmd::OpenTerminal(owner, dir) => open_terminal(model, owner, &dir, tx),
+        Cmd::OpenTerminal(owner, dir) => open_terminal(model, &env.config, owner, &dir, tx),
         Cmd::SaveGroups(groups) => save_groups(model, &groups),
         Cmd::SaveWidths(widths) => {
             if let Some(path) = &env.config_path
@@ -809,7 +809,9 @@ fn launch(
     card.worktree = worktree;
     let argv = agent::argv(kind, &program, &extra_args, &launch);
     let id = launch.id.0.hyphenated().to_string();
+    let gh = env.config.gh_config_dir(&project, model.home.as_deref());
     let mut extra = vec![("BUNGKUS_MC_SESSION", OsStr::new(&id))];
+    extra.extend(gh.iter().map(|dir| ("GH_CONFIG_DIR", dir.as_os_str())));
     if let Some(hooks) = hooks {
         extra.push(("BUNGKUS_MC_SOCK", hooks.socket.as_os_str()));
     }
@@ -864,13 +866,15 @@ fn launch(
 }
 
 /// Starts `command` (program first, looked up on `PATH`) in a PTY of
-/// `size` in `dir`, with the same scrubbed environment as an agent.
+/// `size` in `dir`, with the same scrubbed environment as an agent and the
+/// workspace's `GH_CONFIG_DIR` ([`Config::gh_config_dir`]).
 ///
 /// # Returns
 ///
 /// The running tool, or `None` with the reason in the message line.
 fn spawn_tool(
     model: &mut Model,
+    config: &Config,
     command: &[String],
     dir: &Path,
     size: Size,
@@ -891,7 +895,12 @@ fn spawn_tool(
         .chain(command[1..].iter().map(OsString::from))
         .collect();
     let id = SessionId::new();
-    let env = child_env(std::env::vars_os(), &[]);
+    let gh = config.gh_config_dir(dir, model.home.as_deref());
+    let extra: Vec<_> = gh
+        .iter()
+        .map(|dir| ("GH_CONFIG_DIR", dir.as_os_str()))
+        .collect();
+    let env = child_env(std::env::vars_os(), &extra);
     match Session::spawn(id, &argv, dir, &env, size, colors(model.theme), tx) {
         Ok(pty) => Some(Tool { id, pty }),
         Err(e) => {
@@ -905,13 +914,14 @@ fn spawn_tool(
 /// in `dir` and gives it the keys.
 fn open_terminal(
     model: &mut Model,
+    config: &Config,
     owner: crate::app::tools::Owner,
     dir: &Path,
     tx: &SyncSender<AppEvent>,
 ) {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
     let size = ui::terminal_size(model.screen, model.zoom, model.widths);
-    if let Some(tool) = spawn_tool(model, &[shell], dir, size, tx) {
+    if let Some(tool) = spawn_tool(model, config, &[shell], dir, size, tx) {
         model.shells.push((owner, tool));
         model.term_view = TermView::Focused;
     }
@@ -929,7 +939,7 @@ pub(crate) fn user_editor() -> Option<String> {
 /// `$VISUAL`, else `$EDITOR`; see [`tools::opener`]): vim in the popup with
 /// the folder as its argument (also when none is set and one is on
 /// `PATH`), anything else started on its own and left alone.
-fn open_editor(model: &mut Model, project: &Path, tx: &SyncSender<AppEvent>) {
+fn open_editor(model: &mut Model, config: &Config, project: &Path, tx: &SyncSender<AppEvent>) {
     let editor = model
         .settings
         .as_ref()
@@ -941,7 +951,7 @@ fn open_editor(model: &mut Model, project: &Path, tx: &SyncSender<AppEvent>) {
         Opener::Popup(mut command) => {
             command.push(".".into());
             let size = ui::popup_size(model.screen);
-            model.editor = spawn_tool(model, &command, project, size, tx);
+            model.editor = spawn_tool(model, config, &command, project, size, tx);
         }
         Opener::Detached(command) => open_detached(model, &command, project),
     }

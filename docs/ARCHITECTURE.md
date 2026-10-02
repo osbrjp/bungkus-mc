@@ -117,7 +117,13 @@ Start from `std::env::vars_os()` and then:
   `CODEX_HOME`. A test asserts the denylist is absent and the kept names
   present;
 - add `BUNGKUS_MC_SOCK`, `BUNGKUS_MC_SESSION`, and for Claude
-  `BUNGKUS_MC_USER_STATUSLINE` (§6.2).
+  `BUNGKUS_MC_USER_STATUSLINE` (§6.2);
+- set `GH_CONFIG_DIR` when the global `ghConfigDirs` has an entry for the
+  workspace the child runs in (the longest workspace folder that contains
+  the child's folder; both sides may start with `~`). mc is one process
+  for every workspace, so without this `gh` acts as one account in all of
+  them. The terminal pane and the editor popup get it too. mc only names
+  the folder: it does not read it, run `gh`, or handle a token.
 
 The emulator's default foreground/background are **the theme's painted
 `bg`/`fg`** (`#1c2a21`/`#d6e2d3` dark, `#f0f3d8`/`#1f2a22` light) whenever
@@ -839,6 +845,7 @@ the key). A hidden folder is never listed as a project.
   "interactExit": "ctrl-\\",
   "worktrees": true,
   "instructions": true,
+  "ghConfigDirs": { "~/Works": "~/.config/gh-work" },
   "agents": {
     "claude": { "command": "claude", "args": [] },
     "codex":  { "command": "codex",  "args": [] }

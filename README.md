@@ -338,6 +338,7 @@ key back with `kitten @ focus-window --match neighbor:…`.
   "workspaces": ["/Users/me/Works", "/Users/me/code"],
   "cleanup": { "keep": ["postgres"] },
   "worktrees": true,
+  "ghConfigDirs": { "~/Works": "~/.config/gh-work" },
   "panes": { "projects": 22, "sessions": 38 }
 }
 ```
@@ -351,6 +352,7 @@ key back with `kitten @ focus-window --match neighbor:…`.
 | `interactExit` | the chord that leaves INTERACT (default `ctrl-\`) |
 | `cleanup.keep` | process names the quit dialog starts as `[keep]` |
 | `worktrees` | `true` (default) · `false`; see [Worktrees](#worktrees) |
+| `ghConfigDirs` | a GitHub account per workspace: workspace folder → `gh` config folder (both may start with `~`). Sessions, the terminal pane and the editor under that workspace get `GH_CONFIG_DIR` set to it, so `gh` there uses the account signed in to that folder. Sign in once with `GH_CONFIG_DIR=~/.config/gh-work gh auth login`. Workspaces without an entry follow your normal `gh` account. mc never handles a token |
 | `panes` | pane widths: projects 16–40, sessions 28–72, output keeps 40 |
 
 **Who writes what:** the settings screen writes `workspace`,
