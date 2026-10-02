@@ -5,7 +5,7 @@
 │ + 4 more (e)       │┃ ┃  tokens   in 45k · out 140       ┃│                   └──────────────────────────┘    ▀  ▀   │
 │                    │┃ ┃  cache    read 30k · write 15k   ┃│                                                          │
 │                    │┃ ┃  cost     $0.04 (list price)     ┃│                                                          │
-│                    │┃ ┃  context  23% of 200k · 45k used ┃│                                                          │
+│                    │┃ ┃  context  ##------ 23% of 200k   ┃│                                                          │
 │                    │┃ ┃  limits   5h 6% · 7d 18%         ┃│                                                          │
 │                    │┃ ┃  * say hi                    | 0m┃│                                                          │
 │                    │┃                                    ┃│                                                          │

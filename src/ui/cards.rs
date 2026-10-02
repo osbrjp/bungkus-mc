@@ -17,7 +17,7 @@ use crate::external::External;
 use crate::ui::icons::{Icon, IconSet};
 use crate::ui::sanitise::truncate;
 use crate::ui::theme::{Theme, Token};
-use crate::ui::{pane, workspace_label};
+use crate::ui::{meter, pane, workspace_label};
 
 /// Most subagent rows shown per card; the newest are kept.
 const SUBAGENT_ROWS: usize = 5;
@@ -331,7 +331,7 @@ fn card_lines(
         lines.push(body(&repo.label(body_width), theme.fg(Token::FgMuted)));
     }
     if mark == Mark::Focused {
-        for row in expanded_usage(card) {
+        for row in expanded_usage(card, theme) {
             lines.push(body(&row, text));
         }
     } else {
@@ -397,8 +397,12 @@ fn compact_usage(card: &Card) -> (String, String, Token) {
     (format!("{tok} tok · {cost} · "), ctx, token)
 }
 
-/// Returns the expanded usage rows of the selected card (DESIGN §6.3).
-fn expanded_usage(card: &Card) -> Vec<String> {
+/// Cells of the context bar on the selected card.
+const CTX_BAR: u8 = 8;
+
+/// Returns the expanded usage rows of the selected card (DESIGN §6.3);
+/// the context row leads with a [`meter`].
+fn expanded_usage(card: &Card, theme: Theme) -> Vec<String> {
     let u = card.usage.clone().unwrap_or_default();
     let n = |v: Option<u64>| v.map_or_else(|| "-".to_owned(), tokens);
     let mut rows = vec![format!("tokens   in {} · out {}", n(u.input), n(u.output))];
@@ -415,10 +419,13 @@ fn expanded_usage(card: &Card) -> Vec<String> {
     }
     rows.push(match (live_ctx(card), u.ctx_size) {
         (Some(p), Some(size)) => {
-            let used = u.input.map_or_else(|| "-".to_owned(), tokens);
-            format!("context  {p:.0}% of {} · {used} used", tokens(size))
+            format!(
+                "context  {} {p:.0}% of {}",
+                meter(p, CTX_BAR, theme.icons),
+                tokens(size)
+            )
         }
-        (Some(p), None) => format!("context  {p:.0}%"),
+        (Some(p), None) => format!("context  {} {p:.0}%", meter(p, CTX_BAR, theme.icons)),
         (None, _) => "context  -".to_owned(),
     });
     if !u.limits.is_empty() {

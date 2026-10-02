@@ -926,13 +926,7 @@ fn limit_spans(model: &Model, theme: Theme, wide: bool) -> Vec<Span<'static>> {
                 String::new()
             };
             let bar = if bars {
-                let filled = (0..5).filter(|n| f64::from(*n) * 20.0 < w.used_pct).count();
-                let (on, off) = theme.icons.bar();
-                format!(
-                    "{}{} ",
-                    on.to_string().repeat(filled),
-                    off.to_string().repeat(5 - filled)
-                )
+                format!("{} ", meter(w.used_pct, 5, theme.icons))
             } else {
                 String::new()
             };
@@ -1009,6 +1003,25 @@ fn bordered(weight: Weight, theme: Theme) -> Block<'static> {
         (Weight::Heavy, false) => block.border_set(ascii("#", "=", "|")),
         (Weight::Double, false) => block.border_set(ascii("*", "=", "*")),
     }
+}
+
+/// Returns a progress bar of `cells` cells filled to `pct` percent, in
+/// the glyphs of `icons` (`##---` in the ascii set): the plan limits in
+/// the getah bar and the context row of the selected card.
+///
+/// A cell fills as soon as the percentage passes its start, so any use
+/// above zero shows one cell and an empty bar means nothing used.
+pub(crate) fn meter(pct: f64, cells: u8, icons: icons::IconSet) -> String {
+    let filled = (0..cells)
+        .filter(|n| f64::from(*n) * 100.0 < pct * f64::from(cells))
+        .count();
+    let (on, off) = icons.bar();
+    let empty = usize::from(cells) - filled;
+    format!(
+        "{}{}",
+        on.to_string().repeat(filled),
+        off.to_string().repeat(empty)
+    )
 }
 
 /// Returns a pane: heavy `ok` border when focused, light `border`
@@ -1539,6 +1552,21 @@ pub(crate) mod tests {
         model.now += mascot::NOTICE;
         model.update(crate::app::AppEvent::Tick);
         assert!(model.notice.is_none(), "it goes after a while");
+    }
+
+    #[test]
+    fn a_meter_fills_a_cell_once_the_percentage_passes_its_start() {
+        for (pct, want) in [
+            (0.0, "--------"),
+            (0.4, "#-------"),
+            (23.0, "##------"),
+            (50.0, "####----"),
+            (99.0, "########"),
+            (130.0, "########"),
+        ] {
+            assert_eq!(meter(pct, 8, icons::IconSet::Ascii), want, "{pct}");
+        }
+        assert_eq!(meter(50.0, 4, icons::IconSet::Unicode), "▮▮▯▯");
     }
 
     #[test]

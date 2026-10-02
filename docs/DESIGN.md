@@ -1086,14 +1086,16 @@ the room (§5.1); `/ filter` and `, settings` are listed in `?` help only.
  ┃  tokens   in 486k · out 13k      
  ┃  cache    read 402k · write 19k  
  ┃  cost     $1.42 (list price)     
- ┃  context  37% of 200k · 74k used 
+ ┃  context  ###----- 37% of 200k   
  ┃  limits   5h 42% · 7d 18%        
  ┃  * research hooks            / 3m
  ┃  * research codex            / 3m
 ```
 
-Shown only while the sessions pane is focused (§5.2). `context` shows the
-reported `context_window_size` (200k here; 1M has been observed).
+Shown only while the sessions pane is focused (§5.2). `context` shows an
+8-cell bar of the fill (the same glyphs and rule as the plan-limit bars:
+a cell fills once the percentage passes its start), the percentage and
+the reported `context_window_size` (200k here; 1M has been observed).
 Per-subagent tokens are not shown (no source outside transcripts). A routed
 session adds a `model    haiku · routed 0.82` line (§10). A Codex card has
 no `cache`/`cost` lines and its `limits` line reads `5h 10% · 7d 3%`.
