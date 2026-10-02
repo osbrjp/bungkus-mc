@@ -329,22 +329,22 @@ projects left, sessions over output on the right** (§4.3). Minimum size **80×2
 │   teh-cli      x 1 │┃ ┃  cache    read 402k · write 19k  ┃│  ⏺ Bash(ls ~/.claude/projects)           ▄████████████▄  │
 │ | warung-api       │┃ ┃  cost     $1.42 (list price)     ┃│    ⎿  -Users-me                         ▀▀▀▀▀▀█▀▀█▀▀▀▀▀▀ │
 │                    │┃ ┃  context  37% of 200k · 74k used ┃│       -Users-me-Documents                     █  █       │
-│                    │┃ ┃  limits   5h 42% · 7d 18%        ┃│       ...                                    ▀▀ ▀▀       │
-│                    │┃ ┃  * audit cart flow           / 3m┃│                                                          │
-│                    │┃ ┃  * stripe api check          / 3m┃│  ⏺ Bash(ls ~/.claude/projects/-Users-me/*.jsonl)         │
-│                    │┃ ┃  * a11y review               + 1m┃│                                                          │
-│                    │┃                                    ┃│  Allow Bash to run this command?                         │
-│                    │┃  / X #77c0 flaky payment test   41m┃│                                                          │
-│                    │┃    working · shell                 ┃│  ❯ 1. Yes                                                │
-│                    │┃    312k tok · - · ctx 22%          ┃│    2. Yes, and don't ask again for ls in this project    │
-│                    │┃                                    ┃│    3. No, and tell Claude what to do differently         │
-│                    │┃  ~ C #d402 seo audit      your turn┃│                                                          │
+│                    │┃ ┃  * audit cart flow           / 3m┃│       ...                                    ▀▀ ▀▀       │
+│                    │┃ ┃  * stripe api check          / 3m┃│                                                          │
+│                    │┃ ┃  * a11y review               + 1m┃│  ⏺ Bash(ls ~/.claude/projects/-Users-me/*.jsonl)         │
+│                    │┃                                    ┃│                                                          │
+│                    │┃  / X #77c0 flaky payment test   41m┃│  Allow Bash to run this command?                         │
+│                    │┃    working · shell                 ┃│                                                          │
+│                    │┃    312k tok · - · ctx 22%          ┃│  ❯ 1. Yes                                                │
+│                    │┃                                    ┃│    2. Yes, and don't ask again for ls in this project    │
+│                    │┃  ~ C #d402 seo audit      your turn┃│    3. No, and tell Claude what to do differently         │
 │                    │┃    done: "Three fixes, see above"  ┃│                                                          │
 │                    │┃    140k tok · $0.52 · ctx 21%      ┃│                                                          │
 │                    │┃                                    ┃│                                                          │
 │                    │┃  + C #9be2 bump deps        wrapped┃│                                                          │
 │                    │┃    22m · 38 tools · 2 subagents    ┃│                                                          │
 │                    │┃    61k tok · $0.98 · ctx -         ┃│                                                          │
+│                    │┃                                    ┃│                                                          │
 │                    │┃                                    ┃│                                                          │
 │                    │┃                                    ┃│                                                          │
 │                    │┃                                    ┃│                                                          │
@@ -540,8 +540,7 @@ whether there is a header line.
   `accent`) in column 0 of every line, with its name in `accent`.
 - Truncation: every line is cut to the inner width with a trailing `…`.
   Lines with a right-aligned field (elapsed, state word, subagent time) keep
-  the right field and truncate the left text. The usage `limits` line drops
-  its `↻` reset times first, then truncates; the `cost` line drops its
+  the right field and truncate the left text. The `cost` line drops its
   parenthetical first. The card mocks below are inner width 36; the
   expanded mock in §6.3 has the focus marker in column 1, leaving 35.
 
@@ -1165,22 +1164,21 @@ the room (§5.1); `/ filter` and `, settings` are listed in `?` help only.
  ┃  cache    read 402k · write 19k  
  ┃  cost     $1.42 (list price)     
  ┃  context  ████░░░░░░ 37% 74k/200k
- ┃  limits   5h ████░░░░░░ 42%
- ┃           7d ██░░░░░░░░ 18%        
  ┃  * research hooks            / 3m
  ┃  * research codex            / 3m
 ```
 
-Shown only while the sessions pane is focused (§5.2). `context` and each
-plan-limit window show a 10-cell progress bar (solid `█` then shaded `░`,
+Shown only while the sessions pane is focused (§5.2). Plan limits are not
+on the card; they are in the getah bar (§6.1). `context` shows a 10-cell
+progress bar (solid `█` then shaded `░`,
 the look of indicatif's default bar; filled to the nearest cell, one at
-least for any use), then the percentage; `context` adds used / reported
+least for any use), then the percentage and used / reported
 `context_window_size` when the card is wide enough (200k here; 1M has
 been observed). The filled part is `ok`, `warn` from 80 % and `err` from
-90 % (context) or 95 % (limits); the rest is `fg-muted`.
+90 %; the rest is `fg-muted`.
 Per-subagent tokens are not shown (no source outside transcripts). A routed
 session adds a `model    haiku · routed 0.82` line (§10). A Codex card has
-no `cache`/`cost` lines and its `limits` line reads `5h 10% · 7d 3%`.
+no `cache`/`cost` lines.
 
 ## 7. Motion
 
