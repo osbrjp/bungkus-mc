@@ -9,10 +9,12 @@
 
 pub(crate) mod activity;
 pub(crate) mod browser;
+pub(crate) mod finder;
 pub(crate) mod form;
 pub(crate) mod groups;
 mod interact;
 pub(crate) mod links;
+pub(crate) mod markdown;
 pub(crate) mod model;
 pub(crate) mod picker;
 pub(crate) mod quick;
@@ -39,6 +41,7 @@ use ratatui::crossterm::terminal::supports_keyboard_enhancement;
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
 
 use crate::agent::{self, Kind, find_on_path};
+use crate::app::finder::{Reply, Request};
 use crate::app::model::{Alert, Cmd, LaunchRequest, Model};
 use crate::app::sessions::{Card, State};
 use crate::app::tools::{Opener, TermView, Tool};
@@ -96,9 +99,10 @@ pub(crate) enum AppEvent {
     /// The open pull requests and issues `gh` listed for the popup opened
     /// on this folder.
     LinkList(PathBuf, Vec<links::Link>),
-    /// The text `gh` read of the issue or pull request at this URL, for
+    /// The description and comments `gh` read of the issue or pull request at
+    /// this URL (see `links::body`), for
     /// the popup's text view; `None` when the read failed.
-    LinkBody(String, Option<String>),
+    LinkBody(String, Option<Vec<String>>),
     /// The host terminal went away (input closed).
     HostGone,
     /// A newer release exists (the hourly check).
@@ -108,6 +112,8 @@ pub(crate) enum AppEvent {
     Updated(Result<Option<String>, String>),
     /// A worktree removal finished; what to tell the user.
     Worktrees(String),
+    /// What a [`Cmd::Finder`] request found or read.
+    Finder(Reply),
     /// A deadline passed: animation frame, sync flush or stop grace.
     Tick,
 }
@@ -464,7 +470,8 @@ fn run_cmd(
         },
         Cmd::RemoveWorktree(project, name) => forget_worktree(model, &project, &name, tx),
         Cmd::CleanWorktrees(project) => clean_worktrees(model, &project, tx),
-        Cmd::OpenEditor(project) => open_editor(model, &env.config, &project, tx),
+        Cmd::OpenEditor(project) => open_editor(model, &env.config, &project, None, tx),
+        Cmd::Finder(request) => finder_request(model, &env.config, request, tx),
         Cmd::OpenFolder(project) => open_folder(model, project),
         Cmd::OpenUrl(url) => open_folder(model, PathBuf::from(url)),
         Cmd::ListLinks(folder) => list_links(gh_dir(model, env, &folder), folder, tx),
@@ -1027,11 +1034,20 @@ pub(crate) fn user_editor() -> Option<String> {
         .find(|value| !value.trim().is_empty())
 }
 
-/// Opens `project` in the user's editor (the `editor` setting, else
-/// `$VISUAL`, else `$EDITOR`; see [`tools::opener`]): vim in the popup with
-/// the folder as its argument (also when none is set and one is on
-/// `PATH`), anything else started on its own and left alone.
-fn open_editor(model: &mut Model, config: &Config, project: &Path, tx: &SyncSender<AppEvent>) {
+/// Opens `dir`, or `file` (at a line, in vim) with `dir` as the working
+/// directory, in the user's editor (the `editor` setting, else `$VISUAL`,
+/// else `$EDITOR`; see [`tools::opener`]): vim in the popup (also when none
+/// is set and one is on `PATH`), anything else started on its own and left
+/// alone.
+// ponytail: only vim gets the line (`+N`); an editor started on its own
+// opens the file at its top. Add its flag (`code -g file:N`) when asked for.
+fn open_editor(
+    model: &mut Model,
+    config: &Config,
+    dir: &Path,
+    file: Option<(&Path, Option<u32>)>,
+    tx: &SyncSender<AppEvent>,
+) {
     let editor = model
         .settings
         .as_ref()
@@ -1039,14 +1055,136 @@ fn open_editor(model: &mut Model, config: &Config, project: &Path, tx: &SyncSend
         .or_else(user_editor);
     let path = std::env::var_os("PATH").unwrap_or_default();
     let installed = |name: &str| find_on_path(name, &path).is_some();
+    // Absolute, so a folder named `-u` or `+cmd` is never read as an option.
+    let file = file.map(|(file, line)| (dir.join(file), line));
     match tools::opener(editor.as_deref(), installed) {
         Opener::Popup(mut command) => {
-            command.push(".".into());
+            match &file {
+                Some((file, line)) => {
+                    command.extend(line.map(|n| format!("+{n}")));
+                    command.push(file.to_string_lossy().into_owned());
+                }
+                None => command.push(".".into()),
+            }
             let size = ui::popup_size(model.screen);
-            model.editor = spawn_tool(model, config, &command, project, size, tx);
+            model.editor = spawn_tool(model, config, &command, dir, size, tx);
         }
-        Opener::Detached(command) => open_detached(model, &command, project),
+        Opener::Detached(command) => {
+            let target = file.as_ref().map_or(dir, |(file, _)| file.as_path());
+            open_detached(model, &command, dir, target);
+        }
     }
+}
+
+/// Runs what the finder asked for; the search and the read go off the UI
+/// thread.
+fn finder_request(model: &mut Model, config: &Config, request: Request, tx: &SyncSender<AppEvent>) {
+    match request {
+        Request::Find(root, seq, pattern) => find(model, root, seq, pattern, tx),
+        Request::Preview(file, line) => preview(file, line, tx),
+        Request::Open(dir, file, line) => {
+            open_editor(model, config, &dir, Some((&file, line)), tx);
+        }
+    }
+}
+
+/// Most bytes of a file read for the finder's preview; a match past them
+/// has none.
+const PREVIEW_BYTES: u64 = 16 * 1024 * 1024;
+
+/// Reads, on a background thread, the lines of `file` the finder previews
+/// and reports them as [`Reply::Preview`]: the first
+/// [`finder::PREVIEW_ROWS`], or with `line` those from
+/// [`finder::PREVIEW_CONTEXT`] lines above it. A file with a NUL byte in
+/// them shows as binary; one that cannot be read shows nothing.
+fn preview(file: PathBuf, line: Option<u32>, tx: &SyncSender<AppEvent>) {
+    use std::io::{BufRead, Read};
+
+    let tx = tx.clone();
+    thread::spawn(move || {
+        let at = line.map_or(0, |n| usize::try_from(n).unwrap_or(1).saturating_sub(1));
+        let start = at.saturating_sub(finder::PREVIEW_CONTEXT);
+        let raw: Vec<Vec<u8>> = std::fs::File::open(&file).map_or_else(
+            |_| Vec::new(),
+            |f| {
+                io::BufReader::new(f.take(PREVIEW_BYTES))
+                    .split(b'\n')
+                    .map_while(Result::ok)
+                    .skip(start)
+                    .take(finder::PREVIEW_ROWS)
+                    .collect()
+            },
+        );
+        let (lines, hit) = if raw.iter().any(|l| l.contains(&0)) {
+            (vec!["(binary file)".to_owned()], None)
+        } else {
+            let text = |l: &Vec<u8>| String::from_utf8_lossy(l).into_owned();
+            (raw.iter().map(text).collect(), line.map(|_| at - start))
+        };
+        // reason: mc may have quit meanwhile.
+        let _ = tx.send(AppEvent::Finder(Reply::Preview(file, line, lines, hit)));
+    });
+}
+
+/// Runs ripgrep in `root` on a background thread for finder search `seq`
+/// and reports the lines it printed as [`Reply::Found`]: the files it
+/// would search (`pattern` is `None`), or the `path:line:text` of lines
+/// matching the regex `pattern` (smart case). ripgrep skips what
+/// `.gitignore` names, hidden files and binary files. Without `rg` on
+/// `PATH` the finder closes with a message.
+// ponytail: a search the user has typed past still runs to its cap or the
+// end of the workspace; kill the previous child when that shows in use.
+fn find(
+    model: &mut Model,
+    root: PathBuf,
+    seq: u64,
+    pattern: Option<String>,
+    tx: &SyncSender<AppEvent>,
+) {
+    use std::io::BufRead;
+    use std::process::{Command, Stdio};
+
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let Some(rg) = find_on_path("rg", &path) else {
+        model.overlay = None;
+        model.message = Some("ff and fg need ripgrep: rg not found on PATH.".into());
+        return;
+    };
+    let tx = tx.clone();
+    thread::spawn(move || {
+        let mut command = Command::new(rg);
+        command.args(["--color=never", "--no-messages"]);
+        let cap = if let Some(pattern) = &pattern {
+            command.args(["--line-number", "--no-heading", "--smart-case"]);
+            command.args(["--max-columns=200", "--max-columns-preview", "-e", pattern]);
+            finder::ROWS_MAX
+        } else {
+            command.arg("--files");
+            finder::FILES_MAX
+        };
+        let child = command
+            .current_dir(root)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn();
+        let mut lines = Vec::new();
+        if let Ok(mut child) = child {
+            if let Some(out) = child.stdout.take() {
+                lines = io::BufReader::new(out)
+                    .split(b'\n')
+                    .map_while(Result::ok)
+                    .take(cap)
+                    .map(|line| String::from_utf8_lossy(&line).into_owned())
+                    .collect();
+            }
+            // reason: it has printed all that is shown, or has already ended.
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        // reason: mc may have quit meanwhile.
+        let _ = tx.send(AppEvent::Finder(Reply::Found(seq, lines)));
+    });
 }
 
 /// Opens `project` (a folder, or an `https://` address) with the desktop's
@@ -1074,18 +1212,18 @@ fn open_folder(model: &mut Model, project: PathBuf) {
     });
 }
 
-/// Starts `command` (argv, no shell) with `project` as its last argument
-/// and leaves it alone: its own process group, no terminal; the outcome
-/// goes to the message line.
-fn open_detached(model: &mut Model, command: &[String], project: &Path) {
+/// Starts `command` (argv, no shell) in `dir` with `target` as its last
+/// argument and leaves it alone: its own process group, no terminal; the
+/// outcome goes to the message line.
+fn open_detached(model: &mut Model, command: &[String], dir: &Path, target: &Path) {
     use std::os::unix::process::CommandExt;
     let Some((program, args)) = command.split_first() else {
         return;
     };
     let spawned = std::process::Command::new(program)
         .args(args)
-        .arg(project)
-        .current_dir(project)
+        .arg(target)
+        .current_dir(dir)
         .process_group(0)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())

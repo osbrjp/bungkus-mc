@@ -134,6 +134,7 @@ pane; press one to run it.
 | `cmd`/`alt`/`ctrl` + `1` `2` `3` `4` | projects · sessions · output · terminal pane, also from inside INTERACT (`cmd` needs a [terminal mapping](#cmd--1-2-3-on-macos)) |
 | `1`–`9` | jump to project N; type the next digit quickly for two digits (`1` `6` → 16) |
 | `/` | search projects (`↑` `↓` pick, `enter` open, `esc` clear) |
+| `fp` · `ff` · `fg` | finder popup over the workspace: projects, file names, grep (`enter` opens the project, or the file in your editor; `ff` and `fg` need [ripgrep](https://github.com/BurntSushi/ripgrep)) |
 | `!` · `ctrl-]` | jump to the next session that needs you, in any project |
 | `ctrl-j` `ctrl-k` · `ctrl-n` `ctrl-p` | down · up in every dialog, list and the `/` search (same as `↓` `↑`) |
 | `z` | zoom the output pane |
@@ -152,7 +153,7 @@ pane; press one to run it.
 | `r` | on a finished session: resume it. Anywhere else: open the agent's own list of this project's past sessions (`claude --resume` / `codex resume`) to pick any of them |
 | `x` | stop a session (lists what it started too) |
 | `P` · `I` | open the pull request · the issue of the session's branch in the browser. mc finds them itself through the `gh` CLI: the pull request GitHub has for the branch, and the issue from a branch named `i{issue#}-…` (else the first issue the pull request closes). The card shows their numbers after the branch |
-| `i` | issues & pull requests popup: the session's own first (`●`), then the repository's open ones; `j` `k` move, `enter` reads one in the popup (`j` `k` `d` `u` scroll, `esc` back), `o` opens it in the browser |
+| `i` | issues & pull requests popup: the session's own first (`●`), then the repository's open ones; `j` `k` move, `enter` reads one and its comments in the popup, Markdown rendered (`j` `k` `d` `u` scroll, `esc` back), `o` opens it in the browser |
 | `d` | forget a finished session |
 
 ### Projects and workspaces

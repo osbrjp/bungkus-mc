@@ -90,6 +90,8 @@ pub(crate) enum Overlay {
     NewProject(crate::app::quick::NewProject),
     /// The `w` workspace switcher.
     Switcher(crate::app::workspaces::Switcher),
+    /// The `fp` / `ff` / `fg` finder.
+    Finder(crate::app::finder::Finder),
     /// The `i` issues and pull requests popup.
     Links(crate::app::links::Viewer),
     /// "Move these projects' folders to the Trash?"
@@ -180,6 +182,8 @@ pub(crate) enum Cmd {
     Sample,
     /// Open this project folder in the user's editor (`o`).
     OpenEditor(PathBuf),
+    /// Search, read or open a file for the finder.
+    Finder(crate::app::finder::Request),
     /// Open this project folder with the desktop's opener (`O`).
     OpenFolder(PathBuf),
     /// Open this `https://` address with the desktop's opener (`P`, `I`,
@@ -361,6 +365,9 @@ pub(crate) struct Model {
     /// The projects last moved to the Trash this run, each `(folder, where
     /// it went)`, for `u`.
     pub last_trash: Vec<(PathBuf, PathBuf)>,
+    /// The number of the last finder search started; an older search's
+    /// result is dropped.
+    pub find_seq: u64,
     /// The other end of the projects pane's line selection (`V`), when on.
     pub visual: Option<usize>,
     /// The projects marked with `v`, by folder (chosen like the `V` range).
@@ -493,6 +500,7 @@ impl Model {
             restart: false,
             known: std::collections::HashSet::new(),
             kitty: false,
+            find_seq: 0,
             visual: None,
             marks: Vec::new(),
             popup_menu: false,
@@ -968,7 +976,7 @@ impl Model {
             }
             AppEvent::Links(read) => self.set_links(read),
             AppEvent::LinkList(folder, list) => self.set_link_list(&folder, list),
-            AppEvent::LinkBody(url, text) => self.set_link_body(&url, text),
+            AppEvent::LinkBody(url, text) => self.set_link_body(&url, text.as_deref()),
             AppEvent::External(list) => {
                 self.external = list;
                 self.selected = self.selected.min(self.visible().len().saturating_sub(1));
@@ -981,6 +989,7 @@ impl Model {
             }
             AppEvent::Updated(result) => return self.updated(result),
             AppEvent::Worktrees(text) => self.message = Some(text),
+            AppEvent::Finder(reply) => return self.finder_reply(reply),
             AppEvent::Pty(PtyEvent::Output(id, bytes)) => {
                 if let Some(pty) = self.tool_mut(id) {
                     pty.advance(&bytes);
@@ -1351,6 +1360,7 @@ impl Model {
             }
             Overlay::NewProject(dialog) => self.new_project_key(dialog, key),
             Overlay::Switcher(switcher) => self.switcher_key(switcher, key),
+            Overlay::Finder(finder) => self.finder_key(finder, key),
             Overlay::Links(viewer) => self.viewer_key(viewer, key),
             Overlay::TrashProject(projects) => confirms(key)
                 .then(|| Cmd::TrashProject(projects.into_iter().map(|p| p.path).collect())),
@@ -1742,6 +1752,14 @@ impl Model {
             .min(len.saturating_sub(1))
     }
 
+    /// Enters FILTER mode on the projects pane with an empty search (`/`).
+    fn start_filter(&mut self) {
+        self.focus = Focus::Projects;
+        self.filtering = true;
+        self.filter.clear();
+        self.selected = 0;
+    }
+
     /// Moves the selection of the focused list by `delta` rows; moving down
     /// from the last recent project opens the rest.
     fn move_selection(&mut self, delta: isize) {
@@ -1787,12 +1805,7 @@ impl Model {
             }
             Action::Interact => self.interact(),
             Action::NextPane | Action::OpenProject => self.focus = Focus::Sessions,
-            Action::Filter => {
-                self.focus = Focus::Projects;
-                self.filtering = true;
-                self.filter.clear();
-                self.selected = 0;
-            }
+            Action::Filter => self.start_filter(),
             Action::NewSession
                 if self
                     .selected_project()
@@ -1800,6 +1813,7 @@ impl Model {
             {
                 self.open_picker();
             }
+            Action::Find(source) => return self.open_finder(source),
             Action::Stop => return self.stop_selected(),
             Action::Pane(n) => return self.focus_pane(n),
             Action::TrashProject => self.ask_trash(),
