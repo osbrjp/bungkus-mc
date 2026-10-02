@@ -801,7 +801,8 @@ agent as `defaultAgent` when asked to keep it "for this workspace only"
 the key). A hidden folder is never listed as a project.
 
 - `config.json` overrides the global file for that workspace, key by key:
-  `defaultAgent`, `worktrees`, `notify`, `cleanup.keep`. An unset key keeps
+  `defaultAgent`, `worktrees`, `notify`, `cleanup.keep`, and it holds the
+  workspace's `groups` (lists of project folder names, written by `g`). An unset key keeps
   the global value; a file that cannot be parsed sets nothing and the
   message line says so. Every other key is ignored there: what mc runs
   (`agents.*.command`/`args`) and what belongs to the terminal (panes,
@@ -809,8 +810,10 @@ the key). A hidden folder is never listed as a project.
 - **Instructions.** Every session mc starts or resumes gets one
   instruction text: mc's built-in rules (`src/agent/instructions.md`: how
   to find session ids, branch from the default branch, name worktrees
-  `<project-name>-<session-id>` and remove them when done), then the
-  workspace's own file, `CLAUDE.md` for Claude and `AGENTS.md` for Codex
+  `<project-name>-<session-id>` and remove them when done), then a
+  "Related folders" section listing the other members of the project's
+  group (each also passed as `--add-dir <folder>` to Claude and Codex
+  alike), then the workspace's own file, `CLAUDE.md` for Claude and `AGENTS.md` for Codex
   (its first 64 KiB), which has the last word. `"instructions": false` in
   the global `config.json` leaves the built-in rules out; the workspace
   files apply either way. Claude gets the text as `--append-system-prompt

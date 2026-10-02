@@ -9,6 +9,7 @@
 
 pub(crate) mod browser;
 pub(crate) mod form;
+pub(crate) mod groups;
 mod interact;
 pub(crate) mod model;
 pub(crate) mod picker;
@@ -442,6 +443,7 @@ fn run_cmd(
         Cmd::OpenEditor(project) => open_editor(model, &project, tx),
         Cmd::OpenFolder(project) => open_folder(model, project),
         Cmd::OpenTerminal(owner, dir) => open_terminal(model, owner, &dir, tx),
+        Cmd::SaveGroups(groups) => save_groups(model, &groups),
         Cmd::SaveWidths(widths) => {
             if let Some(path) = &env.config_path
                 && let Err(e) = config::save_widths(path, widths)
@@ -803,7 +805,7 @@ fn launch(
         ));
         return;
     };
-    let extra_args = extra_args(model, &env.config, kind, worktree.as_deref());
+    let extra_args = extra_args(model, &env.config, (kind, &project), worktree.as_deref());
     card.worktree = worktree;
     let argv = agent::argv(kind, &program, &extra_args, &launch);
     let id = launch.id.0.hyphenated().to_string();
@@ -1039,22 +1041,42 @@ fn worktree_for(
 
 /// Returns what goes between the agent's program and mc's own arguments,
 /// for a new session and a resumed one alike: the configured `args`,
-/// `--worktree <name>` if any, and the instructions (the built-in rules
-/// unless `instructions` is off in the config, then the open workspace's
-/// `.bungkus-mc/CLAUDE.md` / `AGENTS.md`; see [`agent::instruction_args`]).
+/// `--worktree <name>` if any, `--add-dir <folder>` for every project
+/// grouped with `project` ([`Model::group_of`]), and the instructions (the
+/// built-in rules unless `instructions` is off in the config, the related
+/// folders, then the open workspace's `.bungkus-mc/CLAUDE.md` /
+/// `AGENTS.md`; see [`agent::instruction_args`]).
 fn extra_args(
     model: &Model,
     config: &config::Config,
-    kind: Kind,
+    (kind, project): (Kind, &Path),
     worktree: Option<&str>,
 ) -> Vec<String> {
     let dir = model.root().map(|root| root.join(config::WORKSPACE_DIR));
-    let instructions = agent::instruction_args(kind, dir.as_deref(), config.instructions);
+    let related = model.group_of(project);
+    let shared = related
+        .iter()
+        .filter_map(|folder| folder.to_str())
+        .flat_map(|folder| ["--add-dir".to_owned(), folder.to_owned()])
+        .collect();
+    let instructions = agent::instruction_args(kind, dir.as_deref(), config.instructions, &related);
     [
         worktree_args(&config.agents.get(kind).args, worktree),
+        shared,
         instructions,
     ]
     .concat()
+}
+
+/// Writes the workspace's project groups to its `.bungkus-mc/config.json`
+/// (`g`); a failure is said, and the groups stay in effect for this run.
+fn save_groups(model: &mut Model, groups: &[Vec<String>]) {
+    let saved = model
+        .root()
+        .map(|root| config::save_workspace_groups(root, groups));
+    if let Some(Err(e)) = saved {
+        model.message = Some(format!("{}/{e}; groups not saved.", config::WORKSPACE_DIR));
+    }
 }
 
 /// Returns the agent's extra arguments plus `--worktree <name>`, if any.
@@ -1497,6 +1519,27 @@ pub(crate) fn absolute(path: &str, cwd: &Path, home: Option<&Path>) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_session_in_a_grouped_project_is_given_the_other_folders() {
+        let mut model = crate::app::model::tests::sample(&["api", "web", "docs"]);
+        let config = config::Config {
+            instructions: false,
+            ..config::Config::default()
+        };
+        let path = |i: usize| model.projects[i].path.clone();
+        let (api, web, docs) = (path(0), path(1), path(2));
+        for kind in Kind::ALL {
+            assert!(extra_args(&model, &config, (kind, &api), None).is_empty());
+        }
+        model.overrides.groups = vec![vec!["web".into(), "api".into()]];
+        for kind in Kind::ALL {
+            let args = extra_args(&model, &config, (kind, &api), None);
+            assert_eq!(args[..2], ["--add-dir", web.to_str().unwrap()], "{kind:?}");
+            assert!(args[3].contains("Related folders") && args[3].contains(web.to_str().unwrap()));
+            assert!(extra_args(&model, &config, (kind, &docs), None).is_empty());
+        }
+    }
 
     #[test]
     fn the_settings_screen_saves_the_agent_for_one_workspace_or_all() {

@@ -48,8 +48,10 @@ pub(crate) enum Action {
     TrashProject,
     /// Put the project last moved to the Trash back.
     UndoTrash,
-    /// Start or end a line selection of projects (`V`), for `d`/`dd`.
+    /// Start or end a line selection of projects (`V`), for `d` and `g`.
     Visual,
+    /// Mark or unmark the selected project (`v`), for `d` and `g`.
+    Mark,
     /// Remove the selected project's unused git worktrees (with a confirm).
     CleanWorktrees,
     /// Install a newer release and restart mc on it (`U`).
@@ -198,6 +200,14 @@ pub(crate) const BINDINGS: &[Binding] = &[
         label: "V",
         action: Action::Visual,
         help: "select lines",
+        hint: None,
+        scope: Scope::Projects,
+    },
+    Binding {
+        keys: &[c('v')],
+        label: "v",
+        action: Action::Mark,
+        help: "mark · g groups",
         hint: None,
         scope: Scope::Projects,
     },
@@ -653,6 +663,7 @@ impl Action {
             | Self::TrashProject
             | Self::UndoTrash
             | Self::Visual
+            | Self::Mark
             | Self::Editor
             | Self::Folder
             | Self::ToggleRest

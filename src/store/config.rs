@@ -194,6 +194,10 @@ pub(crate) struct Overrides {
     pub notify: Option<Notify>,
     /// Process cleanup settings.
     pub cleanup: Option<Cleanup>,
+    /// Groups of related projects, each a list of folder names (`g`). A
+    /// name that is no project of the workspace is ignored where groups
+    /// are used, so this file cannot point an agent at another folder.
+    pub groups: Vec<Vec<String>>,
 }
 
 /// Loads the overrides of the workspace at `root`; a missing file sets
@@ -233,6 +237,31 @@ pub(crate) fn save_workspace_agent(root: &Path, agent: Option<Kind>) -> Result<(
             None => {
                 keys.shift_remove("defaultAgent");
             }
+        }
+        Ok(())
+    })
+}
+
+/// Writes `groups` into the `.bungkus-mc/config.json` of the workspace at
+/// `root` (the key is removed when there are none), keeping every other
+/// key and the key order. Nothing is written for no groups and no file.
+///
+/// # Errors
+///
+/// As [`save`].
+pub(crate) fn save_workspace_groups(
+    root: &Path,
+    groups: &[Vec<String>],
+) -> Result<(), ConfigError> {
+    let path = root.join(WORKSPACE_DIR).join("config.json");
+    if groups.is_empty() && !path.exists() {
+        return Ok(());
+    }
+    edit(&path, |keys| {
+        if groups.is_empty() {
+            keys.shift_remove("groups");
+        } else {
+            keys.insert("groups".into(), serde_json::to_value(groups)?);
         }
         Ok(())
     })
@@ -408,6 +437,12 @@ mod tests {
             (None, Some(false)),
             "other keys stay"
         );
+        let groups = vec![vec!["api".to_owned(), "web".to_owned()]];
+        save_workspace_groups(&root, &groups).unwrap();
+        let got = load_overrides(&root).unwrap();
+        assert_eq!((got.groups, got.worktrees), (groups, Some(false)));
+        save_workspace_groups(&root, &[]).unwrap();
+        assert!(load_overrides(&root).unwrap().groups.is_empty());
         let fresh = root.join("fresh");
         save_workspace_agent(&fresh, None).unwrap();
         assert!(!fresh.exists(), "nothing to remove: nothing written");

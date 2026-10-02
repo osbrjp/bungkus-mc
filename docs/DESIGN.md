@@ -582,10 +582,11 @@ among the project's sessions, precedence **failed > needs you > your
 turn**, as `<glyph> <count>`; before it, `<spinner><n>` (`|2`) says how
 many sessions are working, from two (one is the spinner column alone). The
 **link** cell between the number and the name is a bar (`│`, `|` without
-UTF-8) on a project that a running session of another project works in
-too (Claude's `/add-dir`, read from `workspace.added_dirs` of its status
-line; Codex reports none): `accent` when the link is with the selected
-project, `fg-muted` otherwise, a space when there is none. A linked
+UTF-8) on a project that is in a group (`g`, §8.2) or that a running
+session of another project works in too (Claude's `/add-dir`, read from
+`workspace.added_dirs` of its status line; Codex reports none): `accent`
+when the link is with the selected project, `fg-muted` otherwise, a space
+when there is none. A linked
 project counts as in use and stays in the recent group. The header tally's `/` and every card's
 working glyph tick with the same clock.
 
@@ -1229,6 +1230,8 @@ cleared by the next key).
 | `enter`     | focus the sessions pane of the selected project               |
 | `j` `k`     | move the sidebar selection; the sessions pane switches to that project |
 | `n`         | new session for the selected project (same picker as below)   |
+| `v` · `V`   | choose rows for `d` and `g`: `v` marks the selected project (again to unmark), on any rows, not only neighbours; `V` starts a range that `j`/`k` extend. Both can be combined; the chosen rows are drawn reversed, the mode word is `VISUAL`, `esc` clears them |
+| `g` (rows chosen) | group the chosen projects as related, saved as `groups` in the workspace's `.bungkus-mc/config.json`. Chosen rows that are exactly one group are ungrouped; a project put in a new group leaves its old one; one chosen project only leaves its group. Members carry the link bar (§5.3). A session mc starts or resumes in a grouped project gets the other members with `--add-dir` and a "Related folders" section in its instructions. With nothing chosen `g` is still the first half of `gg` |
 | `e`         | show / hide the projects that are not recent. Recent projects lead the list, 5 at most (a repository and its worktrees counting as one): the ones a session runs in now, then the most recently used by their latest session start; more than 5 only when more than 5 have a running session, so one that needs you never folds away; the others fold behind the line `+ <n> more (e)` (`-` while they show). `j`/`↓` on the last recent project opens them too. With no recent project, or only recent ones, the list is not grouped; a search finds every project |
 
 `n` `enter` from the projects pane therefore starts a session for the

@@ -1,12 +1,11 @@
  bungkus-mc  ~/Works/OSBR › kedai-web                                                                     v0.1.0-beta.6
 ┏ [1] projects ━━━━━━┓┌ [2] sessions · kedai-web ──────────┐┌ [3] output ──────────────────────────────────────────────┐
-┃ / search           ┃│ No sessions in kedai-web. n to     ││                                                          │
-┃>  1 kedai-web      ╔ keys · projects pane ══════════════════════════════════════════════════════╗                    │
-┃   2 pasar-mobile   ║                                                                            ║                    │
-┃   3 roti-docs      ║  navigate                                                                  ║                    │
-┃   4 teh-cli        ║  enter                its sessions    h ← shift-tab ctrl-h pane left       ║                    │
-┃   5 warung-api     ║  l → tab ctrl-l       pane right      j ↓                  down            ║                    │
-┃                    ║  k ↑                  up              gg home              first           ║                    │
+┃ / search           ╔ keys · projects pane ══════════════════════════════════════════════════════╗                    │
+┃>  1 kedai-web      ║                                                                            ║                    │
+┃   2 pasar-mobile   ║  navigate                                                                  ║                    │
+┃   3 roti-docs      ║  enter                its sessions    h ← shift-tab ctrl-h pane left       ║                    │
+┃   4 teh-cli        ║  l → tab ctrl-l       pane right      j ↓                  down            ║                    │
+┃   5 warung-api     ║  k ↑                  up              gg home              first           ║                    │
 ┃                    ║  G end                last            ctrl-d pgdn          half page down  ║                    │
 ┃                    ║  ctrl-u pgup          half page up    ! ctrl-]             next needs you  ║                    │
 ┃                    ║  z                    zoom output     /                    search projects ║                    │
@@ -20,9 +19,10 @@
 ┃                    ║                                                                            ║                    │
 ┃                    ║  projects                                                                  ║                    │
 ┃                    ║  a                    new project     V                    select lines    ║                    │
-┃                    ║  u                    undo dd         dd                   to Trash        ║                    │
-┃                    ║  c                    clean worktrees e                    more projects   ║.                   │
-┃                    ║  o                    open in editor  O                    open the folder ║n                   │
+┃                    ║  v                    mark · g groups u                    undo dd         ║                    │
+┃                    ║  dd                   to Trash        c                    clean worktrees ║                    │
+┃                    ║  e                    more projects   o                    open in editor  ║.                   │
+┃                    ║  O                    open the folder                                      ║n                   │
 ┃                    ║                                                                            ║                    │
 ┃                    ║  workspace & app                                                           ║                    │
 ┃                    ║  U                    update+restart  t                    terminal on/off ║                    │

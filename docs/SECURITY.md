@@ -86,7 +86,11 @@ agents already store.** No `tool_input` beyond a 200-char description, no
 - A workspace's `.bungkus-mc/config.json` can come from elsewhere (a
   clone, a shared drive), so it may only set `defaultAgent`, `worktrees`,
   `notify` and `cleanup.keep`; agent commands and arguments are read from
-  the user's own `config.json` only. Its `CLAUDE.md`/`AGENTS.md` reach the
+  the user's own `config.json` only. Its `groups` name projects by folder
+  name; a name that is no project directly inside that workspace is
+  ignored, so the file cannot make mc pass an agent any other path with
+  `--add-dir`. Grouping does give sessions write access to the other
+  members, which is what the user asks for with `g`. Its `CLAUDE.md`/`AGENTS.md` reach the
   agents as instructions (after mc's built-in rules), the same trust as
   the instruction files the agents already read from the projects in that
   workspace. The text is one argv value for Claude and one TOML-quoted
