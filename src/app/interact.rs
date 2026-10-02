@@ -156,6 +156,9 @@ impl Model {
                     .sessions
                     .and_then(|pane| ui::session_at(pane, self, event.row));
                 self.focus = Focus::Sessions;
+                if row == Some(self.card) {
+                    return self.enter_session();
+                }
                 self.card = row.unwrap_or(self.card);
             }
             MouseEventKind::Down(_) if inside(panes.output) => {
@@ -429,6 +432,20 @@ mod tests {
             modifiers: KeyModifiers::NONE,
         })));
         assert_eq!(m.card, other, "below the cards: only the focus");
+        let again = (pane.y..pane.bottom())
+            .find(|row| ui::session_at(pane, &m, *row) == Some(m.card))
+            .unwrap();
+        m.update(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: pane.x + 3,
+            row: again,
+            modifiers: KeyModifiers::NONE,
+        })));
+        assert_eq!(
+            m.focus,
+            Focus::Output,
+            "a click on the selected card enters it"
+        );
     }
 
     #[test]

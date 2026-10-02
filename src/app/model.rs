@@ -1368,7 +1368,7 @@ impl Model {
     /// Enters the selected row of the sessions pane: takes over an outside
     /// session, opens a quick session's popup (resuming it into the popup
     /// when it has ended), or enters INTERACT.
-    fn enter_session(&mut self) -> Option<Cmd> {
+    pub(super) fn enter_session(&mut self) -> Option<Cmd> {
         if let Some(ext) = self.selected_external().cloned() {
             return self.take_over(ext);
         }
