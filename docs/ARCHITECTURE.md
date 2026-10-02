@@ -256,12 +256,13 @@ A thread lists them every 5 s (`src/external.rs`) and sends
 vim (the `editor` setting, else `$VISUAL`/`$EDITOR`, when it is
 `vi`/`vim`/`nvim`, or with none set the first of `nvim`/`vim`/`vi` on
 `PATH`, with `.` in the project) in the popup, and `$SHELL` in the terminal pane below the output
-pane, one shell per project, kept by folder. mc needs no other program
+pane, one shell per session, kept by the session's id and started in the
+folder it works in (per project folder while no session is selected). mc needs no other program
 for either (no tmux, no terminal app): both use its own PTY and emulator. Each is a `Session` (same PTY, emulator, threads and scrubbed
 environment as an agent) held by the model next to the cards, not as one:
 no card, no hooks, no usage, nothing in `sessions.json`, not in the stop
 dialog. Its PTY events are told apart by id. While the terminal pane
-shows (the selected project has a shell and `t` did not hide it), the output pane and every session's PTY are a third shorter. A
+shows (the selected session has a shell and `t` did not hide it), the output pane and every session's PTY are a third shorter. A
 tool ends when its program exits, when mc does (the PTY closes, the
 kernel sends SIGHUP), or, for a shell, on `T` (mc sends SIGHUP to its
 process group and forgets it once it has exited). Any other editor is spawned once with an argument

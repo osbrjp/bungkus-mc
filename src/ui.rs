@@ -317,7 +317,9 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
     }
     if let (Some(rect), Some(shell)) = (layout.terminal, model.shell()) {
         let focused = model.term_view == TermView::Focused;
-        let name = model.selected_project().map_or("", |p| p.name.as_str());
+        let card = model.selected_card().map(|i| &model.cards[i]);
+        let project = model.selected_project().map_or("", |p| p.name.as_str());
+        let name = card.map_or(project, |c| c.name.as_str());
         let title = if focused {
             let leave = model.exit_chord.label();
             format!("[4] terminal · {name} · {leave} to leave")

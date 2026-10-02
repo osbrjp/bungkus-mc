@@ -176,8 +176,8 @@ pub(crate) enum Cmd {
     OpenEditor(PathBuf),
     /// Open this project folder with the desktop's opener (`O`).
     OpenFolder(PathBuf),
-    /// Start the terminal pane's shell in this folder (`t`).
-    OpenTerminal(PathBuf),
+    /// Start the terminal pane's shell for this owner in this folder (`t`).
+    OpenTerminal(crate::app::tools::Owner, PathBuf),
     /// Write the dragged pane widths to `config.json`.
     SaveWidths(crate::ui::Widths),
     /// Switch to this workspace (saved first in the list), then select this
@@ -336,9 +336,10 @@ pub(crate) struct Model {
     pub show_rest: bool,
     /// The editor whose popup shows (`o`; every key goes to it).
     pub editor: Option<Tool>,
-    /// The terminal pane's shells (`t`), one per folder it was opened in
-    /// (a project, or the workspace root); they keep running while hidden.
-    pub shells: Vec<(PathBuf, Tool)>,
+    /// The terminal pane's shells (`t`), one per session it was opened on
+    /// (or per folder, with no session selected); they keep running while
+    /// hidden.
+    pub shells: Vec<(crate::app::tools::Owner, Tool)>,
     /// How the terminal pane shows.
     pub term_view: TermView,
     /// The `quick` row that leads the projects list while quick sessions
@@ -1222,6 +1223,7 @@ impl Model {
                     .iter()
                     .find(|c| c.id == id)
                     .and_then(|c| Some((c.project.clone(), c.worktree.clone()?)));
+                self.close_shell_of(id);
                 self.cards.retain(|c| c.id != id);
                 self.card = self.card.min(self.project_cards().len().saturating_sub(1));
                 self.state_dirty = true;

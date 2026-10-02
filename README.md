@@ -137,8 +137,8 @@ pane; press one to run it.
 | `ctrl-j` `ctrl-k` · `ctrl-n` `ctrl-p` | down · up in every dialog, list and the `/` search (same as `↓` `↑`) |
 | `z` | zoom the output pane |
 | `R` | redraw |
-| `t` | show / hide the terminal pane `[4]`: your `$SHELL` below the output pane, one shell per project. The wheel scrolls it; while it is hidden a `[4] terminal` marker shows at the bottom of the output pane |
-| `T` | close the selected project's shell (`exit` or `ctrl-d` inside it does the same) |
+| `t` | show / hide the terminal pane `[4]`: your `$SHELL` below the output pane, one shell per session, started in the folder the session works in (its worktree when it has one); with no session selected, one for the project. The wheel scrolls it; while it is hidden a `[4] terminal` marker shows at the bottom of the output pane |
+| `T` | close the selected session's shell (`exit` or `ctrl-d` inside it does the same) |
 
 ### Sessions
 

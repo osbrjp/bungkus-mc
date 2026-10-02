@@ -1,5 +1,5 @@
 //! The user's own tools next to the agents: the editor popup (`o`) and the
-//! terminal pane (`t`, one shell per project), each a program in its own
+//! terminal pane (`t`, one shell per session), each a program in its own
 //! PTY and mc's own emulator; no other program (tmux, a terminal app) is
 //! involved.
 //!
@@ -31,13 +31,23 @@ pub(crate) struct Tool {
     pub pty: Session,
 }
 
+/// What a shell of the terminal pane belongs to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Owner {
+    /// A session; the shell starts in the folder the session works in.
+    Session(SessionId),
+    /// A folder, for a selection that is no session of mc's: the project,
+    /// or the workspace root on a row that is no folder.
+    Folder(PathBuf),
+}
+
 /// How the terminal pane shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum TermView {
     /// Not drawn; the shells keep running.
     #[default]
     Hidden,
-    /// The selected project's shell, if it has one, is drawn below the
+    /// The selected session's shell, if it has one, is drawn below the
     /// output pane; keys go to mc.
     Shown,
     /// Drawn, and every key goes to the shell.
@@ -136,8 +146,9 @@ impl Model {
             .map(|t| &mut t.pty)
     }
 
-    /// Returns the folder the terminal pane belongs to now: the selected
-    /// project, or the workspace root on a row that is no folder.
+    /// Returns the folder the terminal pane belongs to while no session of
+    /// mc's is selected: the selected project, or the workspace root on a
+    /// row that is no folder.
     fn shell_dir(&self) -> Option<&std::path::Path> {
         self.selected_project()
             .map(|p| p.path.as_path())
@@ -145,15 +156,48 @@ impl Model {
             .or(self.root())
     }
 
-    /// Returns the selected project's shell, if it has one running.
+    /// Returns what the terminal pane belongs to now and the folder its
+    /// shell starts in: the selected session and the folder it works in
+    /// (its worktree when it has one), else the folder of [`Self::shell_dir`].
+    fn shell_owner(&self) -> Option<(Owner, PathBuf)> {
+        if let Some(card) = self.selected_card().map(|i| &self.cards[i]) {
+            return Some((Owner::Session(card.id), card.folder()));
+        }
+        let dir = self.shell_dir()?.to_path_buf();
+        Some((Owner::Folder(dir.clone()), dir))
+    }
+
+    /// Returns the selected session's shell, if it has one running.
     #[must_use]
     pub(crate) fn shell(&self) -> Option<&Tool> {
-        let dir = self.shell_dir()?;
-        self.shells.iter().find(|(d, _)| d == dir).map(|(_, t)| t)
+        let (owner, _) = self.shell_owner()?;
+        self.shells
+            .iter()
+            .find(|(o, _)| *o == owner)
+            .map(|(_, t)| t)
+    }
+
+    /// Hangs up on the shell of session `id`, which is leaving the list.
+    pub(super) fn close_shell_of(&self, id: SessionId) {
+        let owner = Owner::Session(id);
+        if let Some((_, shell)) = self.shells.iter().find(|(o, _)| *o == owner) {
+            // reason: a shell that already ended needs no signal.
+            let _ = shell.pty.signal(rustix::process::Signal::HUP);
+        }
+    }
+
+    /// Gives the shell of session `old` to session `new`, which replaces
+    /// it (a resume).
+    pub(crate) fn move_shell(&mut self, old: SessionId, new: SessionId) {
+        for (owner, _) in &mut self.shells {
+            if *owner == Owner::Session(old) {
+                *owner = Owner::Session(new);
+            }
+        }
     }
 
     /// Returns whether the terminal pane is drawn: it is not hidden and
-    /// the selected project has a shell.
+    /// the selected session has a shell.
     #[must_use]
     pub(crate) fn terminal_shown(&self) -> bool {
         self.term_view != TermView::Hidden && self.shell().is_some()
@@ -200,11 +244,11 @@ impl Model {
         self.shell_mut()
     }
 
-    /// Returns the emulator of the selected project's shell, if it has one
+    /// Returns the emulator of the selected session's shell, if it has one
     /// running.
     pub(super) fn shell_mut(&mut self) -> Option<&mut Session> {
-        let dir = self.shell_dir()?.to_path_buf();
-        let shell = self.shells.iter_mut().find(|(d, _)| *d == dir);
+        let (owner, _) = self.shell_owner()?;
+        let shell = self.shells.iter_mut().find(|(o, _)| *o == owner);
         shell.map(|(_, t)| &mut t.pty)
     }
 
@@ -300,7 +344,8 @@ impl Model {
             self.term_view = TermView::Focused;
             return None;
         }
-        self.shell_dir().map(|p| Cmd::OpenTerminal(p.to_path_buf()))
+        self.shell_owner()
+            .map(|(owner, dir)| Cmd::OpenTerminal(owner, dir))
     }
 
     /// Closes the selected project's shell (`T`), shown or hidden: hangs
@@ -336,7 +381,7 @@ mod tests {
     use ratatui::crossterm::event::{Event, MouseButton, MouseEvent, MouseEventKind};
 
     use crate::app::AppEvent;
-    use crate::app::model::tests::{press, sample};
+    use crate::app::model::tests::{press, sample, with_session};
     use crate::term::PtyEvent;
     use crate::term::session::{Colors, Size};
 
@@ -449,10 +494,11 @@ mod tests {
         let mut m = sample(&["a", "b"]);
         let path = m.selected_project().unwrap().path.clone();
         let t = || press(KeyCode::Char('t'));
-        assert_eq!(m.update(t()), Some(Cmd::OpenTerminal(path.clone())));
+        let open = |p: &PathBuf| Some(Cmd::OpenTerminal(Owner::Folder(p.clone()), p.clone()));
+        assert_eq!(m.update(t()), open(&path));
         let (shell, writes) = tool(2);
         let id = shell.id;
-        m.shells.push((path.clone(), shell));
+        m.shells.push((Owner::Folder(path.clone()), shell));
         m.term_view = TermView::Focused;
         let output = |m: &Model| m.panes(m.screen).output.unwrap();
         let whole = crate::ui::panes(m.screen, m.zoom, m.widths).output.unwrap();
@@ -523,12 +569,36 @@ mod tests {
         m.update(press(KeyCode::Char('j')));
         assert!(!m.terminal_shown(), "project b has no shell yet");
         let other = m.selected_project().unwrap().path.clone();
-        assert_eq!(m.update(t()), Some(Cmd::OpenTerminal(other)), "its own");
+        assert_eq!(m.update(t()), open(&other), "its own");
         m.update(press(KeyCode::Char('k')));
         assert!(m.terminal_shown(), "back on a: its shell shows again");
 
         m.update(AppEvent::Pty(PtyEvent::Exited(id, Some(0))));
         assert!(m.shells.is_empty() && !m.terminal_shown());
+    }
+
+    #[test]
+    fn every_session_has_its_own_shell_started_in_the_folder_it_works_in() {
+        let mut m = sample(&["a"]);
+        let (one, _one) = with_session(&mut m, "one");
+        let (two, _two) = with_session(&mut m, "two");
+        m.focus = Focus::Sessions;
+        let at = m.selected_card().unwrap();
+        m.cards[at].worktree = Some("wt".into());
+        let (selected, folder) = (m.cards[at].id, m.cards[at].folder());
+        assert!(folder.ends_with(".claude/worktrees/wt"));
+        let open = Cmd::OpenTerminal(Owner::Session(selected), folder);
+        assert_eq!(m.update(press(KeyCode::Char('t'))), Some(open));
+        let (shell, _writes) = tool(4);
+        m.shells.push((Owner::Session(selected), shell));
+        m.term_view = TermView::Shown;
+        assert!(m.terminal_shown());
+        m.card = usize::from(m.card == 0);
+        assert_ne!(m.cards[m.selected_card().unwrap()].id, selected);
+        assert!(!m.terminal_shown(), "the other session has no shell");
+        let other = if selected == one { two } else { one };
+        m.move_shell(selected, other);
+        assert!(m.terminal_shown(), "the session that replaces one keeps it");
     }
 
     #[test]
@@ -538,7 +608,7 @@ mod tests {
         let (mut shell, _writes) = tool(3);
         let id = shell.id;
         shell.pty.advance("line\r\n".repeat(30).as_bytes());
-        m.shells.push((path.clone(), shell));
+        m.shells.push((Owner::Folder(path.clone()), shell));
         m.term_view = TermView::Shown;
         let pane = m.panes(m.screen).terminal.unwrap();
         let wheel = |m: &mut Model, kind| {
@@ -572,6 +642,7 @@ mod tests {
         m.update(AppEvent::Pty(PtyEvent::Exited(id, Some(0))));
         assert!(m.shells.is_empty());
         let other = m.selected_project().unwrap().path.clone();
-        assert_eq!(m.update(chord('4')), Some(Cmd::OpenTerminal(other)));
+        let open = Cmd::OpenTerminal(Owner::Folder(other.clone()), other);
+        assert_eq!(m.update(chord('4')), Some(open));
     }
 }

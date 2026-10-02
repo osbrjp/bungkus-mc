@@ -417,8 +417,8 @@ mod tests {
         let size = crate::term::session::Size { cols: 40, rows: 8 };
         let (pty, _shell) = crate::term::session::Session::detached(size, colors);
         let id = crate::term::SessionId::new();
-        let dir = m.selected_project().unwrap().path.clone();
-        m.shells.push((dir, crate::app::tools::Tool { id, pty }));
+        let owner = crate::app::tools::Owner::Session(m.cards[0].id);
+        m.shells.push((owner, crate::app::tools::Tool { id, pty }));
         m.term_view = TermView::Shown;
         send(&mut m, KeyCode::Char('j'), KeyModifiers::CONTROL);
         assert_eq!(m.term_view, TermView::Focused, "down to the terminal");
