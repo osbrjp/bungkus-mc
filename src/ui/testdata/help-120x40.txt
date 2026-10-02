@@ -15,14 +15,15 @@
 ┃                    ║                                                                            ║                    │
 ┃                    ║  sessions                                                                  ║                    │
 ┃                    ║  n                    new session     r                    past sessions   ║                    │
-┃                    ║  N                    quick session                                        ║                    │
+┃                    ║  N                    quick session   P                    open the PR     ║                    │
+┃                    ║  I                    open the issue  i                    issues & PRs    ║                    │
 ┃                    ║                                                                            ║                    │
 ┃                    ║  projects                                                                  ║                    │
 ┃                    ║  a                    new project     V                    select lines    ║                    │
 ┃                    ║  v                    mark · g groups u                    undo dd         ║                    │
-┃                    ║  dd                   to Trash        c                    clean worktrees ║                    │
-┃                    ║  e                    more projects   o                    open in editor  ║.                   │
-┃                    ║  O                    open the folder                                      ║n                   │
+┃                    ║  dd                   to Trash        c                    clean worktrees ║.                   │
+┃                    ║  e                    more projects   o                    open in editor  ║n                   │
+┃                    ║  O                    open the folder                                      ║                    │
 ┃                    ║                                                                            ║                    │
 ┃                    ║  workspace & app                                                           ║                    │
 ┃                    ║  U                    update+restart  t                    terminal on/off ║                    │
@@ -35,7 +36,6 @@
 ┃                    ║  ctrl-m               move (popup)    cmd/alt-1..4         focus a pane    ║                    │
 ┃                    ║                                                                            ║                    │
 ┃                    ║                                         press a key to run it · esc close  ║                    │
-┃                    ╚════════════════════════════════════════════════════════════════════════════╝                    │
-┗━━━━━━━━━━━━━━━━━━━━┛└────────────────────────────────────┘└──────────────────────────────────────────────────────────┘
+┗━━━━━━━━━━━━━━━━━━━━╚════════════════════════════════════════════════════════════════════════════╝────────────────────┘
  NORMAL  enter → sessions · n new · c clean · e more · o edit · t term · ? keys
 cursor: hidden

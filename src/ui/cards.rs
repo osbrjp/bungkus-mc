@@ -99,7 +99,12 @@ fn rows(inner: Rect, model: &Model, theme: Theme) -> Vec<(Line<'static>, Option<
                 (true, false) => Mark::Shown,
             };
             let card = &model.cards[i];
-            let around = (model.repos.get(&card.folder()), model.has_shell(card.id));
+            let folder = card.folder();
+            let around = (
+                model.repos.get(&folder),
+                model.links.get(&folder),
+                model.has_shell(card.id),
+            );
             let mut lines = card_lines(card, around, mark, width, spin, model.now, theme);
             lines.push(Line::from(""));
             lines
@@ -262,12 +267,17 @@ fn minutes(from: Instant, to: Instant) -> u64 {
 ///
 /// Column 0 carries `mark`: the focus marker on the title line, or the
 /// same bar the projects pane uses for its selected row on every line.
-/// `repo` is the state of the session's folder and `shell` whether the
+/// `repo` is the state of the session's folder, `linked` the issue and
+/// pull request of its branch (their numbers end the git line) and `shell` whether the
 /// session has a shell in the terminal pane: `>_` before the title
 /// line's right-hand word.
 fn card_lines(
     card: &Card,
-    (repo, shell): (Option<&crate::app::repo::Status>, bool),
+    (repo, linked, shell): (
+        Option<&crate::app::repo::Status>,
+        Option<&crate::app::links::Links>,
+        bool,
+    ),
     mark: Mark,
     width: usize,
     spin: char,
@@ -339,7 +349,15 @@ fn card_lines(
     };
     let mut lines = vec![title, body(&detail(card, now), text)];
     if let Some(repo) = repo {
-        lines.push(body(&repo.label(body_width), theme.fg(Token::FgMuted)));
+        let tags = linked.map(crate::app::links::Links::label);
+        let label = match tags.filter(|tags| !tags.is_empty()) {
+            Some(tags) => {
+                let room = body_width.saturating_sub(tags.chars().count() + 3);
+                format!("{} · {tags}", repo.label(room))
+            }
+            None => repo.label(body_width),
+        };
+        lines.push(body(&label, theme.fg(Token::FgMuted)));
     }
     let in_use = card.mcp.iter().filter(|name| card.mcp_in_use(name));
     let in_use: Vec<String> = in_use.cloned().collect();
@@ -639,14 +657,14 @@ mod tests {
         );
         let repo = crate::app::repo::Status::parse("# branch.head main\n? x\n").unwrap();
         let text = |repo| -> Vec<String> {
-            card_lines(&card, (repo, false), Mark::None, 36, '*', now, theme)
+            card_lines(&card, (repo, None, false), Mark::None, 36, '*', now, theme)
                 .iter()
                 .map(ToString::to_string)
                 .collect()
         };
         assert_eq!(text(None).len(), 3);
         assert!(!text(None)[0].contains(">_"), "no shell: no mark");
-        let with_shell = card_lines(&card, (None, true), Mark::None, 36, '*', now, theme);
+        let with_shell = card_lines(&card, (None, None, true), Mark::None, 36, '*', now, theme);
         let title = with_shell[0].to_string();
         assert!(title.ends_with(" >_ 0m") && title.chars().count() == 36);
         let lines = text(Some(&repo));
@@ -669,7 +687,7 @@ mod tests {
         card.mcp = vec!["github".into(), "miko".into(), "slack".into()];
         card.mcp_used = vec!["miko".into(), "github".into()];
         let line = |theme, mark, n: usize| {
-            card_lines(&card, (None, false), mark, 36, '*', now, theme)[n]
+            card_lines(&card, (None, None, false), mark, 36, '*', now, theme)[n]
                 .to_string()
                 .trim()
                 .to_owned()
@@ -688,7 +706,7 @@ mod tests {
         assert!(line(theme, Mark::None, 0).contains(" C "), "the letter");
         card.mcp_used.clear();
         assert_eq!(
-            card_lines(&card, (None, false), Mark::None, 36, '*', now, theme).len(),
+            card_lines(&card, (None, None, false), Mark::None, 36, '*', now, theme).len(),
             3
         );
     }
