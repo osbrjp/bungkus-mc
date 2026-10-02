@@ -141,6 +141,16 @@ pub(crate) struct Settings {
     pub default_agent: Kind,
 }
 
+/// Where the settings screen saves the default agent.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum AgentScope {
+    /// The global `config.json`: every workspace without its own choice.
+    #[default]
+    Global,
+    /// The open workspace's `.bungkus-mc/config.json` only.
+    Workspace,
+}
+
 /// Why `config.json` could not be used.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ConfigError {
@@ -194,6 +204,32 @@ pub(crate) fn load_overrides(root: &Path) -> Result<Overrides, ConfigError> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Overrides::default()),
         Err(e) => Err(e.into()),
     }
+}
+
+/// Writes or (`None`) removes `defaultAgent` in the `.bungkus-mc/config.json`
+/// of the workspace at `root`, keeping every other key and the key order.
+/// Removing from a file that does not exist does nothing; writing makes
+/// the folder and the file.
+///
+/// # Errors
+///
+/// As [`save`].
+pub(crate) fn save_workspace_agent(root: &Path, agent: Option<Kind>) -> Result<(), ConfigError> {
+    let path = root.join(WORKSPACE_DIR).join("config.json");
+    if agent.is_none() && !path.exists() {
+        return Ok(());
+    }
+    edit(&path, |keys| {
+        match agent {
+            Some(kind) => {
+                keys.insert("defaultAgent".into(), serde_json::to_value(kind)?);
+            }
+            None => {
+                keys.shift_remove("defaultAgent");
+            }
+        }
+        Ok(())
+    })
 }
 
 /// Loads `config.json`; a missing file is the default config.
@@ -348,6 +384,23 @@ mod tests {
             load_overrides(&root),
             Err(ConfigError::Invalid(_))
         ));
+        std::fs::write(&file, r#"{"worktrees":false}"#).unwrap();
+        save_workspace_agent(&root, Some(Kind::Codex)).unwrap();
+        let got = load_overrides(&root).unwrap();
+        assert_eq!(
+            (got.default_agent, got.worktrees),
+            (Some(Kind::Codex), Some(false))
+        );
+        save_workspace_agent(&root, None).unwrap();
+        let got = load_overrides(&root).unwrap();
+        assert_eq!(
+            (got.default_agent, got.worktrees),
+            (None, Some(false)),
+            "other keys stay"
+        );
+        let fresh = root.join("fresh");
+        save_workspace_agent(&fresh, None).unwrap();
+        assert!(!fresh.exists(), "nothing to remove: nothing written");
         std::fs::remove_dir_all(&root).unwrap();
     }
 

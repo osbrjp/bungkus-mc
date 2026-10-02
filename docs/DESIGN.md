@@ -1020,7 +1020,11 @@ workspace field). A dialog with all three fields; `tab`/`shift-tab` (and
 `↑`/`↓` off the workspace field) move between them, `←`/`→` change a
 choice, and on the workspace field the same folder browser opens under it
 (`↑`/`↓` pick, `→` open, `←` up); `enter` saves and rescans, `esc` cancels
-and reverts the theme preview. Never reachable from
+and reverts the theme preview. On the agent row a line under the choices
+says where the default agent is saved, `saved for: all workspaces` (the
+global `config.json`) or `saved for: this workspace only` (the workspace's
+`.bungkus-mc/config.json`), and `w` switches between the two; the screen
+opens on the one in effect. Workspace and theme are always saved globally. Never reachable from
 INTERACT: every key there goes to the agent.
 
 ```

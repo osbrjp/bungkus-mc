@@ -18,7 +18,7 @@
 ┃                    ┃│    ║ > agent       > claude    codex (not on PATH)                  ║█                         │
 ┃                    ┃│    ║   theme         auto  > dark    light                          ║██▄                       │
 ┃                    ┃│    ║               + ~/.local/bin/claude   - codex not on PATH      ║████▄                     │
-┃                    ┃│    ║                                                                ║                          │
+┃                    ┃│    ║               saved for: all workspaces · w switches           ║                          │
 ┃                    ┃│    ║                                                                ║                          │
 ┃                    ┃│    ║                                                                ║                          │
 ┃                    ┃│    ║                                                                ║ed yet.                   │

@@ -11,7 +11,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::agent::Kind;
 use crate::app::browser::Browser;
-use crate::store::config::{Settings, expand, tilde};
+use crate::store::config::{AgentScope, Settings, expand, tilde};
 use crate::ui::theme::ThemeChoice;
 
 /// Which of the two screens the form is.
@@ -60,6 +60,9 @@ pub(crate) struct Form {
     pub workspace: String,
     /// Chosen default agent.
     pub agent: Kind,
+    /// Where the default agent is saved (`w` on the agent row of the
+    /// settings screen switches it).
+    pub scope: AgentScope,
     /// Chosen theme.
     pub theme: ThemeChoice,
     /// Where each agent was found on `PATH`, in [`Kind::ALL`] order.
@@ -105,6 +108,7 @@ impl Form {
             field: Field::Workspace,
             workspace,
             agent: settings.default_agent,
+            scope: AgentScope::Global,
             theme: settings.theme,
             found,
             error: None,
@@ -128,7 +132,8 @@ impl Form {
     /// `enter` goes to the next step and `esc` back, and `esc` on the first
     /// step skips the wizard with defaults; on the settings screen
     /// `tab`/`shift-tab` (and `↑`/`↓` off the workspace field) move between
-    /// fields, `enter` saves and `esc` cancels.
+    /// fields, `w` on the agent row switches where the agent is saved
+    /// ([`AgentScope`]), `enter` saves and `esc` cancels.
     pub(crate) fn key(&mut self, key: KeyEvent) -> Outcome {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         if ctrl && key.code == KeyCode::Char('c') {
@@ -144,6 +149,12 @@ impl Form {
             (_, KeyCode::Right | KeyCode::Char('l')) => self.change(true),
             (FormKind::Wizard, KeyCode::Enter) => return self.wizard_next(),
             (FormKind::Wizard, KeyCode::Esc) => return self.wizard_back(),
+            (FormKind::Settings, KeyCode::Char('w')) if self.field == Field::Agent => {
+                self.scope = match self.scope {
+                    AgentScope::Global => AgentScope::Workspace,
+                    AgentScope::Workspace => AgentScope::Global,
+                };
+            }
             (FormKind::Settings, KeyCode::Enter) => return self.submit(),
             (FormKind::Settings, KeyCode::Esc) => return Outcome::Cancel,
             (FormKind::Settings, KeyCode::Down | KeyCode::Tab | KeyCode::Char('j')) => {
@@ -592,6 +603,36 @@ mod tests {
         assert_eq!(form.workspace, format!("{before}j"), "after i, j is typed");
         form.key(press(KeyCode::Esc));
         assert!(!form.typing, "esc stops typing, not the dialog");
+    }
+
+    #[test]
+    fn w_on_the_agent_row_switches_where_the_agent_is_saved() {
+        let settings = Settings {
+            workspace: std::env::temp_dir(),
+            theme: ThemeChoice::Dark,
+            default_agent: Kind::Claude,
+        };
+        let found = [Some("claude".into()), Some("codex".into())];
+        let mut form = Form::new(
+            FormKind::Settings,
+            &settings,
+            found.clone(),
+            "/".into(),
+            None,
+        );
+        form.field = Field::Agent;
+        assert_eq!(form.scope, AgentScope::Global);
+        form.key(press(KeyCode::Char('w')));
+        assert_eq!(form.scope, AgentScope::Workspace);
+        form.key(press(KeyCode::Char('w')));
+        assert_eq!(form.scope, AgentScope::Global);
+        form.field = Field::Theme;
+        form.key(press(KeyCode::Char('w')));
+        assert_eq!(form.scope, AgentScope::Global, "only on the agent row");
+        let mut wizard = Form::new(FormKind::Wizard, &settings, found, "/".into(), None);
+        wizard.field = Field::Agent;
+        wizard.key(press(KeyCode::Char('w')));
+        assert_eq!(wizard.scope, AgentScope::Global, "not in the wizard");
     }
 
     #[test]

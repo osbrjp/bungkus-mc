@@ -8,6 +8,7 @@ use ratatui::widgets::{Clear, Paragraph};
 
 use crate::agent::Kind;
 use crate::app::form::{Field, Form};
+use crate::store::config::AgentScope;
 use crate::ui::mascot::{self, Mascot};
 use crate::ui::theme::{Theme, ThemeChoice, ThemeName, Token};
 use crate::ui::{bold_if, centred, dialog};
@@ -200,6 +201,13 @@ pub(super) fn draw_settings(
         }
     };
     frame.render_widget(indent(&note_text, theme.fg(Token::FgMuted)), shift(note));
+    if form.error.is_none() && form.field == Field::Agent {
+        let scope = match form.scope {
+            AgentScope::Global => "saved for: all workspaces · w switches",
+            AgentScope::Workspace => "saved for: this workspace only · w switches",
+        };
+        frame.render_widget(indent(scope, theme.fg(Token::FgMuted)), shift(error));
+    }
     draw_error(frame, shift(error), form, theme);
     frame.render_widget(
         Line::styled(
