@@ -551,8 +551,8 @@ fn workspace_label(model: &Model) -> String {
 ///
 /// The marker is `>` on the selected row while the pane is focused and
 /// `:` (the ascii form of `▌`) while it is not. The spinner column turns
-/// while any session of the project works, and the spinner with how many
-/// work sits at the right; after it the badge is the worst other state,
+/// while any session of the project works; from two working sessions the
+/// spinner with their number (`|2`) sits at the right; after it the badge is the worst other state,
 /// failed > needs you > your turn, with its count.
 fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
     let focused = model.focus == Focus::Projects;
@@ -616,7 +616,7 @@ fn draw_projects(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
             let badge_text = badge.map_or_else(String::new, |((g, _, _), n)| format!(" {g} {n} "));
             let badge_token = badge.map_or(Token::Fg, |((_, t, _), _)| t);
             let gap = if badge.is_some() { "" } else { " " };
-            let count = (working > 0).then(|| format!(" {spin} {working}{gap}"));
+            let count = (working > 1).then(|| format!(" {spin}{working}{gap}"));
             let count = count.unwrap_or_default();
             let taken = badge_text.chars().count() + count.chars().count();
             let branch = tree_mark(&visible, i, theme.utf8);
@@ -1566,6 +1566,27 @@ pub(crate) mod tests {
             assert_eq!(joined(pct, 10, true), want, "{pct}");
         }
         assert_eq!(joined(50.0, 5, false), "###--", "no UTF-8");
+    }
+
+    #[test]
+    fn a_project_row_counts_its_working_sessions_from_two() {
+        use crate::app::model::tests::with_session;
+
+        let mut model = sample(PROJECTS);
+        let _one = with_session(&mut model, "one");
+        model.cards[0].state = State::Working;
+        let row = |model: &mut Model| -> String {
+            let screen = render(model, 120, 40);
+            screen.lines().nth(3).unwrap().chars().take(22).collect()
+        };
+        assert_eq!(
+            row(&mut model),
+            "│:| 1 kedai-web      │",
+            "one: the spinner alone"
+        );
+        let _two = with_session(&mut model, "two");
+        model.cards[1].state = State::Working;
+        assert_eq!(row(&mut model), "│:| 1 kedai-web   |2 │");
     }
 
     #[test]
