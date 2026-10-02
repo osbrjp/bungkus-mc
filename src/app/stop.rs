@@ -124,7 +124,7 @@ impl Model {
     }
 
     /// Handles a key in the dialog: `j`/`k` move, `space` toggles a
-    /// process row, `y` carries it out, anything else closes it.
+    /// process row, `y` or `enter` carries it out, anything else closes it.
     pub(crate) fn stop_key(&mut self, mut dialog: StopDialog, key: KeyEvent) -> Option<Cmd> {
         let last = dialog.rows.len().saturating_sub(1);
         match key.code {
@@ -137,7 +137,7 @@ impl Model {
                     row.stop = !row.stop;
                 }
             }
-            KeyCode::Char('y') => return self.carry_out(&dialog),
+            _ if crate::app::model::confirms(key) => return self.carry_out(&dialog),
             _ => return None,
         }
         self.overlay = Some(Overlay::Stop(dialog));
@@ -319,9 +319,9 @@ mod tests {
         };
         assert!(!d.rows[2].stop, "vite toggled to keep");
         assert_eq!(
-            m.stop_key(d, key(KeyCode::Char('y'))),
+            m.stop_key(d, key(KeyCode::Enter)),
             None,
-            "nothing until the session exits"
+            "enter is yes: nothing until the session exits"
         );
         let cmd = m.update(AppEvent::Pty(PtyEvent::Exited(id, Some(143))));
         assert_eq!(

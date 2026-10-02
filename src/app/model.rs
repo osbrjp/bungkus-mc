@@ -367,6 +367,13 @@ pub(crate) struct Model {
     pub elsewhere: Project,
 }
 
+/// Returns whether `key` confirms a dialog that asks before it acts: `y`
+/// or `enter`. Any other key is "no".
+#[must_use]
+pub(crate) fn confirms(key: KeyEvent) -> bool {
+    matches!(key.code, KeyCode::Char('y') | KeyCode::Enter)
+}
+
 /// Returns `key` with the list-navigation chords every dialog accepts
 /// turned into arrows: `ctrl-j`/`ctrl-n` are `↓`, `ctrl-k`/`ctrl-p` are
 /// `↑` (vim and readline habits), so each dialog only handles arrows.
@@ -1257,9 +1264,7 @@ impl Model {
             },
             Overlay::Stop(dialog) => self.stop_key(dialog, key),
             Overlay::Move(dialog) => self.move_key(dialog, key),
-            Overlay::StopOutside(ext) => {
-                (key.code == KeyCode::Char('y')).then_some(Cmd::StopOutside(ext.pid))
-            }
+            Overlay::StopOutside(ext) => confirms(key).then_some(Cmd::StopOutside(ext.pid)),
             Overlay::ResumeAgent(kind) => match key.code {
                 KeyCode::Enter => self.pick_past(kind),
                 KeyCode::Esc => None,
@@ -1289,13 +1294,13 @@ impl Model {
             }
             Overlay::NewProject(dialog) => self.new_project_key(dialog, key),
             Overlay::Switcher(switcher) => self.switcher_key(switcher, key),
-            Overlay::TrashProject(projects) => (key.code == KeyCode::Char('y'))
+            Overlay::TrashProject(projects) => confirms(key)
                 .then(|| Cmd::TrashProject(projects.into_iter().map(|p| p.path).collect())),
             Overlay::CleanWorktrees(project) => {
-                (key.code == KeyCode::Char('y')).then_some(Cmd::CleanWorktrees(project.path))
+                confirms(key).then_some(Cmd::CleanWorktrees(project.path))
             }
             Overlay::Forget(id) => {
-                if key.code != KeyCode::Char('y') {
+                if !confirms(key) {
                     return None;
                 }
                 let worktree = self
@@ -2195,6 +2200,23 @@ pub(crate) mod tests {
             m.update(press(KeyCode::Char('y'))),
             Some(Cmd::StopOutside(4242))
         );
+        m.update(press(KeyCode::Char('x')));
+        assert_eq!(
+            m.update(press(KeyCode::Enter)),
+            Some(Cmd::StopOutside(4242)),
+            "enter is yes too"
+        );
+        for (code, yes) in [
+            (KeyCode::Char('y'), true),
+            (KeyCode::Enter, true),
+            (KeyCode::Char('n'), false),
+            (KeyCode::Char('Y'), false),
+            (KeyCode::Char(' '), false),
+            (KeyCode::Esc, false),
+        ] {
+            let key = KeyEvent::new(code, KeyModifiers::NONE);
+            assert_eq!(confirms(key), yes, "{code:?}");
+        }
     }
 
     #[test]
@@ -2208,6 +2230,13 @@ pub(crate) mod tests {
         };
         assert_eq!(one.len(), 1);
         assert!(m.update(press(KeyCode::Char('n'))).is_none(), "n keeps it");
+        m.update(press(KeyCode::Char('d')));
+        m.update(press(KeyCode::Char('d')));
+        let trashed = m.update(press(KeyCode::Enter));
+        assert!(
+            matches!(trashed, Some(Cmd::TrashProject(_))),
+            "enter is yes"
+        );
         m.update(press(KeyCode::Char('V')));
         m.update(press(KeyCode::Char('j')));
         m.update(press(KeyCode::Char('j')));
