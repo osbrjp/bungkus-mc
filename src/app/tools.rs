@@ -212,8 +212,9 @@ impl Model {
     /// (it closes when the editor quits). In the terminal the exit chord
     /// gives the keys back to mc, `ctrl-h` goes left to the sessions pane
     /// and `ctrl-k` up to the output pane (INTERACT), cmd/alt/ctrl + 1–4
-    /// focus that pane; `ctrl-j` and `ctrl-l` have no pane to go to and
-    /// stay the shell's (enter, clear screen).
+    /// focus that pane; `ctrl-j` and `ctrl-l` have no pane to go to: in
+    /// kitty they move to the kitty window below or to the right, elsewhere
+    /// they stay the shell's (enter, clear screen).
     /// `ctrl-z` is swallowed: nothing could resume a suspended tool.
     ///
     /// # Returns
@@ -234,11 +235,18 @@ impl Model {
         } else {
             None
         };
+        let edge = match (terminal && self.kitty, ctrl('j'), ctrl('l')) {
+            (true, true, _) => Some("bottom"),
+            (true, _, true) => Some("right"),
+            _ => None,
+        };
         let Some(pty) = self.keyed_tool() else {
             return ControlFlow::Continue(());
         };
         if leave {
             self.term_view = TermView::Shown;
+        } else if let Some(side) = edge {
+            return ControlFlow::Break(Some(Cmd::KittyFocus(side)));
         } else if let Some(n) = pane {
             self.term_view = TermView::Shown;
             return ControlFlow::Break(self.focus_pane(n));
@@ -490,6 +498,11 @@ mod tests {
             b"\x0c\n",
             "ctrl-l and ctrl-j are the shell's"
         );
+        m.kitty = true;
+        assert_eq!(m.update(ctrl('j')), Some(Cmd::KittyFocus("bottom")));
+        assert_eq!(m.update(ctrl('l')), Some(Cmd::KittyFocus("right")));
+        assert!(drain(&writes).is_empty(), "in kitty they leave mc");
+        m.kitty = false;
         m.update(ctrl('h'));
         assert_eq!(
             (m.term_view, m.focus),
