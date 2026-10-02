@@ -23,7 +23,7 @@ use crate::app::tools::{TermView, Tool};
 use crate::external::External;
 use crate::ipc::Wire;
 use crate::proc::Proc;
-use crate::store::config::Settings;
+use crate::store::config::{AgentScope, Settings};
 use crate::term::keys::Chord;
 use crate::term::session::Session;
 use crate::term::{PtyEvent, SessionId};
@@ -137,8 +137,9 @@ pub(crate) enum Cmd {
     Quit,
     /// Clear the terminal and draw everything again.
     Redraw,
-    /// Save these settings and rescan the workspace.
-    Apply(Settings),
+    /// Save these settings (the default agent where the scope says) and
+    /// rescan the workspace.
+    Apply(Settings, AgentScope),
     /// Start a session.
     Launch(LaunchRequest),
     /// Start the Codex usage reader on this session's rollout file.
@@ -727,6 +728,9 @@ impl Model {
             self.home.clone(),
         );
         form.field = field;
+        if let (FormKind::Settings, Some(agent)) = (kind, self.overrides.default_agent) {
+            (form.agent, form.scope) = (agent, AgentScope::Workspace);
+        }
         self.overlay = Some(Overlay::Form(form));
     }
 
@@ -1131,7 +1135,7 @@ impl Model {
                     None
                 }
                 Outcome::Cancel => None,
-                Outcome::Submit(settings) => Some(Cmd::Apply(settings)),
+                Outcome::Submit(settings) => Some(Cmd::Apply(settings, form.scope)),
                 Outcome::Quit => Some(self.request_quit()),
             },
             Overlay::Picker(mut p) => match p.key(key) {
@@ -2185,7 +2189,7 @@ pub(crate) mod tests {
         m.update(press(KeyCode::Right));
         assert_eq!(m.view_theme().name, ThemeName::Light, "live preview");
         assert_eq!(m.theme.name, ThemeName::Dark, "not applied yet");
-        let Some(Cmd::Apply(settings)) = m.update(press(KeyCode::Enter)) else {
+        let Some(Cmd::Apply(settings, AgentScope::Global)) = m.update(press(KeyCode::Enter)) else {
             panic!("enter saves");
         };
         assert_eq!(settings.theme, ThemeChoice::Light);

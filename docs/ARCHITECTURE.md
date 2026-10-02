@@ -774,13 +774,16 @@ command unchanged.
 | routing consent | `${XDG_STATE_HOME:-~/.local/state}/bungkus/mc/consent.json` (`{"routing": "2026-09-30T…"}`) | 0600 |
 | debug log (`--debug` only) | `${XDG_STATE_HOME:-~/.local/state}/bungkus/mc/mc.log` | 0600 |
 | socket | `clean(${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}})/bungkus-mc-<uid>/<pid>.sock` | dir 0700, sock 0600 |
-| workspace overrides | `<workspace>/.bungkus-mc/config.json` (hand-edited, read only) | the user's |
+| workspace overrides | `<workspace>/.bungkus-mc/config.json` (hand-edited; the settings screen writes its `defaultAgent`) | the user's; 0600, dir 0700 when mc creates them |
 | workspace instructions | `<workspace>/.bungkus-mc/CLAUDE.md`, `<workspace>/.bungkus-mc/AGENTS.md` (read only) | the user's |
 | update-check cache | `${XDG_CACHE_HOME:-~/.cache}/bungkus-mc/latest-release` (macOS: `~/Library/Caches`, matching bungkus-cli's `os.UserCacheDir`) | 0600 |
 
 **The workspace's own folder.** `<workspace>/.bungkus-mc/` holds what is
-specific to one workspace; mc only reads it, at start and on every
-workspace switch. A hidden folder is never listed as a project.
+specific to one workspace; mc reads it at start and on every workspace
+switch, and writes one key there: the settings screen saves the default
+agent as `defaultAgent` when asked to keep it "for this workspace only"
+(other keys and their order are kept; choosing "all workspaces" removes
+the key). A hidden folder is never listed as a project.
 
 - `config.json` overrides the global file for that workspace, key by key:
   `defaultAgent`, `worktrees`, `notify`, `cleanup.keep`. An unset key keeps
