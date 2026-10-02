@@ -140,11 +140,9 @@ impl Model {
         let at = Position::new(event.column, event.row);
         let panes = self.panes(self.screen);
         if matches!(event.kind, MouseEventKind::Down(MouseButton::Left))
-            && self.selected_card().is_some()
             && panes
                 .output
-                .and_then(|o| ui::strip_mascot(o, self.screen))
-                .is_some_and(|r| r.contains(at))
+                .is_some_and(|o| ui::strip_mascot(o).contains(at))
         {
             self.poke();
             return None;
@@ -278,12 +276,12 @@ impl Model {
     /// enabled mouse reporting and INTERACT is on; returns whether it did.
     ///
     /// The agent's screen starts below the border and the mascot strip
-    /// ([`ui::strip_height`]); an event on the strip is not forwarded.
+    /// ([`ui::STRIP_HEIGHT`]); an event on the strip is not forwarded.
     fn forward_mouse(&self, event: MouseEvent, pane: Option<Rect>) -> bool {
         let (Some(pane), Focus::Output) = (pane, self.focus) else {
             return false;
         };
-        let top = pane.y + 1 + ui::strip_height(self.screen);
+        let top = pane.y + 1 + ui::STRIP_HEIGHT;
         if event.row < top {
             return false;
         }
@@ -602,8 +600,7 @@ mod tests {
             b"\x1b[?1000h\x1b[?1006h".to_vec(),
         )));
         let pane = ui::panes(m.screen, m.zoom, m.widths).output.unwrap();
-        let strip = ui::strip_height(m.screen);
-        assert!(strip > 0, "the sample screen has a strip");
+        let strip = ui::STRIP_HEIGHT;
         let click = |row| {
             AppEvent::Input(Event::Mouse(MouseEvent {
                 kind: MouseEventKind::Down(MouseButton::Left),

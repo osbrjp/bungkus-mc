@@ -1,8 +1,8 @@
  bungkus-mc  ~/Works/OSBR › kedai-web                                                     ! 1 needs you · v0.1.0-beta.8
 ┌ [1] projects ──────┐┏ [2] sessions · kedai-web ━━━━━━━━━━┓┌ [3] output · C #a3f1 · sl-test ──────────────────────────┐
-│ / search           │┃>┃! C #a3f1 sl-test               0m┃│                   ┌──────────────────────────┐    ▄██▄   │
-│:  1 kedai-web  ! 1 │┃ ┃  needs you · permission: Agent   ┃│                   │ #a3f1 needs you: sl-test │◂ ▄██████▄ │
-│ + 4 more (e)       │┃ ┃  tokens   in 45k · out 140       ┃│                   └──────────────────────────┘    ▀  ▀   │
+│ / search           │┃>┃! C #a3f1 sl-test               0m┃│                  ┌───────────────────────────┐    ▄██▄   │
+│:  1 kedai-web  ! 1 │┃ ┃  needs you · permission: Agent   ┃│                  │ #a3f2 finished: seo audit │◂ ▄██████▄ │
+│ + 4 more (e)       │┃ ┃  tokens   in 45k · out 140       ┃│                  └───────────────────────────┘    ▀  ▀   │
 │                    │┃ ┃  cache    read 30k · write 15k   ┃│                                                          │
 │                    │┃ ┃  cost     $0.04 (list price)     ┃│                                                          │
 │                    │┃ ┃  context  ██░░░░░░░░ 23% 45k/200k┃│                                                          │

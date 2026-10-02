@@ -714,18 +714,23 @@ of truth: Figma file `HwlCHEFqRm9hfOfUbtuL4h`, node `17:3`
 (the frame generator with the geometry exported from Figma). Preview page:
 https://claude.ai/artifact/EGZhX83Qvh42tgeVLYxqvK.
 
-**Strip (screens ≥ 120×36).** With a session selected, the output pane
-gives its top three rows to a strip with the mini mascot (8×3, ASCII 3
-rows) at the right, so it never covers agent output (the PTY is three rows
-shorter); its mood follows the selected session. A click on it plays
+**Strip (every screen size).** The output pane always gives its top
+three rows to a strip with the mini mascot (8×3, ASCII 3 rows) at the
+right, so it never covers agent output (the PTY is three rows shorter) and
+a notification always has a place to show; its mood follows the selected
+session (idle with none). A click on it plays
 duck–hop–duck–hop–duck–look–blink (one pose per 350 ms tick; a single hop
 without motion) and shows a speech bubble with a random line from
-`QUOTES` (never the same twice in a row) for 4 s. A notification (a
-session needs you, a session failed: the same text the host terminal is
-told, §9) shows in the same bubble for 8 s, cut to the strip's width; a
-click's quote goes first. With no session the
-pane shows the big centred empty-state mascot as before. Smaller screens
-keep the corner mascot below. Pane titles carry their `cmd`/`alt`/`ctrl`
+`QUOTES` (never the same twice in a row) for 4 s. A notification shows in
+the same bubble for 8 s, cut to the strip's width; a click's quote goes
+first. The mascot announces three things, for any session in any project:
+a task completed (`#a3f1 finished: <name>`, on working → your turn; the
+bubble only, the host terminal is not told), a session needs you and a
+session failed (the same text the host terminal is told, §9). With no
+session the pane shows the big centred empty-state mascot under the strip,
+so both mascots are on screen. The mocks in §4 that show a full-size
+mascot in the pane's corner, or `/xx\` in its title bar, predate the
+strip. Pane titles carry their `cmd`/`alt`/`ctrl`
 digit: `[1] projects`, `[2] sessions`, `[3] output`, `[4] terminal`. While
 the terminal pane is hidden and the selected session's shell still runs,
 the output pane's bottom border carries `[4] terminal · t shows · T closes`
@@ -773,9 +778,9 @@ Usage rules for every bungkus product:
   decoration. Each eye cell renders as a bold `x`, fg `#0b120d`, bg leaf
   `#34ab52`.
 - Never draw the mascot over agent output, over cards, or in a status bar.
-  In mc it lives in the output pane's empty state (centred) and, while a
-  session runs, in the output pane's **top-right corner** — but only over
-  blank cells (below). Elsewhere: splash screens, `--version`, READMEs.
+  In mc it lives in the output pane's empty state (centred) and, always,
+  in the strip at the output pane's **top-right corner**, which the agent's
+  screen never reaches (above). Elsewhere: splash screens, `--version`, READMEs.
 - Never recolour it to theme tokens (the legs token is the one
   exception, for visibility); never stretch it; the terminal sprites below
   are the only pixel forms.
@@ -853,7 +858,7 @@ idle      lookL     duck      hop       stepL
   ▀  ▀      ▀  ▀    ▀▀█▀▀█▀▀    ▀  ▀     ▀   ▀
 ```
 
-**Mini sprite** (8×6 px → 8 cols × 3 rows), used when the session is busy;
+**Mini sprite** (8×6 px → 8 cols × 3 rows), used in the strip;
 the same frame set:
 
 ```
@@ -871,17 +876,12 @@ TTTGGUUU    hop   = ..GGGG.. / .GEGGEG. / TTTGGUUU / ..L..L.. / ..L..L.. / .....
    selected): centred, full size, with `Nothing wrapped yet.` / `n to
    start a session`; sequence `idle×2, lookL×2, idle, lookR×2, idle,
    blink, idle, duck, hop, duck, idle`.
-2. **While a session runs:** top-right corner of the output pane, one
-   column in from the right border, starting on the pane's first content
-   row. **Full** sprite (16×7 cells) when the session is quiet; **mini**
-   (8×3) when it is busy — the PTY produced output in the last ~1 s,
-   including the echo of the user's typing.
-   - **Never over output.** The sprite is drawn only when every target
-     cell in the emulator's visible screen is blank (space on the default
-     background). Otherwise the pane's top border carries a 4-char
-     title-bar form at its right end: `/..\` (in `ok`), or `/xx\` (in
-     `err`) when failed. The check runs every frame; it is at most 16×7
-     cells.
+2. **Always:** the strip at the top of the output pane, the **mini**
+   sprite (8×3) one column in from the right border, on every screen size
+   and in every view of the pane (a session, the empty state, a stopped
+   session, the quick-session note).
+   - **Never over output.** The strip's three rows are the mascot's and
+     its bubble's; the agent's screen starts under them.
    - **Mood follows the session state** (350 ms ticks on the global
      clock): needs you `duck, hop, duck, idle, lookL×3, idle` (it sits
      top-right, so looking left is looking at the agent's prompt);
@@ -893,7 +893,7 @@ TTTGGUUU    hop   = ..GGGG.. / .GEGGEG. / TTTGGUUU / ..L..L.. / ..L..L.. / .....
    tick is armed from the view state, so a hidden or static mascot costs
    no wake-ups.
 4. When the locale has no half-blocks (non-UTF-8) the 4-line ASCII form is
-   used instead (corner or centred alike):
+   used instead (strip or centred alike):
 
 ```
     /\
@@ -1393,7 +1393,7 @@ launches the agent with the mapped model. What the user sees:
 | quit with running sessions     | dialog (§5.5); each descendant line is `<name> <:ports> pid <n>`, ports omitted when unknown |
 | session wrapped                | `Bungkus! #a3f1 wrapped in 22m — 38 tools, 2 subagents.`                   |
 | session failed                 | `#a3f1 failed: <last line>. enter to view · r to resume`                   |
-| structure unavailable          | cross-eyed corner mascot + `Live tree unavailable for this session — output still works.` |
+| structure unavailable          | cross-eyed strip mascot + `Live tree unavailable for this session — output still works.` |
 | Codex hooks not trusted        | `Codex hooks are not trusted yet: run codex, then /hooks to approve. Output still works.` |
 | Codex resume without hooks     | `not resumable — hooks off`                                                |
 | routing first use              | dialog (§10)                                                               |

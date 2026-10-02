@@ -1,8 +1,8 @@
  bungkus-mc  ~/Works/OSBR › kedai-web                                                                     v0.1.0-beta.8
 ┏ [1] projects ━━━━━━┓┌ [2] sessions · kedai-web ──────────┐┌ [3] output ──────────────────────────────────────────────┐
-┃ / search           ┃│ No sessions in kedai-web. n to     ││                                                          │
-┃>  1 kedai-web      ┃│ start one.                         ││                                                          │
-┃   2 teh-cli        ┃│                                    ││                                                          │
+┃ / search           ┃│ No sessions in kedai-web. n to     ││                                                   ▄██▄   │
+┃>  1 kedai-web      ┃│ start one.                         ││                                                 ▄██████▄ │
+┃   2 teh-cli        ┃│                                    ││                                                   ▀  ▀   │
 ┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │
@@ -17,14 +17,14 @@
 ┃                    ┃│║ > agent       > claude    codex (not on PATH)                          ║                      │
 ┃                    ┃│║   theme         auto  > dark    light                                  ║                      │
 ┃                    ┃│║   icons       > auto    ascii    unicode    nerd                       ║                      │
-┃                    ┃│║   editor      > other                                                  ║▄                     │
+┃                    ┃│║   editor      > other                                                  ║                      │
 ┃                    ┃│║               + ~/.local/bin/claude   - codex not on PATH              ║                      │
-┃                    ┃│║               saved for: all workspaces · w switches                   ║                      │
+┃                    ┃│║               saved for: all workspaces · w switches                   ║▄                     │
 ┃                    ┃│║                                                                        ║                      │
-┃                    ┃│║                                                                        ║et.                   │
-┃                    ┃│║                                                                        ║ion                   │
-┃                    ┃│║                j/k ↑↓ field · h/l ← → change · enter save · esc cancel ║                      │
-┃                    ┃│╚════════════════════════════════════════════════════════════════════════╝                      │
+┃                    ┃│║                                                                        ║                      │
+┃                    ┃│║                                                                        ║                      │
+┃                    ┃│║                j/k ↑↓ field · h/l ← → change · enter save · esc cancel ║et.                   │
+┃                    ┃│╚════════════════════════════════════════════════════════════════════════╝ion                   │
 ┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │
