@@ -159,7 +159,7 @@ impl Model {
     /// Returns what the terminal pane belongs to now and the folder its
     /// shell starts in: the selected session and the folder it works in
     /// (its worktree when it has one), else the folder of [`Self::shell_dir`].
-    fn shell_owner(&self) -> Option<(Owner, PathBuf)> {
+    pub(super) fn shell_owner(&self) -> Option<(Owner, PathBuf)> {
         if let Some(card) = self.selected_card().map(|i| &self.cards[i]) {
             return Some((Owner::Session(card.id), card.folder()));
         }

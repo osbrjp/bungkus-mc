@@ -1,6 +1,6 @@
 [package]
 name = "bungkus-mc"
-version = "0.1.0-beta.8"
+version = "0.1.0-beta.9"
 edition = "2024"
 rust-version = "1.97"
 description = "Mission control for AI coding agents in the terminal"
@@ -13,7 +13,7 @@ anyhow = "1.0.104"
 lexopt = "0.3.2"
 portable-pty = "0.9.0"
 ratatui = "0.30.2"
-rustix = { version = "1.1.5", features = ["event", "fs", "process", "stdio"] }
+rustix = { version = "1.1.5", features = ["event", "fs", "param", "process", "stdio"] }
 semver = "1.0.28"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["preserve_order"] }

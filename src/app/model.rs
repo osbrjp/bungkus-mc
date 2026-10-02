@@ -67,6 +67,8 @@ impl Focus {
 pub(crate) enum Overlay {
     /// The generated key help.
     Help,
+    /// The activity monitor (`A`); its figures live in [`Model::activity`].
+    Activity,
     /// The first-run wizard or the settings screen.
     Form(Form),
     /// The `n` picker.
@@ -88,6 +90,10 @@ pub(crate) enum Overlay {
     NewProject(crate::app::quick::NewProject),
     /// The `w` workspace switcher.
     Switcher(crate::app::workspaces::Switcher),
+    /// The `fp` / `ff` / `fg` finder.
+    Finder(crate::app::finder::Finder),
+    /// The `i` issues and pull requests popup.
+    Links(crate::app::links::Viewer),
     /// "Move these projects' folders to the Trash?"
     TrashProject(Vec<Project>),
     /// "Remove this project's unused worktrees?"
@@ -172,10 +178,23 @@ pub(crate) enum Cmd {
     Signal(Vec<Proc>, Signal),
     /// Take a background process snapshot.
     Scan,
+    /// Take a resource reading for the activity overlay.
+    Sample,
     /// Open this project folder in the user's editor (`o`).
     OpenEditor(PathBuf),
+    /// Search, read or open a file for the finder.
+    Finder(crate::app::finder::Request),
     /// Open this project folder with the desktop's opener (`O`).
     OpenFolder(PathBuf),
+    /// Open this `https://` address with the desktop's opener (`P`, `I`,
+    /// `enter` in the `i` popup).
+    OpenUrl(String),
+    /// List the open pull requests and issues of this folder's repository
+    /// for the `i` popup.
+    ListLinks(PathBuf),
+    /// Read the text of this issue or pull request, in this folder, for
+    /// the `i` popup's text view.
+    ReadLink(PathBuf, crate::app::links::Link),
     /// Start the terminal pane's shell for this owner in this folder (`t`).
     OpenTerminal(crate::app::tools::Owner, PathBuf),
     /// Write the workspace's project groups to its `.bungkus-mc/config.json`.
@@ -272,6 +291,9 @@ pub(crate) struct Model {
     pub list_rows: usize,
     /// The chord that leaves INTERACT.
     pub exit_chord: Chord,
+    /// When a plain `j` last went to the agent in INTERACT, while a `j` or
+    /// `k` right after it would still leave.
+    pub leave_j: Option<Instant>,
     /// Pane widths (dragged by the mouse, from `config.json`).
     pub widths: crate::ui::Widths,
     /// The pane border being dragged, if any.
@@ -301,6 +323,8 @@ pub(crate) struct Model {
     pub keep: Vec<String>,
     /// When the next background process scan is due.
     pub next_scan: Option<Instant>,
+    /// The activity overlay's figures.
+    pub activity: crate::app::activity::Activity,
     /// Whether `sessions.json` must be written.
     pub state_dirty: bool,
     /// Agent sessions running outside mc, read-only (ARCHITECTURE §3.4).
@@ -310,8 +334,13 @@ pub(crate) struct Model {
     pub repos: std::collections::HashMap<PathBuf, crate::app::repo::Status>,
     /// Whether a background read of [`Model::repos`] is under way.
     pub repo_scan: bool,
-    /// Whether an MCP config scan is running.
-    pub mcp_scan: bool,
+    /// The pull request and issue of each session folder's branch, as
+    /// last read through `gh`.
+    pub links: std::collections::HashMap<PathBuf, crate::app::links::Links>,
+    /// Whether a background read of [`Model::links`] is under way.
+    pub links_scan: bool,
+    /// When the links of the running sessions were last read again.
+    pub links_at: Option<Instant>,
     /// Shows every key mc receives in the hint line (`BUNGKUS_MC_DEBUG_KEYS`),
     /// to find chords a terminal keeps for itself.
     pub debug_keys: bool,
@@ -336,6 +365,9 @@ pub(crate) struct Model {
     /// The projects last moved to the Trash this run, each `(folder, where
     /// it went)`, for `u`.
     pub last_trash: Vec<(PathBuf, PathBuf)>,
+    /// The number of the last finder search started; an older search's
+    /// result is dropped.
+    pub find_seq: u64,
     /// The other end of the projects pane's line selection (`V`), when on.
     pub visual: Option<usize>,
     /// The projects marked with `v`, by folder (chosen like the `V` range).
@@ -438,6 +470,7 @@ impl Model {
             widths: crate::ui::Widths::default(),
             drag: None,
             exit_chord: Chord::DEFAULT,
+            leave_j: None,
             screen: Rect::new(0, 0, 120, 40),
             now: Instant::now(),
             frame: 0,
@@ -449,11 +482,14 @@ impl Model {
             overrides: crate::store::config::Overrides::default(),
             keep: Vec::new(),
             next_scan: None,
+            activity: crate::app::activity::Activity::default(),
             state_dirty: false,
             external: Vec::new(),
             repos: std::collections::HashMap::new(),
             repo_scan: false,
-            mcp_scan: false,
+            links: std::collections::HashMap::new(),
+            links_scan: false,
+            links_at: None,
             poke: None,
             notice: None,
             popup: None,
@@ -464,6 +500,7 @@ impl Model {
             restart: false,
             known: std::collections::HashSet::new(),
             kitty: false,
+            find_seq: 0,
             visual: None,
             marks: Vec::new(),
             popup_menu: false,
@@ -686,17 +723,30 @@ impl Model {
     }
 
     /// Returns the sessions outside mc running in `project` (or below it),
-    /// or, for the empty path of [`Model::elsewhere`], in no project folder;
+    /// or, for the empty path of [`Model::elsewhere`], in no project folder
+    /// and in no other saved workspace (that one lists it when it is up);
     /// every session mc started is left out: by pid, by a tracked
     /// descendant's pid, or by the agent's session id.
     #[must_use]
     pub(crate) fn external_in(&self, project: &Path) -> Vec<&External> {
-        if self.root() == Some(project) {
+        let root = self.root();
+        if root == Some(project) {
             return Vec::new();
         }
+        // The workspace a folder is in: the longest of the saved ones and
+        // this one, so a workspace nested in another keeps its sessions.
+        let workspace = |cwd: &Path| {
+            self.workspaces
+                .iter()
+                .map(PathBuf::as_path)
+                .chain(root)
+                .filter(|w| cwd.starts_with(w))
+                .max_by_key(|w| w.as_os_str().len())
+        };
         let inside = |e: &External| {
             if project.as_os_str().is_empty() {
                 !self.projects.iter().any(|p| e.cwd.starts_with(&p.path))
+                    && workspace(&e.cwd).is_none_or(|w| Some(w) == root)
             } else {
                 e.cwd.starts_with(project)
             }
@@ -792,10 +842,12 @@ impl Model {
             .filter(|_| self.cards.iter().any(Card::running));
         let plans = self.plan_deadline();
         let takeover = self.take_over_deadline();
+        let activity = self.activity_deadline();
         let poke = self.poke.map(|(at, _)| at + crate::ui::mascot::POKE);
         let notice = self.notice.as_ref().map(|(at, _)| *at + NOTICE);
         syncs
             .chain(takeover)
+            .chain(activity)
             .chain(poke)
             .chain(notice)
             .chain(stops)
@@ -888,16 +940,6 @@ impl Model {
         cmd
     }
 
-    /// Gives each session in `changed` its configured MCP servers.
-    fn set_mcp(&mut self, changed: Vec<(SessionId, Vec<String>, crate::agent::mcp::Stamp)>) {
-        self.mcp_scan = false;
-        for (id, servers, stamp) in changed {
-            if let Some(card) = self.cards.iter_mut().find(|c| c.id == id) {
-                card.set_mcp(servers, stamp);
-            }
-        }
-    }
-
     /// Applies one event; [`Model::update`] keeps the selection in place.
     fn handle(&mut self, event: AppEvent) -> Option<Cmd> {
         match event {
@@ -911,7 +953,7 @@ impl Model {
                     return Some(cmd);
                 }
                 self.enforce_stops();
-                if let Some(cmd) = self.plan_kill_due() {
+                if let Some(cmd) = self.plan_kill_due().or_else(|| self.activity_due()) {
                     return Some(cmd);
                 }
                 let running = self.cards.iter().any(Card::running);
@@ -925,11 +967,16 @@ impl Model {
                 }
             }
             AppEvent::Procs(snapshot) => self.track(&snapshot),
+            AppEvent::Activity(sample) => {
+                self.set_activity(crate::app::activity::own_pid(), &sample);
+            }
             AppEvent::Repos(repos) => {
                 self.repos = repos.into_iter().collect();
                 self.repo_scan = false;
             }
-            AppEvent::Mcp(changed) => self.set_mcp(changed),
+            AppEvent::Links(read) => self.set_links(read),
+            AppEvent::LinkList(folder, list) => self.set_link_list(&folder, list),
+            AppEvent::LinkBody(url, text) => self.set_link_body(&url, text.as_deref()),
             AppEvent::External(list) => {
                 self.external = list;
                 self.selected = self.selected.min(self.visible().len().saturating_sub(1));
@@ -942,6 +989,7 @@ impl Model {
             }
             AppEvent::Updated(result) => return self.updated(result),
             AppEvent::Worktrees(text) => self.message = Some(text),
+            AppEvent::Finder(reply) => return self.finder_reply(reply),
             AppEvent::Pty(PtyEvent::Output(id, bytes)) => {
                 if let Some(pty) = self.tool_mut(id) {
                     pty.advance(&bytes);
@@ -957,30 +1005,8 @@ impl Model {
             AppEvent::Usage(id, usage) => self.codex_usage(id, usage),
             AppEvent::Pty(PtyEvent::Exited(id, code)) if self.tool_exited(id, code) => {}
             AppEvent::Pty(PtyEvent::Exited(id, code)) => {
-                crate::debug_log!("{} exited: {code:?}", id.short());
-                let now = self.now;
-                self.state_dirty = true;
-                let selected = self.selected_card().map(|i| self.cards[i].id) == Some(id);
-                self.close_shell_of(id);
-                if let Some(card) = self.card_mut(id) {
-                    card.exited(code, now);
-                    if let State::Failed(reason) = &card.state {
-                        let text = format!("{} failed: {reason}", card.id.short());
-                        self.notice = Some((now, text.clone()));
-                        self.alerts.push(Alert::Failed(text));
-                    }
-                }
-                if self.popup == Some(id) {
-                    self.popup = None;
-                }
-                if let Some(cmd) = self.moved_after_exit(id) {
+                if let Some(cmd) = self.session_exited(id, code) {
                     return Some(cmd);
-                }
-                if let Some(cmd) = self.plan_after_exit(id) {
-                    return Some(cmd);
-                }
-                if self.focus == Focus::Output && selected {
-                    self.focus = Focus::Sessions;
                 }
             }
             AppEvent::Input(Event::Key(key)) if key.kind != KeyEventKind::Release => {
@@ -996,6 +1022,38 @@ impl Model {
             AppEvent::Input(_) => {}
         }
         self.quit_when_stopped()
+    }
+
+    /// Records that session `id`'s process ended with `code`: the card's
+    /// state (a failure is announced), its shell and popup, a pending move
+    /// or stop plan, and the focus when its output pane had it.
+    fn session_exited(&mut self, id: SessionId, code: Option<u32>) -> Option<Cmd> {
+        crate::debug_log!("{} exited: {code:?}", id.short());
+        let now = self.now;
+        self.state_dirty = true;
+        let selected = self.selected_card().map(|i| self.cards[i].id) == Some(id);
+        self.close_shell_of(id);
+        if let Some(card) = self.card_mut(id) {
+            card.exited(code, now);
+            if let State::Failed(reason) = &card.state {
+                let text = format!("{} failed: {reason}", card.id.short());
+                self.notice = Some((now, text.clone()));
+                self.alerts.push(Alert::Failed(text));
+            }
+        }
+        if self.popup == Some(id) {
+            self.popup = None;
+        }
+        if let Some(cmd) = self.moved_after_exit(id) {
+            return Some(cmd);
+        }
+        if let Some(cmd) = self.plan_after_exit(id) {
+            return Some(cmd);
+        }
+        if self.focus == Focus::Output && selected {
+            self.focus = Focus::Sessions;
+        }
+        None
     }
 
     /// Applies one socket line to the card of its mc session; malformed
@@ -1029,6 +1087,8 @@ impl Model {
             let text = format!("{} needs you: {}", card.id.short(), card.name);
             self.notice = Some((now, text.clone()));
             self.alerts.push(Alert::NeedsYou(text));
+        } else if card.state == State::YourTurn && before == State::Working {
+            self.notice = Some((now, format!("{} finished: {}", card.id.short(), card.name)));
         }
         let first_bind = !bound && card.agent_session.is_some();
         let watch = card.kind == Kind::Codex && card.running() && card.rollout_stop.is_none();
@@ -1056,7 +1116,7 @@ impl Model {
 
     /// Jumps to the next session that needs you, across projects: selects
     /// its project and card and enters INTERACT (DESIGN §8.1).
-    fn next_needs_you(&mut self) -> Option<Cmd> {
+    pub(super) fn next_needs_you(&mut self) -> Option<Cmd> {
         let current = self.selected_card().map(|i| self.cards[i].id);
         let projects: Vec<PathBuf> = self.visible().iter().map(|p| p.path.clone()).collect();
         let mut found = Vec::new();
@@ -1243,6 +1303,12 @@ impl Model {
                 KeyCode::Esc | KeyCode::Char('?' | ' ') => None,
                 _ => self.key(key),
             },
+            Overlay::Activity => {
+                if !matches!(key.code, KeyCode::Esc | KeyCode::Char('A' | 'q')) {
+                    self.overlay = Some(Overlay::Activity);
+                }
+                None
+            }
             Overlay::Form(mut form) => match form.key(key) {
                 Outcome::Continue => {
                     self.overlay = Some(Overlay::Form(form));
@@ -1294,6 +1360,8 @@ impl Model {
             }
             Overlay::NewProject(dialog) => self.new_project_key(dialog, key),
             Overlay::Switcher(switcher) => self.switcher_key(switcher, key),
+            Overlay::Finder(finder) => self.finder_key(finder, key),
+            Overlay::Links(viewer) => self.viewer_key(viewer, key),
             Overlay::TrashProject(projects) => confirms(key)
                 .then(|| Cmd::TrashProject(projects.into_iter().map(|p| p.path).collect())),
             Overlay::CleanWorktrees(project) => {
@@ -1684,6 +1752,31 @@ impl Model {
             .min(len.saturating_sub(1))
     }
 
+    /// Enters FILTER mode on the projects pane with an empty search (`/`).
+    fn start_filter(&mut self) {
+        self.focus = Focus::Projects;
+        self.filtering = true;
+        self.filter.clear();
+        self.selected = 0;
+    }
+
+    /// Moves the selection of the focused list by `delta` rows; moving down
+    /// from the last recent project opens the rest.
+    fn move_selection(&mut self, delta: isize) {
+        match self.focus {
+            Focus::Projects => {
+                if delta == 1 && self.rest().is_some_and(|r| r.at == self.selected + 1) {
+                    self.show_rest = true;
+                }
+                self.selected = Self::step(self.selected, delta, self.visible().len());
+                self.card = 0;
+            }
+            Focus::Sessions | Focus::Output => {
+                self.card = Self::step(self.card, delta, self.session_rows());
+            }
+        }
+    }
+
     /// Runs a keymap action.
     fn act(&mut self, action: Action) -> Option<Cmd> {
         let half = isize::try_from((self.list_rows / 2).max(1)).unwrap_or(1);
@@ -1697,19 +1790,7 @@ impl Model {
             _ => None,
         };
         if let Some(delta) = moved {
-            match self.focus {
-                Focus::Projects => {
-                    // Down on the last recent project opens the rest.
-                    if delta == 1 && self.rest().is_some_and(|r| r.at == self.selected + 1) {
-                        self.show_rest = true;
-                    }
-                    self.selected = Self::step(self.selected, delta, self.visible().len());
-                    self.card = 0;
-                }
-                Focus::Sessions | Focus::Output => {
-                    self.card = Self::step(self.card, delta, self.session_rows());
-                }
-            }
+            self.move_selection(delta);
             return None;
         }
         match action {
@@ -1724,12 +1805,7 @@ impl Model {
             }
             Action::Interact => self.interact(),
             Action::NextPane | Action::OpenProject => self.focus = Focus::Sessions,
-            Action::Filter => {
-                self.focus = Focus::Projects;
-                self.filtering = true;
-                self.filter.clear();
-                self.selected = 0;
-            }
+            Action::Filter => self.start_filter(),
             Action::NewSession
                 if self
                     .selected_project()
@@ -1737,6 +1813,7 @@ impl Model {
             {
                 self.open_picker();
             }
+            Action::Find(source) => return self.open_finder(source),
             Action::Stop => return self.stop_selected(),
             Action::Pane(n) => return self.focus_pane(n),
             Action::TrashProject => self.ask_trash(),
@@ -1749,6 +1826,7 @@ impl Model {
             Action::ToggleRest => self.toggle_rest(),
             Action::Editor => return self.open_editor(),
             Action::Folder => return self.open_folder(),
+            Action::PullRequest | Action::Issue | Action::Links => return self.link_key(action),
             Action::Terminal => return self.toggle_terminal(),
             Action::CloseTerminal => self.close_terminal(),
             Action::Update => return self.start_update(),
@@ -1774,6 +1852,7 @@ impl Model {
             Action::Workspace => self.open_switcher(),
             Action::Settings => self.open_form(FormKind::Settings, Field::Agent),
             Action::Help => self.overlay = Some(Overlay::Help),
+            Action::Activity => return Some(self.open_activity()),
             Action::Redraw => return Some(Cmd::Redraw),
             Action::Quit => return Some(self.request_quit()),
             Action::Jump
@@ -2514,6 +2593,26 @@ pub(crate) mod tests {
         );
     }
 
+    #[test]
+    fn the_mascot_says_when_a_session_finishes_its_turn() {
+        let mut m = sample(&["a"]);
+        let (id, _w) = with_session(&mut m, "s");
+        m.cards[0].expect_hooks();
+        m.update(hook_line(id, r#"{"hook_event_name":"SessionStart"}"#));
+        assert!(m.notice.is_none(), "starting is not finishing");
+        m.update(hook_line(id, r#"{"hook_event_name":"UserPromptSubmit"}"#));
+        m.update(hook_line(id, r#"{"hook_event_name":"Stop"}"#));
+        assert_eq!(m.cards[0].state, State::YourTurn);
+        assert!(
+            m.notice
+                .as_ref()
+                .is_some_and(|(_, text)| text.ends_with("finished: s")),
+            "{:?}",
+            m.notice
+        );
+        assert!(m.alerts.is_empty(), "the host terminal is not told");
+    }
+
     /// Returns a socket line for `id` carrying the status-line fixture.
     pub(crate) fn usage_line(id: SessionId) -> AppEvent {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -2622,6 +2721,32 @@ pub(crate) mod tests {
         m.focus = Focus::Sessions;
         m.update(press(KeyCode::Char('!')));
         assert_eq!(m.message.as_deref(), Some("nobody needs you right now"));
+    }
+
+    #[test]
+    fn ctrl_bracket_jumps_from_interact_and_bang_stays_the_agents() {
+        let mut m = sample(&["a"]);
+        let (first, _w1) = with_session(&mut m, "one");
+        let (second, w2) = with_session(&mut m, "two");
+        m.update(hook_line(
+            first,
+            r#"{"hook_event_name":"Notification","notification_type":"permission_prompt"}"#,
+        ));
+        let shown = |m: &Model| m.selected_card().map(|i| m.cards[i].id);
+        m.select_session(second);
+        m.update(press(KeyCode::Char('!')));
+        assert_eq!(shown(&m), Some(second), "! is typed to the agent");
+        assert_eq!(w2.try_iter().flatten().collect::<Vec<u8>>(), b"!");
+        for ch in [']', '5'] {
+            m.select_session(second);
+            m.update(AppEvent::Input(Event::Key(KeyEvent::new(
+                KeyCode::Char(ch),
+                KeyModifiers::CONTROL,
+            ))));
+            assert_eq!(shown(&m), Some(first), "ctrl-{ch} jumps");
+            assert_eq!(m.focus, Focus::Output);
+        }
+        assert_eq!(w2.try_iter().count(), 0, "the agent never sees the chord");
     }
 
     #[test]

@@ -6,6 +6,7 @@
 //! number of list rows on screen, for half-page moves. [`panes`] is the
 //! one layout function: drawing, mouse hit tests and PTY sizes all use it.
 
+mod activity;
 mod cards;
 mod dialogs;
 mod form;
@@ -263,7 +264,7 @@ pub(crate) fn output_size(area: Rect, zoom: bool, widths: Widths, terminal: bool
         .unwrap_or(area);
     Size {
         cols: pane.width.saturating_sub(2).max(1),
-        rows: pane.height.saturating_sub(2 + strip_height(area)).max(1),
+        rows: pane.height.saturating_sub(2 + STRIP_HEIGHT).max(1),
     }
 }
 
@@ -348,6 +349,7 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
     }
     match &model.overlay {
         Some(Overlay::Help) => help::draw(frame, area, model.focus.scope(), theme),
+        Some(Overlay::Activity) => activity::draw(frame, area, &model.activity, theme),
         Some(Overlay::Form(f)) => form::draw_settings(frame, area, f, theme, model.host_light),
         Some(Overlay::Picker(p)) => dialogs::draw_picker(frame, area, p, theme),
         Some(Overlay::Stop(d)) => dialogs::draw_stop(frame, area, d, model, theme),
@@ -360,6 +362,8 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
         Some(Overlay::Switcher(switcher)) => {
             dialogs::draw_switcher(frame, area, switcher, model, theme);
         }
+        Some(Overlay::Finder(finder)) => dialogs::draw_finder(frame, area, finder, theme),
+        Some(Overlay::Links(viewer)) => dialogs::draw_links(frame, area, viewer, theme),
         Some(Overlay::CleanWorktrees(project)) => {
             dialogs::draw_clean_worktrees(frame, area, project, theme);
         }
@@ -370,44 +374,30 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
     }
 }
 
-/// Screens at least this big give the output pane a three-row strip at
-/// its top with the mascot at the right (DESIGN §5.7); smaller ones keep
-/// the corner mascot that steps aside for agent output.
-const STRIP_SIZE: (u16, u16) = (120, 36);
-
 /// Columns between the bubble's tail and the mascot.
 const STRIP_GAP: u16 = 1;
 
-/// Returns the rows the output pane gives the mascot strip: 3 on big
-/// screens, 0 otherwise.
-#[must_use]
-pub(crate) fn strip_height(screen: Rect) -> u16 {
-    if screen.width >= STRIP_SIZE.0 && screen.height >= STRIP_SIZE.1 {
-        mascot::MINI_HEIGHT
-    } else {
-        0
-    }
-}
+/// Rows the output pane gives the mascot strip at its top (DESIGN §5.7),
+/// so the mascot and its bubble never cover agent output.
+pub(crate) const STRIP_HEIGHT: u16 = mascot::MINI_HEIGHT;
 
 /// Returns where the strip mascot sits in output pane `output` (the click
-/// target), if the screen has a strip.
+/// target).
 #[must_use]
-pub(crate) fn strip_mascot(output: Rect, screen: Rect) -> Option<Rect> {
-    (strip_height(screen) > 0).then(|| {
-        Rect::new(
-            output.right().saturating_sub(mascot::MINI_WIDTH + 2),
-            output.y + 1,
-            mascot::MINI_WIDTH,
-            mascot::MINI_HEIGHT,
-        )
-    })
+pub(crate) fn strip_mascot(output: Rect) -> Rect {
+    Rect::new(
+        output.right().saturating_sub(mascot::MINI_WIDTH + 2),
+        output.y + 1,
+        mascot::MINI_WIDTH,
+        mascot::MINI_HEIGHT,
+    )
 }
 
 /// Draws the strip mascot at `spot` in `mood` and, after a click or a
 /// notification, its speech bubble to the left (within `strip`).
 ///
 /// A click plays [`mascot::poke_pose`] and shows a quote for
-/// [`mascot::POKE`]. A notification (a session needs you or failed, see
+/// [`mascot::POKE`]. A notification (a session finished, needs you or failed, see
 /// [`Model::notice`]) is said for [`mascot::NOTICE`], cut to the room the
 /// strip has; a quote from a click goes first.
 pub(super) fn draw_strip(
@@ -931,9 +921,19 @@ fn draw_getah(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
         let agent = model
             .selected_card()
             .map_or("the agent", |i| model.cards[i].kind.command());
+        let here = model.selected_card().map(|i| model.cards[i].id);
+        let waiting = model
+            .cards
+            .iter()
+            .any(|c| c.state == State::NeedsYou && Some(c.id) != here);
         format!(
-            "keys go to {agent} · {} back to mc",
-            model.exit_chord.label()
+            "keys go to {agent} · {} back to mc{}",
+            model.exit_chord.label(),
+            if waiting {
+                " · ctrl-] next needs you"
+            } else {
+                ""
+            }
         )
     } else if model.choosing() {
         "v mark · j/k move · g group · d move to Trash · esc clear".to_owned()
@@ -942,7 +942,11 @@ fn draw_getah(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
     } else if let Some(ch) = model.pending {
         format!("{ch}…")
     } else {
-        keymap::hints(model.focus.scope()).join(" · ")
+        let mut hints = keymap::hints(model.focus.scope());
+        if tally(model).needs_you > 0 {
+            hints.insert(0, "! next needs you");
+        }
+        hints.join(" · ")
     };
     let line = Line::from(vec![
         Span::styled(mode, theme.badge(token)),
@@ -1229,6 +1233,32 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn activity_overlay_matches_golden() {
+        use crate::app::activity::Row;
+
+        let mut model = sample(PROJECTS);
+        key(&mut model, KeyCode::Char('A'));
+        assert!(render(&mut model, 80, 24).contains("measuring"));
+        let row = |label: &str, procs, rss_kb, cpu| Row {
+            label: label.into(),
+            procs,
+            rss_kb,
+            cpu_tenths: Some(cpu),
+        };
+        model.activity.rows = vec![
+            row("mc", 1, 28_000, 12),
+            row("#a3f1 checkout redesign", 7, 1_640_000, 1234),
+            row("terminals & other", 2, 9_000, 0),
+        ];
+        model.activity.cores = 8;
+        model.activity.mem_total_kb = Some(16 * 1024 * 1024);
+        model.activity.temp_c = Some(54);
+        assert_golden("activity-80x24.txt", &render(&mut model, 80, 24));
+        key(&mut model, KeyCode::Esc);
+        assert_eq!(model.overlay, None);
+    }
+
+    #[test]
     fn sessions_and_interact_match_goldens() {
         use crate::app::model::tests::with_session;
         use crate::term::PtyEvent;
@@ -1487,6 +1517,16 @@ pub(crate) mod tests {
             "the row goes with its last session"
         );
         assert_eq!(model.selected, 4);
+        model.workspaces = vec!["/other".into()];
+        model.external.push(External {
+            cwd: "/other/project".into(),
+            ..ext(703, "other workspace", None)
+        });
+        assert_eq!(
+            model.visible().len(),
+            5,
+            "a session of another saved workspace gets no row here"
+        );
     }
 
     #[test]
@@ -1569,24 +1609,19 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn big_screens_put_the_mascot_in_the_output_pane_and_a_click_shows_a_quote() {
+    fn the_mascot_sits_in_the_output_pane_and_a_click_shows_a_quote() {
         use ratatui::crossterm::event::{
             Event, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
         };
 
         use crate::app::model::tests::with_session;
 
-        assert_eq!(
-            strip_height(Rect::new(0, 0, 100, 30)),
-            0,
-            "small screens: no strip"
-        );
         let mut model = sample(PROJECTS);
         let (_id, _w) = with_session(&mut model, "s");
         let output = panes(model.screen, model.zoom, model.widths)
             .output
             .unwrap();
-        let spot = strip_mascot(output, model.screen).unwrap();
+        let spot = strip_mascot(output);
         assert!(
             output.contains(spot.as_position()),
             "the mascot is in the output pane"
@@ -1621,6 +1656,19 @@ pub(crate) mod tests {
         model.now += mascot::NOTICE;
         model.update(crate::app::AppEvent::Tick);
         assert!(model.notice.is_none(), "it goes after a while");
+    }
+
+    #[test]
+    fn a_notification_shows_on_a_small_screen_and_with_no_session() {
+        let mut model = sample(PROJECTS);
+        model.screen = Rect::new(0, 0, 80, 24);
+        model.notice = Some((model.now, "#a3f1 finished: deploy".into()));
+        let screen = render(&mut model, 80, 24);
+        assert!(screen.contains("#a3f1 finished: deploy"), "{screen}");
+        assert!(
+            screen.contains("Nothing wrapped yet."),
+            "the empty state stays: {screen}"
+        );
     }
 
     #[test]

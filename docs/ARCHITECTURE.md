@@ -117,7 +117,15 @@ Start from `std::env::vars_os()` and then:
   `CODEX_HOME`. A test asserts the denylist is absent and the kept names
   present;
 - add `BUNGKUS_MC_SOCK`, `BUNGKUS_MC_SESSION`, and for Claude
-  `BUNGKUS_MC_USER_STATUSLINE` (§6.2).
+  `BUNGKUS_MC_USER_STATUSLINE` (§6.2);
+- set `GH_CONFIG_DIR` when the global `ghConfigDirs` has an entry for the
+  workspace the child runs in (the longest workspace folder that contains
+  the child's folder; both sides may start with `~`). mc is one process
+  for every workspace, so without this `gh` acts as one account in all of
+  them. The terminal pane and the editor popup get it too, and so do
+  mc's own `gh` reads for issue / pull request links (`app/links.rs`), so
+  a card's links come from the account its session uses. mc only names
+  the folder: it does not read it or handle a token.
 
 The emulator's default foreground/background are **the theme's painted
 `bg`/`fg`** (`#1c2a21`/`#d6e2d3` dark, `#f0f3d8`/`#1f2a22` light) whenever
@@ -224,7 +232,7 @@ A thread lists them every 5 s (`src/external.rs`) and sends
   comes from `lsof -a -d cwd -p <pids> -Fpn`. Its state is "running".
 - A row whose cwd is the project folder or below it shows in that
   project, after mc's cards; one in no project folder (outside the
-  workspace, or a folder since deleted) shows under an `elsewhere` row
+  workspace, or a folder since deleted) and in no other saved workspace shows under an `elsewhere` row
   that ends the projects list while there is one, with its folder; its state feeds the projects-pane spinner and
   badge. Sessions mc started are left out by pid, tracked descendant pid,
   or session id.
@@ -267,6 +275,52 @@ tool ends when its program exits, when mc does (the PTY closes, the
 kernel sends SIGHUP), or, for a shell, on `T` or when its session ends (mc sends SIGHUP
 to its process group and forgets it once it has exited). Any other editor is spawned once with an argument
 vector, null stdio and its own process group, and left alone.
+
+### 3.6 Issues and pull requests (`src/app/links.rs`)
+
+mc links a session to the pull request and issue of the branch its folder
+is on, through the user's own `gh` CLI (fixed argv, no shell, null stdin,
+own process group; mc holds no token). Per folder: `gh pr view --json
+number,title,state,url,closingIssuesReferences`, then `gh issue view <n>
+--json number,title,state,url` for the number in a branch named
+`i{issue#}-…`; without one the issue is the first the pull request
+closes. The read
+runs on a background thread, one at a time, after the 5 s repository
+status: for a folder whose branch is not the one last read, and every 60 s
+for the folders of running sessions. Results are kept per folder in the
+model (not in `sessions.json`; they are read again on start) and arrive
+as `AppEvent::Links`. The `i` popup asks `gh pr list` and `gh issue list`
+(30 each) when it opens, and `gh issue view <url> --json body,comments` (or `gh pr
+view`, with `reviews`) when `enter` asks for a row's description and comments, plus
+`gh api repos/<owner>/<repo>/pulls/<n>/comments` for a pull request's review
+comments on code (owner, repository and number taken from its
+`https://github.com/` URL and checked; the first 100), all put in date order, which `src/app/markdown.rs` reads
+(sanitised line by line; headings, lists, quotes, rules, fenced code and
+inline code, bold, italic and link text; no crate), wrapped and capped at
+2000 lines. The model keeps styled runs (`Ink`); `ui` gives them colours. `P`, `I` and `o` in the popup hand the URL to
+the desktop's opener, the same path as `O`. Without `gh`, a login or a
+GitHub remote every call fails and nothing is linked.
+### 3.7 Activity overlay (resource use, display only)
+
+`A` shows what mc uses of the device (`proc/usage.rs`, `app/activity.rs`).
+Nothing is sampled unless the overlay is open; then, every 2 s on a
+background thread:
+
+- macOS: `ps -axo pid=,ppid=,rss=,cputime=` and `sysctl -n hw.memsize`,
+  fixed argv, `LC_ALL=C`. Linux: `/proc/<pid>/stat` (ppid, `utime` +
+  `stime`, `rss` pages; page size and clock ticks from `rustix::param`)
+  and `MemTotal` of `/proc/meminfo`. Lines that do not fit are skipped.
+- CPU % = the CPU time a group gained between two samples over the wall
+  time between them (100 % = one core), so both OSes use one rule and the
+  first sample shows `-`.
+- Groups: mc's own pid; per running session the agent pid, its tracked
+  `descendants` (§3.3, so reparented ones count) and everything below
+  them by `ppid`; then the rest of mc's subtree (terminal-pane shells, the
+  editor popup). A pid is counted once.
+- Temperature: the hottest `/sys/class/thermal/thermal_zone*/temp` on
+  Linux. macOS has no unprivileged source short of `IOKit` FFI
+  (`unsafe`) or `sudo powermetrics`, so it shows `n/a`.
+- The figures never feed tracking or stopping; argv is never read.
 
 ## 4. Data flow
 
@@ -634,47 +688,20 @@ name → first prompt line → `untitled`. Stored in `sessions.json` as
 
 ### 5.5 MCP servers on the card (`mcp.rs`)
 
-A card lists the MCP servers its session has used; the expanded card
-also lists the configured ones it has not, as idle (DESIGN §5.2). Neither
-agent reports which servers are connected, so `agent/mcp.rs` combines two
-sources:
-
-**1. The agents' own config files** — what is configured (the idle row,
-and the name a used server is shown under).
-
-| Agent | Files | Names |
-|-------|-------|-------|
-| Claude | `<project>/.mcp.json`; `.claude.json` in `$CLAUDE_CONFIG_DIR`, else the home directory | keys of `mcpServers` in the project file, in the user file, and in the user file's `projects[<project>]`; less that entry's `disabledMcpjsonServers` / `disabledMcpServers` |
-| Codex | `config.toml` in `$CODEX_HOME`, else `~/.codex` | `[mcp_servers.<name>]` table headers (a line scan, no TOML crate) |
-
-**2. Hook events** — what is used. A `PreToolUse` whose `tool_name` is
+A card lists the MCP servers its session has used (DESIGN §5.2). Neither
+agent reports which servers are connected, so `agent/mcp.rs` takes them
+from hook events: a `PreToolUse` whose `tool_name` is
 `mcp__<server>__<tool>` marks `<server>` (less Claude's `claude_ai_` /
-`plugin_` prefix) as in use for the rest of the session. This is the
-only source for claude.ai connectors and
-plugin servers, which are in no config file; they show from their first
-tool call.
-
-Cost (measured on a 220 KB `.claude.json`, release build):
-
-- The files are checked at launch and every 5 s (`EXTERNAL_EVERY`) on a
-  background thread, never on the UI thread. A check is two `stat` calls
-  per running session (about 5 µs); the card keeps the files' mtime and
-  size, and nothing is opened while they are unchanged.
-- A changed file is parsed as a stream (`serde_json::from_reader`,
-  `IgnoredAny` for everything but the names): about 2 ms, with a read
-  buffer of 8 KiB instead of the file in memory. Claude rewrites
-  `.claude.json` often while it works, so this runs regularly; an event is
-  sent only when a file changed.
-- Held per card: the names (≤ 12 × ≤ 24 characters) and one stamp.
+`plugin_` prefix) as in use for the rest of the session. claude.ai
+connectors and plugin servers show the same way, from their first tool
+call. The agents' config files are not read.
 
 Rules:
 
-- **Names only.** Commands, arguments and `env` values are never kept;
-  names are sanitised, cut to 24 characters, sorted, at most 12.
-- **Configured or used, not "connected".** A configured server that failed
-  to start still shows; servers from managed settings show only once used.
-- A missing, malformed or over-8-MiB file gives no names; nothing is
-  persisted, and a server a tool call named stays listed for the session.
+- **Names only**, sanitised, cut to 24 characters, sorted, at most 12 per
+  card.
+- **Used, not "connected" or "configured".** A server shows only once a
+  tool call named it; nothing is persisted.
 
 ## 6. Usage figures — sources, verified vs assumed
 
@@ -839,6 +866,7 @@ the key). A hidden folder is never listed as a project.
   "interactExit": "ctrl-\\",
   "worktrees": true,
   "instructions": true,
+  "ghConfigDirs": { "~/Works": "~/.config/gh-work" },
   "agents": {
     "claude": { "command": "claude", "args": [] },
     "codex":  { "command": "codex",  "args": [] }
@@ -918,9 +946,9 @@ name. No recursion, no project file.
    `recv_timeout(deadline)` with `deadline = min(next animation tick, each
    Term's sync_timeout())`, then drains with `try_recv` and renders once;
    the 350 ms animation tick exists only while something animated is
-   visible and `motion` is on; the corner mascot's blank-cell check runs
-   per render on at most 16×7 cells; "busy" = PTY output within the last
-   1 s (an `Instant` set in the `PtyOutput` handler — typing echo counts).
+   visible and `motion` is on; the mascot strip is three rows of the
+   output pane the PTY never gets, so drawing it needs no per-frame check
+   of the agent's screen.
 9. Shutdown (§3.2) runs on the UI thread with a "stopping…" render between
    steps (the waits are short and bounded); the raw-mode guard's `Drop`
    restores the terminal last.

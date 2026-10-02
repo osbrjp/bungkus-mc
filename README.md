@@ -25,7 +25,7 @@ One small Rust binary, no daemon. A sibling of
 [bungkus-cli](https://github.com/osbrjp/bungkus-cli): same release
 pipeline, same "Daun Pisang" design language.
 
-> **Status:** beta (`0.1.0-beta.8`). Milestones M1–M8 are built; model
+> **Status:** beta (`0.1.0-beta.9`). Milestones M1–M8 are built; model
 > routing (M9) is not.
 
 **Contents:** [Install](#install) · [First run](#first-run) ·
@@ -48,8 +48,9 @@ curl -fsSL https://raw.githubusercontent.com/osbrjp/bungkus-mc/main/install.sh |
 
 [`skills/bungkus-mc-setup`](skills/bungkus-mc-setup/SKILL.md) is a Claude
 Code skill that installs and configures mc with you: it checks your
-machine, runs the installer, helps with `config.json`, the icon set and a
-workspace's `.bungkus-mc/` folder, and asks before it writes any file. Copy
+machine, runs the installer, helps with `config.json`, the icon set, a
+workspace's `.bungkus-mc/` folder and a GitHub account per workspace, and
+asks before it writes any file. Copy
 the folder to `~/.claude/skills/bungkus-mc-setup`, then ask Claude Code to
 "set up bungkus-mc".
 
@@ -133,6 +134,7 @@ pane; press one to run it.
 | `cmd`/`alt`/`ctrl` + `1` `2` `3` `4` | projects · sessions · output · terminal pane, also from inside INTERACT (`cmd` needs a [terminal mapping](#cmd--1-2-3-on-macos)) |
 | `1`–`9` | jump to project N; type the next digit quickly for two digits (`1` `6` → 16) |
 | `/` | search projects (`↑` `↓` pick, `enter` open, `esc` clear) |
+| `fp` · `ff` · `fg` | finder popup over the workspace: projects, file names, grep (`enter` opens the project, or the file in your editor; `ff` and `fg` need [ripgrep](https://github.com/BurntSushi/ripgrep)) |
 | `!` · `ctrl-]` | jump to the next session that needs you, in any project |
 | `ctrl-j` `ctrl-k` · `ctrl-n` `ctrl-p` | down · up in every dialog, list and the `/` search (same as `↓` `↑`) |
 | `z` | zoom the output pane |
@@ -150,6 +152,8 @@ pane; press one to run it.
 | `ctrl-\` | leave INTERACT |
 | `r` | on a finished session: resume it. Anywhere else: open the agent's own list of this project's past sessions (`claude --resume` / `codex resume`) to pick any of them |
 | `x` | stop a session (lists what it started too) |
+| `P` · `I` | open the pull request · the issue of the session's branch in the browser. mc finds them itself through the `gh` CLI: the pull request GitHub has for the branch, and the issue from a branch named `i{issue#}-…` (else the first issue the pull request closes). The card shows their numbers after the branch |
+| `i` | issues & pull requests popup: the session's own first (`●`), then the repository's open ones; `j` `k` move, `enter` reads one and its comments in the popup (a pull request's reviews and review comments on code too, with the code line quoted), Markdown rendered (`j` `k` `d` `u` scroll, `esc` back), `o` opens it in the browser |
 | `d` | forget a finished session |
 
 ### Projects and workspaces
@@ -301,6 +305,12 @@ like `map ctrl+j neighboring_window down` plus a
 the kitty user variable `IS_VIM=true` while it runs, so your existing
 passthrough sends those keys to mc instead of kitty.
 
+**Neovim inside mc:** vim-kitty-navigator sets `IS_VIM=false` on mc's
+kitty window when nvim quits (in the editor popup, the terminal pane or
+the agent's external editor). mc sets the variable back to `true` after
+every piece of output from a session or tool, so the keys keep reaching
+mc.
+
 **At mc's edges** the key goes back to kitty and moves to the neighbouring
 kitty window:
 
@@ -338,6 +348,7 @@ key back with `kitten @ focus-window --match neighbor:…`.
   "workspaces": ["/Users/me/Works", "/Users/me/code"],
   "cleanup": { "keep": ["postgres"] },
   "worktrees": true,
+  "ghConfigDirs": { "~/Works": "~/.config/gh-work" },
   "panes": { "projects": 22, "sessions": 38 }
 }
 ```
@@ -351,6 +362,7 @@ key back with `kitten @ focus-window --match neighbor:…`.
 | `interactExit` | the chord that leaves INTERACT (default `ctrl-\`) |
 | `cleanup.keep` | process names the quit dialog starts as `[keep]` |
 | `worktrees` | `true` (default) · `false`; see [Worktrees](#worktrees) |
+| `ghConfigDirs` | a GitHub account per workspace: workspace folder → `gh` config folder (both may start with `~`). Sessions, the terminal pane and the editor under that workspace get `GH_CONFIG_DIR` set to it, so `gh` there uses the account signed in to that folder. Sign in once with `GH_CONFIG_DIR=~/.config/gh-work gh auth login`. Workspaces without an entry follow your normal `gh` account. mc never handles a token |
 | `panes` | pane widths: projects 16–40, sessions 28–72, output keeps 40 |
 
 **Who writes what:** the settings screen writes `workspace`,
@@ -416,7 +428,7 @@ never what you type, prompts or agent output.
 | **Structure** (working / your turn / needs you, subagents) | the agents' own hooks, injected per launch (`claude --settings`, `codex -c hooks.*`) |
 | **Claude usage** | Claude's status line; your own status line keeps rendering (mc runs it for you) |
 | **Codex usage** | `token_count` records in Codex's own session log, and nothing else |
-| **MCP servers** on a card | the servers the session's tool calls name, so a server shows once the session has used it (connectors and plugin servers too). The selected card lists them by name and, on an `mcp idle` row, the servers that are configured but not used yet: the names in the agents' config (`.mcp.json` in the project and `.claude.json` for Claude, `config.toml` for Codex), checked every 5 s. Names only. With the `nerd` icon set a known server shows as its logo, on the selected card's `mcp` and `mcp idle` rows too |
+| **MCP servers** on a card | the servers the session's tool calls name, so a server shows once the session has used it (connectors and plugin servers too). Servers that are only configured are not shown. Names only. With the `nerd` icon set a known server shows as its logo, on the selected card's `mcp` row too |
 
 - **Nothing is written to your agent config**, so there is nothing to
   remove; your own hooks keep running.

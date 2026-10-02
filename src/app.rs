@@ -7,10 +7,14 @@
 //! deadline (a synchronized update, a stop grace, the 350 ms animation
 //! tick); it never renders on a fixed timer.
 
+pub(crate) mod activity;
 pub(crate) mod browser;
+pub(crate) mod finder;
 pub(crate) mod form;
 pub(crate) mod groups;
 mod interact;
+pub(crate) mod links;
+pub(crate) mod markdown;
 pub(crate) mod model;
 pub(crate) mod picker;
 pub(crate) mod quick;
@@ -37,6 +41,7 @@ use ratatui::crossterm::terminal::supports_keyboard_enhancement;
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
 
 use crate::agent::{self, Kind, find_on_path};
+use crate::app::finder::{Reply, Request};
 use crate::app::model::{Alert, Cmd, LaunchRequest, Model};
 use crate::app::sessions::{Card, State};
 use crate::app::tools::{Opener, TermView, Tool};
@@ -62,6 +67,11 @@ const CHANNEL_CAPACITY: usize = 64;
 /// sees the release: every later key then arrives shifted, until a click.
 const FOLDER_DELAY: Duration = Duration::from_millis(300);
 
+/// How often the pull request and issue of a running session's branch are
+/// read again: two `gh` calls per folder, well inside GitHub's hourly
+/// limit of 5000 for a handful of sessions.
+const LINKS_EVERY: Duration = Duration::from_mins(1);
+
 /// How often sessions outside mc are listed (ARCHITECTURE §3.4).
 const EXTERNAL_EVERY: Duration = Duration::from_secs(5);
 
@@ -78,13 +88,21 @@ pub(crate) enum AppEvent {
     Usage(crate::term::SessionId, crate::agent::usage::Usage),
     /// A background process snapshot.
     Procs(Vec<crate::proc::Proc>),
+    /// A resource reading for the activity overlay.
+    Activity(crate::proc::usage::Sample),
     /// Agent sessions running outside mc (every [`EXTERNAL_EVERY`]).
     External(Vec<crate::external::External>),
     /// The git branch and status of the session folders in a repository.
     Repos(Vec<(PathBuf, repo::Status)>),
-    /// The configured MCP servers of sessions whose config files changed,
-    /// with the files' state when they were read.
-    Mcp(Vec<(SessionId, Vec<String>, agent::mcp::Stamp)>),
+    /// The pull request and issue of the session folders that were read.
+    Links(Vec<(PathBuf, links::Links)>),
+    /// The open pull requests and issues `gh` listed for the popup opened
+    /// on this folder.
+    LinkList(PathBuf, Vec<links::Link>),
+    /// The description and comments `gh` read of the issue or pull request at
+    /// this URL (see `links::body`), for
+    /// the popup's text view; `None` when the read failed.
+    LinkBody(String, Option<Vec<String>>),
     /// The host terminal went away (input closed).
     HostGone,
     /// A newer release exists (the hourly check).
@@ -94,6 +112,8 @@ pub(crate) enum AppEvent {
     Updated(Result<Option<String>, String>),
     /// A worktree removal finished; what to tell the user.
     Worktrees(String),
+    /// What a [`Cmd::Finder`] request found or read.
+    Finder(Reply),
     /// A deadline passed: animation frame, sync flush or stop grace.
     Tick,
 }
@@ -255,16 +275,11 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<bool> {
         }
         for event in std::iter::once(first).chain(rx.try_iter()) {
             model.now = Instant::now();
-            for card in &mut model.cards {
-                if let Some(pty) = card.pty.as_mut() {
-                    pty.flush_sync();
-                }
-            }
-            model.tools_mut().for_each(Session::flush_sync);
+            before_event(&mut model, &event);
             if matches!(event, AppEvent::External(_) | AppEvent::Worktrees(_)) {
                 rescan(&mut model);
                 scan_repos(&mut model, &tx);
-                scan_mcp(&mut model, &tx);
+                scan_links(&mut model, &env.config, &tx);
             }
             let Some(cmd) = model.update(event) else {
                 continue;
@@ -278,6 +293,21 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<bool> {
                 Next::Continue => {}
             }
         }
+    }
+}
+
+/// Runs before each event is applied: ends overdue synchronized updates in
+/// every emulator and, in kitty, sets [`KITTY_PASS_KEYS_ON`] again after a
+/// PTY event.
+fn before_event(model: &mut Model, event: &AppEvent) {
+    for card in &mut model.cards {
+        if let Some(pty) = card.pty.as_mut() {
+            pty.flush_sync();
+        }
+    }
+    model.tools_mut().for_each(Session::flush_sync);
+    if model.kitty && matches!(event, AppEvent::Pty(_)) {
+        write_host(KITTY_PASS_KEYS_ON);
     }
 }
 
@@ -440,9 +470,13 @@ fn run_cmd(
         },
         Cmd::RemoveWorktree(project, name) => forget_worktree(model, &project, &name, tx),
         Cmd::CleanWorktrees(project) => clean_worktrees(model, &project, tx),
-        Cmd::OpenEditor(project) => open_editor(model, &project, tx),
+        Cmd::OpenEditor(project) => open_editor(model, &env.config, &project, None, tx),
+        Cmd::Finder(request) => finder_request(model, &env.config, request, tx),
         Cmd::OpenFolder(project) => open_folder(model, project),
-        Cmd::OpenTerminal(owner, dir) => open_terminal(model, owner, &dir, tx),
+        Cmd::OpenUrl(url) => open_folder(model, PathBuf::from(url)),
+        Cmd::ListLinks(folder) => list_links(gh_dir(model, env, &folder), folder, tx),
+        Cmd::ReadLink(folder, link) => read_link(gh_dir(model, env, &folder), folder, link, tx),
+        Cmd::OpenTerminal(owner, dir) => open_terminal(model, &env.config, owner, &dir, tx),
         Cmd::SaveGroups(groups) => save_groups(model, &groups),
         Cmd::SaveWidths(widths) => {
             if let Some(path) = &env.config_path
@@ -458,6 +492,7 @@ fn run_cmd(
                 let _ = tx.send(AppEvent::Procs(crate::proc::snapshot(uid)));
             });
         }
+        Cmd::Sample => sample_activity(tx),
         Cmd::OpenStop(kind) => {
             let snapshot = crate::proc::snapshot(uid);
             model.track(&snapshot);
@@ -488,6 +523,16 @@ fn run_cmd(
     Next::Continue
 }
 
+/// Takes a resource reading for the activity overlay on a background
+/// thread and reports it as [`AppEvent::Activity`].
+fn sample_activity(tx: &SyncSender<AppEvent>) {
+    let tx = tx.clone();
+    thread::spawn(move || {
+        // reason: a closed loop just loses this sample.
+        let _ = tx.send(AppEvent::Activity(crate::proc::usage::sample()));
+    });
+}
+
 /// Reads the git branch and status of every session folder on a
 /// background thread (every [`EXTERNAL_EVERY`], one read at a time) and
 /// reports them as [`AppEvent::Repos`].
@@ -514,35 +559,86 @@ fn scan_repos(model: &mut Model, tx: &SyncSender<AppEvent>) {
     });
 }
 
-/// Reads the MCP servers of every running session whose config files
-/// changed, on a background thread (at launch and every
-/// [`EXTERNAL_EVERY`]), and reports them as [`AppEvent::Mcp`].
-///
-/// A session whose files are as its card last saw them costs two `stat`
-/// calls. One scan runs at a time.
-fn scan_mcp(model: &mut Model, tx: &SyncSender<AppEvent>) {
-    let sessions: Vec<_> = model
-        .cards
-        .iter()
-        .filter(|card| card.running())
-        .map(|card| (card.id, card.kind, card.project.clone(), card.mcp_stamp))
-        .collect();
-    if sessions.is_empty() || model.mcp_scan {
-        return;
-    }
-    model.mcp_scan = true;
+/// Returns the `gh` config folder of the workspace `folder` is in
+/// ([`Config::gh_config_dir`]), for mc's own `gh` reads.
+fn gh_dir(model: &Model, env: &Env, folder: &Path) -> Option<PathBuf> {
+    env.config.gh_config_dir(folder, model.home.as_deref())
+}
+
+/// Lists the open pull requests and issues of the repository `folder` is
+/// in on a background thread, for the `i` popup ([`AppEvent::LinkList`]).
+/// `gh` is the workspace's `gh` config folder ([`gh_dir`]).
+fn list_links(gh: Option<PathBuf>, folder: PathBuf, tx: &SyncSender<AppEvent>) {
     let tx = tx.clone();
     thread::spawn(move || {
-        let var = |name: &str| std::env::var(name).ok();
-        let changed: Vec<_> = sessions
+        let list = links::list(&folder, gh.as_deref());
+        // reason: mc may have quit meanwhile.
+        let _ = tx.send(AppEvent::LinkList(folder, list));
+    });
+}
+
+/// Reads the text of `link` in `folder` on a background thread, for the
+/// popup's text view ([`AppEvent::LinkBody`]). `gh` is the workspace's `gh`
+/// config folder ([`gh_dir`]).
+fn read_link(gh: Option<PathBuf>, folder: PathBuf, link: links::Link, tx: &SyncSender<AppEvent>) {
+    let tx = tx.clone();
+    thread::spawn(move || {
+        let text = links::body(&folder, gh.as_deref(), &link);
+        // reason: mc may have quit meanwhile.
+        let _ = tx.send(AppEvent::LinkBody(link.url, text));
+    });
+}
+
+/// Reads the pull request and issue of session folders' branches on a
+/// background thread (one read at a time) and reports them as
+/// [`AppEvent::Links`].
+///
+/// A folder is read when its branch is not the one its links were read
+/// for, and the folders of running sessions again every [`LINKS_EVERY`],
+/// so a pull request opened meanwhile shows up. Each folder is read with
+/// its workspace's `gh` config folder ([`Config::gh_config_dir`]).
+fn scan_links(model: &mut Model, config: &Config, tx: &SyncSender<AppEvent>) {
+    if model.links_scan {
+        return;
+    }
+    let stale = model
+        .links_at
+        .is_none_or(|at| model.now >= at + LINKS_EVERY);
+    let mut due: Vec<(PathBuf, String)> = model
+        .cards
+        .iter()
+        .filter_map(|card| {
+            let folder = card.folder();
+            let branch = &model.repos.get(&folder)?.branch;
+            let read = model.links.get(&folder).map(|links| &links.branch) == Some(branch);
+            (!read || (stale && card.running())).then(|| (folder, branch.clone()))
+        })
+        .collect();
+    due.sort();
+    due.dedup();
+    if due.is_empty() {
+        return;
+    }
+    model.links_scan = true;
+    if stale {
+        model.links_at = Some(model.now);
+    }
+    let home = model.home.as_deref();
+    let due: Vec<_> = due
+        .into_iter()
+        .map(|(folder, branch)| (config.gh_config_dir(&folder, home), folder, branch))
+        .collect();
+    let tx = tx.clone();
+    thread::spawn(move || {
+        let read = due
             .into_iter()
-            .filter_map(|(id, kind, project, seen)| {
-                let stamp = agent::mcp::stamp(kind, &project, var);
-                (seen != Some(stamp)).then(|| (id, agent::mcp::servers(kind, &project, var), stamp))
+            .map(|(gh, folder, branch)| {
+                let links = links::read(&folder, gh.as_deref(), &branch);
+                (folder, links)
             })
             .collect();
         // reason: mc may have quit meanwhile.
-        let _ = tx.send(AppEvent::Mcp(changed));
+        let _ = tx.send(AppEvent::Links(read));
     });
 }
 
@@ -630,6 +726,10 @@ fn kitty_focus(side: &str) {
 
 /// The kitty user variable kitty's `map --when-focus-on var:IS_VIM=true`
 /// rules test, so `ctrl-h/j/k/l` reach mc instead of moving kitty windows.
+///
+/// Written at start and again after every PTY event: a program inside mc
+/// (vim-kitty-navigator, over `KITTY_LISTEN_ON`) sets the variable to
+/// `false` on mc's window when it quits, and its last output comes after.
 const KITTY_PASS_KEYS_ON: &[u8] = b"\x1b]1337;SetUserVar=IS_VIM=dHJ1ZQ==\x07";
 /// Clears [`KITTY_PASS_KEYS_ON`] when mc exits.
 const KITTY_PASS_KEYS_OFF: &[u8] = b"\x1b]1337;SetUserVar=IS_VIM\x07";
@@ -809,7 +909,9 @@ fn launch(
     card.worktree = worktree;
     let argv = agent::argv(kind, &program, &extra_args, &launch);
     let id = launch.id.0.hyphenated().to_string();
+    let gh = env.config.gh_config_dir(&project, model.home.as_deref());
     let mut extra = vec![("BUNGKUS_MC_SESSION", OsStr::new(&id))];
+    extra.extend(gh.iter().map(|dir| ("GH_CONFIG_DIR", dir.as_os_str())));
     if let Some(hooks) = hooks {
         extra.push(("BUNGKUS_MC_SOCK", hooks.socket.as_os_str()));
     }
@@ -860,17 +962,18 @@ fn launch(
         }
     }
     model.add_card(card);
-    scan_mcp(model, tx);
 }
 
 /// Starts `command` (program first, looked up on `PATH`) in a PTY of
-/// `size` in `dir`, with the same scrubbed environment as an agent.
+/// `size` in `dir`, with the same scrubbed environment as an agent and the
+/// workspace's `GH_CONFIG_DIR` ([`Config::gh_config_dir`]).
 ///
 /// # Returns
 ///
 /// The running tool, or `None` with the reason in the message line.
 fn spawn_tool(
     model: &mut Model,
+    config: &Config,
     command: &[String],
     dir: &Path,
     size: Size,
@@ -891,7 +994,12 @@ fn spawn_tool(
         .chain(command[1..].iter().map(OsString::from))
         .collect();
     let id = SessionId::new();
-    let env = child_env(std::env::vars_os(), &[]);
+    let gh = config.gh_config_dir(dir, model.home.as_deref());
+    let extra: Vec<_> = gh
+        .iter()
+        .map(|dir| ("GH_CONFIG_DIR", dir.as_os_str()))
+        .collect();
+    let env = child_env(std::env::vars_os(), &extra);
     match Session::spawn(id, &argv, dir, &env, size, colors(model.theme), tx) {
         Ok(pty) => Some(Tool { id, pty }),
         Err(e) => {
@@ -905,13 +1013,14 @@ fn spawn_tool(
 /// in `dir` and gives it the keys.
 fn open_terminal(
     model: &mut Model,
+    config: &Config,
     owner: crate::app::tools::Owner,
     dir: &Path,
     tx: &SyncSender<AppEvent>,
 ) {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
     let size = ui::terminal_size(model.screen, model.zoom, model.widths);
-    if let Some(tool) = spawn_tool(model, &[shell], dir, size, tx) {
+    if let Some(tool) = spawn_tool(model, config, &[shell], dir, size, tx) {
         model.shells.push((owner, tool));
         model.term_view = TermView::Focused;
     }
@@ -925,11 +1034,20 @@ pub(crate) fn user_editor() -> Option<String> {
         .find(|value| !value.trim().is_empty())
 }
 
-/// Opens `project` in the user's editor (the `editor` setting, else
-/// `$VISUAL`, else `$EDITOR`; see [`tools::opener`]): vim in the popup with
-/// the folder as its argument (also when none is set and one is on
-/// `PATH`), anything else started on its own and left alone.
-fn open_editor(model: &mut Model, project: &Path, tx: &SyncSender<AppEvent>) {
+/// Opens `dir`, or `file` (at a line, in vim) with `dir` as the working
+/// directory, in the user's editor (the `editor` setting, else `$VISUAL`,
+/// else `$EDITOR`; see [`tools::opener`]): vim in the popup (also when none
+/// is set and one is on `PATH`), anything else started on its own and left
+/// alone.
+// ponytail: only vim gets the line (`+N`); an editor started on its own
+// opens the file at its top. Add its flag (`code -g file:N`) when asked for.
+fn open_editor(
+    model: &mut Model,
+    config: &Config,
+    dir: &Path,
+    file: Option<(&Path, Option<u32>)>,
+    tx: &SyncSender<AppEvent>,
+) {
     let editor = model
         .settings
         .as_ref()
@@ -937,19 +1055,141 @@ fn open_editor(model: &mut Model, project: &Path, tx: &SyncSender<AppEvent>) {
         .or_else(user_editor);
     let path = std::env::var_os("PATH").unwrap_or_default();
     let installed = |name: &str| find_on_path(name, &path).is_some();
+    // Absolute, so a folder named `-u` or `+cmd` is never read as an option.
+    let file = file.map(|(file, line)| (dir.join(file), line));
     match tools::opener(editor.as_deref(), installed) {
         Opener::Popup(mut command) => {
-            command.push(".".into());
+            match &file {
+                Some((file, line)) => {
+                    command.extend(line.map(|n| format!("+{n}")));
+                    command.push(file.to_string_lossy().into_owned());
+                }
+                None => command.push(".".into()),
+            }
             let size = ui::popup_size(model.screen);
-            model.editor = spawn_tool(model, &command, project, size, tx);
+            model.editor = spawn_tool(model, config, &command, dir, size, tx);
         }
-        Opener::Detached(command) => open_detached(model, &command, project),
+        Opener::Detached(command) => {
+            let target = file.as_ref().map_or(dir, |(file, _)| file.as_path());
+            open_detached(model, &command, dir, target);
+        }
     }
 }
 
-/// Opens `project` with the desktop's opener ([`tools::desktop_opener`])
-/// after [`FOLDER_DELAY`], off the UI thread; a missing opener goes to the
-/// message line.
+/// Runs what the finder asked for; the search and the read go off the UI
+/// thread.
+fn finder_request(model: &mut Model, config: &Config, request: Request, tx: &SyncSender<AppEvent>) {
+    match request {
+        Request::Find(root, seq, pattern) => find(model, root, seq, pattern, tx),
+        Request::Preview(file, line) => preview(file, line, tx),
+        Request::Open(dir, file, line) => {
+            open_editor(model, config, &dir, Some((&file, line)), tx);
+        }
+    }
+}
+
+/// Most bytes of a file read for the finder's preview; a match past them
+/// has none.
+const PREVIEW_BYTES: u64 = 16 * 1024 * 1024;
+
+/// Reads, on a background thread, the lines of `file` the finder previews
+/// and reports them as [`Reply::Preview`]: the first
+/// [`finder::PREVIEW_ROWS`], or with `line` those from
+/// [`finder::PREVIEW_CONTEXT`] lines above it. A file with a NUL byte in
+/// them shows as binary; one that cannot be read shows nothing.
+fn preview(file: PathBuf, line: Option<u32>, tx: &SyncSender<AppEvent>) {
+    use std::io::{BufRead, Read};
+
+    let tx = tx.clone();
+    thread::spawn(move || {
+        let at = line.map_or(0, |n| usize::try_from(n).unwrap_or(1).saturating_sub(1));
+        let start = at.saturating_sub(finder::PREVIEW_CONTEXT);
+        let raw: Vec<Vec<u8>> = std::fs::File::open(&file).map_or_else(
+            |_| Vec::new(),
+            |f| {
+                io::BufReader::new(f.take(PREVIEW_BYTES))
+                    .split(b'\n')
+                    .map_while(Result::ok)
+                    .skip(start)
+                    .take(finder::PREVIEW_ROWS)
+                    .collect()
+            },
+        );
+        let (lines, hit) = if raw.iter().any(|l| l.contains(&0)) {
+            (vec!["(binary file)".to_owned()], None)
+        } else {
+            let text = |l: &Vec<u8>| String::from_utf8_lossy(l).into_owned();
+            (raw.iter().map(text).collect(), line.map(|_| at - start))
+        };
+        // reason: mc may have quit meanwhile.
+        let _ = tx.send(AppEvent::Finder(Reply::Preview(file, line, lines, hit)));
+    });
+}
+
+/// Runs ripgrep in `root` on a background thread for finder search `seq`
+/// and reports the lines it printed as [`Reply::Found`]: the files it
+/// would search (`pattern` is `None`), or the `path:line:text` of lines
+/// matching the regex `pattern` (smart case). ripgrep skips what
+/// `.gitignore` names, hidden files and binary files. Without `rg` on
+/// `PATH` the finder closes with a message.
+// ponytail: a search the user has typed past still runs to its cap or the
+// end of the workspace; kill the previous child when that shows in use.
+fn find(
+    model: &mut Model,
+    root: PathBuf,
+    seq: u64,
+    pattern: Option<String>,
+    tx: &SyncSender<AppEvent>,
+) {
+    use std::io::BufRead;
+    use std::process::{Command, Stdio};
+
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let Some(rg) = find_on_path("rg", &path) else {
+        model.overlay = None;
+        model.message = Some("ff and fg need ripgrep: rg not found on PATH.".into());
+        return;
+    };
+    let tx = tx.clone();
+    thread::spawn(move || {
+        let mut command = Command::new(rg);
+        command.args(["--color=never", "--no-messages"]);
+        let cap = if let Some(pattern) = &pattern {
+            command.args(["--line-number", "--no-heading", "--smart-case"]);
+            command.args(["--max-columns=200", "--max-columns-preview", "-e", pattern]);
+            finder::ROWS_MAX
+        } else {
+            command.arg("--files");
+            finder::FILES_MAX
+        };
+        let child = command
+            .current_dir(root)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn();
+        let mut lines = Vec::new();
+        if let Ok(mut child) = child {
+            if let Some(out) = child.stdout.take() {
+                lines = io::BufReader::new(out)
+                    .split(b'\n')
+                    .map_while(Result::ok)
+                    .take(cap)
+                    .map(|line| String::from_utf8_lossy(&line).into_owned())
+                    .collect();
+            }
+            // reason: it has printed all that is shown, or has already ended.
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        // reason: mc may have quit meanwhile.
+        let _ = tx.send(AppEvent::Finder(Reply::Found(seq, lines)));
+    });
+}
+
+/// Opens `project` (a folder, or an `https://` address) with the desktop's
+/// opener ([`tools::desktop_opener`]) after [`FOLDER_DELAY`], off the UI
+/// thread; a missing opener goes to the message line.
 fn open_folder(model: &mut Model, project: PathBuf) {
     use std::os::unix::process::CommandExt;
     let opener = tools::desktop_opener();
@@ -972,18 +1212,18 @@ fn open_folder(model: &mut Model, project: PathBuf) {
     });
 }
 
-/// Starts `command` (argv, no shell) with `project` as its last argument
-/// and leaves it alone: its own process group, no terminal; the outcome
-/// goes to the message line.
-fn open_detached(model: &mut Model, command: &[String], project: &Path) {
+/// Starts `command` (argv, no shell) in `dir` with `target` as its last
+/// argument and leaves it alone: its own process group, no terminal; the
+/// outcome goes to the message line.
+fn open_detached(model: &mut Model, command: &[String], dir: &Path, target: &Path) {
     use std::os::unix::process::CommandExt;
     let Some((program, args)) = command.split_first() else {
         return;
     };
     let spawned = std::process::Command::new(program)
         .args(args)
-        .arg(project)
-        .current_dir(project)
+        .arg(target)
+        .current_dir(dir)
         .process_group(0)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -1122,9 +1362,17 @@ fn worktree_name(name: &str, id: SessionId) -> String {
 /// group, so a signal that ends mc (a closed terminal) does not cut a
 /// worktree removal off halfway.
 fn git(dir: &Path, args: &[&OsStr]) -> Option<String> {
+    output("git", dir, args, &[])
+}
+
+/// Runs `program` in `dir` with fixed arguments (no shell, no input, its
+/// own process group) and `env` added to mc's environment, and returns
+/// what it printed, or `None` when it failed or is missing.
+fn output(program: &str, dir: &Path, args: &[&OsStr], env: &[(&str, &OsStr)]) -> Option<String> {
     use std::os::unix::process::CommandExt;
-    let output = std::process::Command::new("git")
+    let output = std::process::Command::new(program)
         .args(args)
+        .envs(env.iter().copied())
         .current_dir(dir)
         .process_group(0)
         .stdin(std::process::Stdio::null())

@@ -1,13 +1,11 @@
- bungkus-mc  ~/Works/OSBR › kedai-web                                                                     v0.1.0-beta.8
-┏ [1] projects ━━━━━━┓┌ [2] sessions · kedai-web ──────────┐┌ [3] output ──────────────────────────────────────────────┐
-┃ / search           ╔ keys · projects pane ══════════════════════════════════════════════════════╗                    │
-┃>  1 kedai-web      ║                                                                            ║                    │
-┃   2 pasar-mobile   ║  navigate                                                                  ║                    │
-┃   3 roti-docs      ║  enter                its sessions    h ← shift-tab ctrl-h pane left       ║                    │
-┃   4 teh-cli        ║  l → tab ctrl-l       pane right      j ↓                  down            ║                    │
-┃   5 warung-api     ║  k ↑                  up              gg home              first           ║                    │
-┃                    ║  G end                last            ctrl-d pgdn          half page down  ║                    │
-┃                    ║  ctrl-u pgup          half page up    ! ctrl-]             next needs you  ║                    │
+ bungkus-mc  ~/Works/OSBR › kedai-web                                                                     v0.1.0-beta.9
+┏ [1] projects ━━━━━━╔ keys · projects pane ══════════════════════════════════════════════════════╗────────────────────┐
+┃ / search           ║  navigate                                                                  ║             ▄██▄   │
+┃>  1 kedai-web      ║  enter                its sessions    h ← shift-tab ctrl-h pane left       ║           ▄██████▄ │
+┃   2 pasar-mobile   ║  l → tab ctrl-l       pane right      j ↓                  down            ║             ▀  ▀   │
+┃   3 roti-docs      ║  k ↑                  up              gg home              first           ║                    │
+┃   4 teh-cli        ║  G end                last            ctrl-d pgdn          half page down  ║                    │
+┃   5 warung-api     ║  ctrl-u pgup          half page up    ! ctrl-]             next needs you  ║                    │
 ┃                    ║  z                    zoom output     /                    search projects ║                    │
 ┃                    ║  1-9                  jump to project cmd/alt-1            projects pane   ║                    │
 ┃                    ║  cmd/alt-2            sessions pane   cmd/alt-3            output pane     ║                    │
@@ -15,27 +13,29 @@
 ┃                    ║                                                                            ║                    │
 ┃                    ║  sessions                                                                  ║                    │
 ┃                    ║  n                    new session     r                    past sessions   ║                    │
-┃                    ║  N                    quick session                                        ║                    │
+┃                    ║  N                    quick session   P                    open the PR     ║                    │
+┃                    ║  I                    open the issue  i                    issues & PRs    ║                    │
 ┃                    ║                                                                            ║                    │
 ┃                    ║  projects                                                                  ║                    │
 ┃                    ║  a                    new project     V                    select lines    ║                    │
 ┃                    ║  v                    mark · g groups u                    undo dd         ║                    │
 ┃                    ║  dd                   to Trash        c                    clean worktrees ║                    │
-┃                    ║  e                    more projects   o                    open in editor  ║.                   │
-┃                    ║  O                    open the folder                                      ║n                   │
-┃                    ║                                                                            ║                    │
-┃                    ║  workspace & app                                                           ║                    │
+┃                    ║  e                    more projects   fp                   find project    ║                    │
+┃                    ║  ff                   find file       fg                   grep workspace  ║                    │
+┃                    ║  o                    open in editor  O                    open the folder ║                    │
+┃                    ║                                                                            ║.                   │
+┃                    ║  workspace & app                                                           ║n                   │
 ┃                    ║  U                    update+restart  t                    terminal on/off ║                    │
 ┃                    ║  T                    close terminal  w                    workspaces      ║                    │
-┃                    ║  ,                    settings        R                    redraw          ║                    │
-┃                    ║  ? space              this help       q ctrl-c             quit            ║                    │
+┃                    ║  ,                    settings        A                    activity        ║                    │
+┃                    ║  R                    redraw          ? space              this help       ║                    │
+┃                    ║  q ctrl-c             quit                                                 ║                    │
 ┃                    ║                                                                            ║                    │
 ┃                    ║  agent pane & quick popup                                                  ║                    │
-┃                    ║  ctrl-\               leave · menu    ctrl-h               to sessions     ║                    │
+┃                    ║  ctrl-\               leave · menu    ctrl-h · jj · jk     to sessions     ║                    │
 ┃                    ║  ctrl-m               move (popup)    cmd/alt-1..4         focus a pane    ║                    │
 ┃                    ║                                                                            ║                    │
 ┃                    ║                                         press a key to run it · esc close  ║                    │
-┃                    ╚════════════════════════════════════════════════════════════════════════════╝                    │
-┗━━━━━━━━━━━━━━━━━━━━┛└────────────────────────────────────┘└──────────────────────────────────────────────────────────┘
+┗━━━━━━━━━━━━━━━━━━━━╚════════════════════════════════════════════════════════════════════════════╝────────────────────┘
  NORMAL  enter → sessions · n new · c clean · e more · o edit · t term · ? keys
 cursor: hidden

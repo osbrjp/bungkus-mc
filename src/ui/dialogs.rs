@@ -651,6 +651,114 @@ fn keep_end(text: &str, max: usize) -> String {
     format!("…{tail}")
 }
 
+/// The narrowest finder (inner width) that still shows the preview pane.
+const PREVIEW_MIN: u16 = 70;
+
+/// Draws the finder's preview pane behind a rule on its left: the lines
+/// read from the highlighted row's file, the one `fg` matched highlighted.
+fn draw_preview(frame: &mut Frame, area: Rect, finder: &crate::app::finder::Finder, theme: Theme) {
+    let block = super::bordered(super::Weight::Light, theme)
+        .borders(ratatui::widgets::Borders::LEFT)
+        .border_style(theme.fg(Token::Border));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let room = usize::from(inner.width).saturating_sub(1);
+    let lines: Vec<Line> = finder
+        .preview
+        .iter()
+        .enumerate()
+        .map(|(i, text)| {
+            let style = if finder.hit == Some(i) {
+                bold_if(theme.fg(Token::Accent), true)
+            } else {
+                theme.fg(Token::FgMuted)
+            };
+            let text = crate::ui::sanitise::sanitise(text, room);
+            Line::styled(format!(" {text}"), style)
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// Draws the finder (`fp`, `ff`, `fg`): the bordered query field, the rows
+/// scrolled to keep the highlighted one in view, for `ff` and `fg` the
+/// preview pane to their right (in a popup wide enough), and a hint line
+/// with how many of the matches show. A long file path keeps its end (the
+/// file name); a long grep line keeps its start.
+pub(super) fn draw_finder(
+    frame: &mut Frame,
+    area: Rect,
+    finder: &crate::app::finder::Finder,
+    theme: Theme,
+) {
+    use crate::app::finder::Source;
+
+    let rect = centred(
+        area,
+        area.width.saturating_sub(4).min(160),
+        area.height.saturating_sub(2).min(30),
+    );
+    frame.render_widget(Clear, rect);
+    let block = dialog_block(finder.source.title(), theme);
+    let inner = block.inner(rect);
+    frame.render_widget(block, rect);
+    let [field, list, hint] = Layout::vertical([
+        Constraint::Length(3),
+        Constraint::Min(0),
+        Constraint::Length(1),
+    ])
+    .areas(inner);
+    draw_field(frame, field, &finder.query, theme);
+    let list = if finder.source == Source::Projects || list.width < PREVIEW_MIN {
+        list
+    } else {
+        let [list, pane] = Layout::horizontal([Constraint::Fill(1); 2]).areas(list);
+        draw_preview(frame, pane, finder, theme);
+        list
+    };
+    let shown = usize::from(list.height);
+    let room = usize::from(list.width).saturating_sub(6);
+    let lines: Vec<Line> = finder
+        .rows
+        .iter()
+        .enumerate()
+        .skip((finder.selected + 1).saturating_sub(shown))
+        .take(shown)
+        .map(|(i, row)| {
+            let text = match finder.source {
+                Source::Grep => crate::ui::sanitise::sanitise(row, room),
+                Source::Projects | Source::Files => {
+                    keep_end(&crate::ui::sanitise::sanitise(row, 4096), room)
+                }
+            };
+            if i == finder.selected {
+                let style = bold_if(theme.fg(Token::Accent), true);
+                Line::styled(format!("  > {text}"), style)
+            } else {
+                Line::styled(format!("    {text}"), theme.fg(Token::Fg))
+            }
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(lines), list);
+    let searching = if finder.searching {
+        "searching… · "
+    } else {
+        ""
+    };
+    frame.render_widget(
+        Line::styled(
+            format!(
+                "{searching}{}/{} · enter open · esc close  ",
+                finder.rows.len(),
+                finder.total
+            ),
+            theme.fg(Token::FgMuted),
+        )
+        .alignment(Alignment::Right),
+        hint,
+    );
+}
+
 /// Draws the `w` workspace switcher: the bordered filter field, the saved
 /// workspaces (number, path, project count, `●` on the current one) and
 /// the add row.
@@ -727,6 +835,152 @@ pub(super) fn draw_switcher(
         Line::styled(
             "1-9 or enter switch · ctrl-d remove from list · esc close  ",
             theme.fg(Token::FgMuted),
+        )
+        .alignment(Alignment::Right),
+        hint,
+    );
+}
+
+/// Most rows the issues and pull requests popup shows at once; the list
+/// scrolls to keep the highlighted row in view.
+const LINK_ROWS: usize = 16;
+
+/// Draws the `i` popup: the session's own issue and pull request (marked
+/// `●`), then the repository's open pull requests and issues, each with
+/// its number, title and state.
+pub(super) fn draw_links(
+    frame: &mut Frame,
+    area: Rect,
+    viewer: &crate::app::links::Viewer,
+    theme: Theme,
+) {
+    use crate::app::links::{Link, LinkKind};
+
+    if let Some(body) = &viewer.body {
+        draw_link_body(frame, area, body, theme);
+        return;
+    }
+    let width: u16 = 76;
+    let title_room = usize::from(width).saturating_sub(30);
+    let muted = theme.fg(Token::FgMuted);
+    let lines: Vec<Line> = match &viewer.rows {
+        None => vec![Line::styled("  asking gh…", muted)],
+        Some(rows) if rows.is_empty() => vec![Line::styled(
+            "  nothing open (needs the gh CLI, logged in, in a GitHub repository)",
+            muted,
+        )],
+        Some(rows) => {
+            let first = (viewer.selected + 1).saturating_sub(LINK_ROWS);
+            let row = |(i, link): (usize, &Link)| {
+                let chosen = i == viewer.selected;
+                let style = if chosen {
+                    bold_if(theme.fg(Token::Accent), true)
+                } else {
+                    theme.fg(Token::Fg)
+                };
+                let marker = if chosen { "> " } else { "  " };
+                let own = if i < viewer.linked { "●" } else { " " };
+                let kind = match link.kind {
+                    LinkKind::Issue => "issue",
+                    LinkKind::Pr => "PR",
+                };
+                let title = truncate(&link.title, title_room);
+                Line::from(vec![
+                    Span::styled(format!("  {marker}"), style),
+                    Span::styled(format!("{own} "), theme.fg(Token::Ok)),
+                    Span::styled(format!("{kind:<5} #{:<5} ", link.number), style),
+                    Span::styled(format!("{title:<title_room$} "), style),
+                    Span::styled(link.state.clone(), muted),
+                ])
+            };
+            let shown = rows.iter().enumerate().skip(first).take(LINK_ROWS);
+            shown.map(row).collect()
+        }
+    };
+    let list_rows = u16::try_from(lines.len()).unwrap_or(u16::MAX);
+    let rect = centred(area, width, list_rows + 5);
+    frame.render_widget(Clear, rect);
+    let block = dialog_block("issues & pull requests", theme);
+    let inner = block.inner(rect);
+    frame.render_widget(block, rect);
+    let [_, list, _, hint] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(list_rows),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .areas(inner);
+    frame.render_widget(Paragraph::new(lines), list);
+    frame.render_widget(
+        Line::styled("j/k move · enter read · o browser · esc close  ", muted)
+            .alignment(Alignment::Right),
+        hint,
+    );
+}
+
+/// Most text rows the popup's text view shows; fewer on a short screen.
+const BODY_ROWS: u16 = 24;
+
+/// Draws the popup's text view: the issue's or pull request's number and
+/// title in the border, its text from the scrolled line on, and the
+/// position (`first line/lines`) before the hint.
+fn draw_link_body(frame: &mut Frame, area: Rect, body: &crate::app::links::Body, theme: Theme) {
+    use crate::app::links::{BODY_WIDTH, LinkKind};
+    use crate::app::markdown::Ink;
+    use ratatui::style::Modifier;
+
+    let muted = theme.fg(Token::FgMuted);
+    let rows = BODY_ROWS.min(area.height.saturating_sub(7)).max(1);
+    let kind = match body.link.kind {
+        LinkKind::Issue => "issue",
+        LinkKind::Pr => "PR",
+    };
+    let head = format!("{kind} #{} · ", body.link.number);
+    let room = BODY_WIDTH.saturating_sub(head.chars().count());
+    let title = format!("{head}{}", truncate(&body.link.title, room));
+    let (lines, place): (Vec<Line>, String) = match &body.lines {
+        None => (vec![Line::styled("  asking gh…", muted)], String::new()),
+        Some(text) => {
+            let shown = text.iter().skip(body.scroll).take(usize::from(rows));
+            let style = |ink| match ink {
+                Ink::Plain => theme.fg(Token::Fg),
+                Ink::Bold => bold_if(theme.fg(Token::Fg), true),
+                Ink::Italic => theme.fg(Token::Fg).add_modifier(Modifier::ITALIC),
+                Ink::Code => theme.fg(Token::Info),
+                Ink::Heading => bold_if(theme.fg(Token::Accent), true),
+                Ink::Muted => muted,
+            };
+            let lines = shown.map(|line| {
+                let runs = line
+                    .iter()
+                    .map(|(ink, run)| Span::styled(run.clone(), style(*ink)));
+                std::iter::once(Span::raw("  "))
+                    .chain(runs)
+                    .collect::<Line>()
+            });
+            (
+                lines.collect(),
+                format!("{}/{} · ", body.scroll + 1, text.len()),
+            )
+        }
+    };
+    let rect = centred(area, 76, rows + 5);
+    frame.render_widget(Clear, rect);
+    let block = dialog_block(&title, theme);
+    let inner = block.inner(rect);
+    frame.render_widget(block, rect);
+    let [_, text, _, hint] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(rows),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .areas(inner);
+    frame.render_widget(Paragraph::new(lines), text);
+    frame.render_widget(
+        Line::styled(
+            format!("{place}j/k d/u scroll · o browser · esc back  "),
+            muted,
         )
         .alignment(Alignment::Right),
         hint,
