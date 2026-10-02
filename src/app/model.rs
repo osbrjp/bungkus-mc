@@ -88,6 +88,8 @@ pub(crate) enum Overlay {
     NewProject(crate::app::quick::NewProject),
     /// The `w` workspace switcher.
     Switcher(crate::app::workspaces::Switcher),
+    /// The `fp` / `ff` / `fg` finder.
+    Finder(crate::app::finder::Finder),
     /// "Move these projects' folders to the Trash?"
     TrashProject(Vec<Project>),
     /// "Remove this project's unused worktrees?"
@@ -174,6 +176,12 @@ pub(crate) enum Cmd {
     Scan,
     /// Open this project folder in the user's editor (`o`).
     OpenEditor(PathBuf),
+    /// Open, from this folder, this file in it in the user's editor, at
+    /// this line when given.
+    OpenFile(PathBuf, PathBuf, Option<u32>),
+    /// Run ripgrep in this workspace for finder search `u64`: list its
+    /// files (`None`) or the lines matching this pattern.
+    Find(PathBuf, u64, Option<String>),
     /// Open this project folder with the desktop's opener (`O`).
     OpenFolder(PathBuf),
     /// Start the terminal pane's shell for this owner in this folder (`t`).
@@ -336,6 +344,9 @@ pub(crate) struct Model {
     /// The projects last moved to the Trash this run, each `(folder, where
     /// it went)`, for `u`.
     pub last_trash: Vec<(PathBuf, PathBuf)>,
+    /// The number of the last finder search started; an older search's
+    /// result is dropped.
+    pub find_seq: u64,
     /// The other end of the projects pane's line selection (`V`), when on.
     pub visual: Option<usize>,
     /// The projects marked with `v`, by folder (chosen like the `V` range).
@@ -464,6 +475,7 @@ impl Model {
             restart: false,
             known: std::collections::HashSet::new(),
             kitty: false,
+            find_seq: 0,
             visual: None,
             marks: Vec::new(),
             popup_menu: false,
@@ -955,6 +967,7 @@ impl Model {
             }
             AppEvent::Updated(result) => return self.updated(result),
             AppEvent::Worktrees(text) => self.message = Some(text),
+            AppEvent::Found(seq, lines) => self.found(seq, lines),
             AppEvent::Pty(PtyEvent::Output(id, bytes)) => {
                 if let Some(pty) = self.tool_mut(id) {
                     pty.advance(&bytes);
@@ -1307,6 +1320,7 @@ impl Model {
             }
             Overlay::NewProject(dialog) => self.new_project_key(dialog, key),
             Overlay::Switcher(switcher) => self.switcher_key(switcher, key),
+            Overlay::Finder(finder) => self.finder_key(finder, key),
             Overlay::TrashProject(projects) => confirms(key)
                 .then(|| Cmd::TrashProject(projects.into_iter().map(|p| p.path).collect())),
             Overlay::CleanWorktrees(project) => {
@@ -1750,6 +1764,7 @@ impl Model {
             {
                 self.open_picker();
             }
+            Action::Find(source) => return self.open_finder(source),
             Action::Stop => return self.stop_selected(),
             Action::Pane(n) => return self.focus_pane(n),
             Action::TrashProject => self.ask_trash(),

@@ -360,6 +360,7 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
         Some(Overlay::Switcher(switcher)) => {
             dialogs::draw_switcher(frame, area, switcher, model, theme);
         }
+        Some(Overlay::Finder(finder)) => dialogs::draw_finder(frame, area, finder, theme),
         Some(Overlay::CleanWorktrees(project)) => {
             dialogs::draw_clean_worktrees(frame, area, project, theme);
         }

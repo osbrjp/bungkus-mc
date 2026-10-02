@@ -651,6 +651,77 @@ fn keep_end(text: &str, max: usize) -> String {
     format!("…{tail}")
 }
 
+/// Draws the finder (`fp`, `ff`, `fg`): the bordered query field, the rows
+/// scrolled to keep the highlighted one in view, and a hint line with how
+/// many of the matches show. A long file path keeps its end (the file
+/// name); a long grep line keeps its start.
+pub(super) fn draw_finder(
+    frame: &mut Frame,
+    area: Rect,
+    finder: &crate::app::finder::Finder,
+    theme: Theme,
+) {
+    use crate::app::finder::Source;
+
+    let rect = centred(
+        area,
+        area.width.saturating_sub(4).min(110),
+        area.height.saturating_sub(2).min(30),
+    );
+    frame.render_widget(Clear, rect);
+    let block = dialog_block(finder.source.title(), theme);
+    let inner = block.inner(rect);
+    frame.render_widget(block, rect);
+    let [field, list, hint] = Layout::vertical([
+        Constraint::Length(3),
+        Constraint::Min(0),
+        Constraint::Length(1),
+    ])
+    .areas(inner);
+    draw_field(frame, field, &finder.query, theme);
+    let shown = usize::from(list.height);
+    let room = usize::from(list.width).saturating_sub(6);
+    let lines: Vec<Line> = finder
+        .rows
+        .iter()
+        .enumerate()
+        .skip((finder.selected + 1).saturating_sub(shown))
+        .take(shown)
+        .map(|(i, row)| {
+            let text = match finder.source {
+                Source::Grep => crate::ui::sanitise::sanitise(row, room),
+                Source::Projects | Source::Files => {
+                    keep_end(&crate::ui::sanitise::sanitise(row, 4096), room)
+                }
+            };
+            if i == finder.selected {
+                let style = bold_if(theme.fg(Token::Accent), true);
+                Line::styled(format!("  > {text}"), style)
+            } else {
+                Line::styled(format!("    {text}"), theme.fg(Token::Fg))
+            }
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(lines), list);
+    let searching = if finder.searching {
+        "searching… · "
+    } else {
+        ""
+    };
+    frame.render_widget(
+        Line::styled(
+            format!(
+                "{searching}{}/{} · enter open · esc close  ",
+                finder.rows.len(),
+                finder.total
+            ),
+            theme.fg(Token::FgMuted),
+        )
+        .alignment(Alignment::Right),
+        hint,
+    );
+}
+
 /// Draws the `w` workspace switcher: the bordered filter field, the saved
 /// workspaces (number, path, project count, `●` on the current one) and
 /// the add row.

@@ -9,9 +9,10 @@
 ┃                    ║  G end                last            ctrl-d pgdn          half page down  ║                    │
 ┃                    ║  ctrl-u pgup          half page up    ! ctrl-]             next needs you  ║                    │
 ┃                    ║  z                    zoom output     /                    search projects ║                    │
-┃                    ║  1-9                  jump to project cmd/alt-1            projects pane   ║                    │
-┃                    ║  cmd/alt-2            sessions pane   cmd/alt-3            output pane     ║                    │
-┃                    ║  cmd/alt-4            terminal pane                                        ║                    │
+┃                    ║  fp                   find project    ff                   find file       ║                    │
+┃                    ║  fg                   grep workspace  1-9                  jump to project ║                    │
+┃                    ║  cmd/alt-1            projects pane   cmd/alt-2            sessions pane   ║                    │
+┃                    ║  cmd/alt-3            output pane     cmd/alt-4            terminal pane   ║                    │
 ┃                    ║                                                                            ║                    │
 ┃                    ║  sessions                                                                  ║                    │
 ┃                    ║  n                    new session     r                    past sessions   ║                    │
@@ -20,9 +21,9 @@
 ┃                    ║  projects                                                                  ║                    │
 ┃                    ║  a                    new project     V                    select lines    ║                    │
 ┃                    ║  v                    mark · g groups u                    undo dd         ║                    │
-┃                    ║  dd                   to Trash        c                    clean worktrees ║                    │
-┃                    ║  e                    more projects   o                    open in editor  ║.                   │
-┃                    ║  O                    open the folder                                      ║n                   │
+┃                    ║  dd                   to Trash        c                    clean worktrees ║.                   │
+┃                    ║  e                    more projects   o                    open in editor  ║n                   │
+┃                    ║  O                    open the folder                                      ║                    │
 ┃                    ║                                                                            ║                    │
 ┃                    ║  workspace & app                                                           ║                    │
 ┃                    ║  U                    update+restart  t                    terminal on/off ║                    │
@@ -35,7 +36,6 @@
 ┃                    ║  ctrl-m               move (popup)    cmd/alt-1..4         focus a pane    ║                    │
 ┃                    ║                                                                            ║                    │
 ┃                    ║                                         press a key to run it · esc close  ║                    │
-┃                    ╚════════════════════════════════════════════════════════════════════════════╝                    │
-┗━━━━━━━━━━━━━━━━━━━━┛└────────────────────────────────────┘└──────────────────────────────────────────────────────────┘
+┗━━━━━━━━━━━━━━━━━━━━╚════════════════════════════════════════════════════════════════════════════╝────────────────────┘
  NORMAL  enter → sessions · n new · c clean · e more · o edit · t term · ? keys
 cursor: hidden
