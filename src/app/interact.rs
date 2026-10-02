@@ -19,6 +19,7 @@ use crate::app::model::{Cmd, Focus, Model};
 use crate::app::tools::TermView;
 use crate::term::keys;
 use crate::ui;
+use crate::ui::keymap::{self, Action, Lookup, Scope};
 
 /// Lines scrolled per mouse wheel notch (ARCHITECTURE §4.1).
 const WHEEL_LINES: i32 = 3;
@@ -38,26 +39,33 @@ pub(crate) enum Divider {
 
 impl Model {
     /// Handles a key in INTERACT: the exit chord and `ctrl-h` return to
-    /// the sessions pane, cmd/alt/ctrl + 1–4 focus that pane, `ctrl-j` goes
-    /// down to the terminal pane while it shows (otherwise it is the
-    /// agent's), `ctrl-l` (already the rightmost pane) and `ctrl-z` are
-    /// swallowed, everything else is encoded for the agent (and snaps
+    /// the sessions pane, cmd/alt/ctrl + 1–4 focus that pane, `ctrl-]` jumps
+    /// to the next session that needs you (`!` itself is the agent's),
+    /// `ctrl-j` goes down to the terminal pane while it shows (otherwise it
+    /// is the agent's), `ctrl-l` (already the rightmost pane) and `ctrl-z`
+    /// are swallowed, everything else is encoded for the agent (and snaps
     /// its view back to the bottom). A plain `j` followed within
     /// [`LEAVE_WINDOW`] by `j` or `k` also returns to the sessions pane.
     ///
     /// # Returns
     ///
     /// The command that starts the project's shell, for the terminal
-    /// pane's chord on a project without one.
+    /// pane's chord on a project without one, or that switches workspace
+    /// for a needs-you session in another one.
     pub(super) fn interact_key(&mut self, key: KeyEvent) -> Option<Cmd> {
+        self.message = None;
         if self.exit_chord.matches(&key) {
             self.focus = Focus::Sessions;
             return None;
         }
-        if let crate::ui::keymap::Lookup::Action(crate::ui::keymap::Action::Pane(n)) =
-            crate::ui::keymap::lookup(crate::ui::keymap::Scope::Global, key, None)
-        {
-            return self.focus_pane(n);
+        match keymap::lookup(Scope::Global, key, None) {
+            Lookup::Action(Action::Pane(n)) => return self.focus_pane(n),
+            Lookup::Action(Action::NextNeedsYou)
+                if key.modifiers.contains(KeyModifiers::CONTROL) =>
+            {
+                return self.next_needs_you();
+            }
+            Lookup::Action(_) | Lookup::Pending(_) | Lookup::Unbound => {}
         }
         if key.modifiers == KeyModifiers::CONTROL {
             match key.code {

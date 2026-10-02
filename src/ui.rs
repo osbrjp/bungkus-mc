@@ -918,9 +918,19 @@ fn draw_getah(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
         let agent = model
             .selected_card()
             .map_or("the agent", |i| model.cards[i].kind.command());
+        let here = model.selected_card().map(|i| model.cards[i].id);
+        let waiting = model
+            .cards
+            .iter()
+            .any(|c| c.state == State::NeedsYou && Some(c.id) != here);
         format!(
-            "keys go to {agent} · {} back to mc",
-            model.exit_chord.label()
+            "keys go to {agent} · {} back to mc{}",
+            model.exit_chord.label(),
+            if waiting {
+                " · ctrl-] next needs you"
+            } else {
+                ""
+            }
         )
     } else if model.choosing() {
         "v mark · j/k move · g group · d move to Trash · esc clear".to_owned()
@@ -929,7 +939,11 @@ fn draw_getah(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
     } else if let Some(ch) = model.pending {
         format!("{ch}…")
     } else {
-        keymap::hints(model.focus.scope()).join(" · ")
+        let mut hints = keymap::hints(model.focus.scope());
+        if tally(model).needs_you > 0 {
+            hints.insert(0, "! next needs you");
+        }
+        hints.join(" · ")
     };
     let line = Line::from(vec![
         Span::styled(mode, theme.badge(token)),

@@ -427,7 +427,7 @@ never what you type, prompts or agent output.
 | **Structure** (working / your turn / needs you, subagents) | the agents' own hooks, injected per launch (`claude --settings`, `codex -c hooks.*`) |
 | **Claude usage** | Claude's status line; your own status line keeps rendering (mc runs it for you) |
 | **Codex usage** | `token_count` records in Codex's own session log, and nothing else |
-| **MCP servers** on a card | the servers the session's tool calls name, so a server shows once the session has used it (connectors and plugin servers too). The selected card lists them by name and, on an `mcp idle` row, the servers that are configured but not used yet: the names in the agents' config (`.mcp.json` in the project and `.claude.json` for Claude, `config.toml` for Codex), checked every 5 s. Names only. With the `nerd` icon set a known server shows as its logo, on the selected card's `mcp` and `mcp idle` rows too |
+| **MCP servers** on a card | the servers the session's tool calls name, so a server shows once the session has used it (connectors and plugin servers too). Servers that are only configured are not shown. Names only. With the `nerd` icon set a known server shows as its logo, on the selected card's `mcp` row too |
 
 - **Nothing is written to your agent config**, so there is nothing to
   remove; your own hooks keep running.

@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use crate::agent::Kind;
-use crate::agent::mcp::{self, Stamp};
+use crate::agent::mcp;
 use crate::agent::usage::Usage;
 use crate::ipc::HookEvent;
 use crate::proc::{Descendants, Proc};
@@ -159,14 +159,9 @@ pub(crate) struct Card {
     /// The git worktree it runs in (`claude --worktree <name>`, under the
     /// project's `.claude/worktrees/`); a resume goes back into it.
     pub worktree: Option<String>,
-    /// Names of its MCP servers, sorted: the configured ones
-    /// ([`crate::agent::mcp::servers`]) and the ones in `mcp_used`. The card
-    /// shows the ones in use ([`Card::mcp_in_use`]); the rest are idle.
+    /// Names of the MCP servers its tool calls named
+    /// ([`crate::agent::mcp::used`]), sorted.
     pub mcp: Vec<String>,
-    /// Servers its tool calls named ([`crate::agent::mcp::used`]).
-    pub(crate) mcp_used: Vec<String>,
-    /// The config files' state when `mcp` was last read from them.
-    pub mcp_stamp: Option<Stamp>,
     /// Whether quitting mc stopped it, so the next start resumes it.
     pub auto_resume: bool,
 }
@@ -235,53 +230,19 @@ impl Card {
             prompted: false,
             worktree: None,
             mcp: Vec::new(),
-            mcp_used: Vec::new(),
-            mcp_stamp: None,
             auto_resume: false,
         }
     }
 
-    /// Sets the configured MCP servers as read at `stamp`; the servers its
-    /// tool calls named stay listed.
-    pub(crate) fn set_mcp(&mut self, configured: Vec<String>, stamp: Stamp) {
-        self.mcp_stamp = Some(stamp);
-        self.list_mcp(configured);
-    }
-
-    /// Returns whether a tool call of the session named `server`
-    /// ([`mcp::same`]).
-    #[must_use]
-    pub(crate) fn mcp_in_use(&self, server: &str) -> bool {
-        self.mcp_used.iter().any(|used| mcp::same(server, used))
-    }
-
-    /// Rebuilds the list from `names` and the servers in `mcp_used`. A full
-    /// list ([`mcp::SERVERS_MAX`]) drops idle servers, never one in use.
-    fn list_mcp(&mut self, names: Vec<String>) {
-        let (mut list, idle): (Vec<_>, Vec<_>) =
-            names.into_iter().partition(|name| self.mcp_in_use(name));
-        for used in &self.mcp_used {
-            if !list.iter().any(|name| mcp::same(name, used)) {
-                list.push(used.clone());
-            }
-        }
-        list.extend(idle);
-        list.truncate(mcp::SERVERS_MAX);
-        list.sort_unstable();
-        self.mcp = list;
-    }
-
-    /// Marks the MCP server of `tool` as in use when it is one, and lists
-    /// it when it is not listed yet (a claude.ai connector or a plugin's
-    /// server is in no config file).
+    /// Lists the MCP server of `tool` when it is one (up to
+    /// [`mcp::SERVERS_MAX`]).
     fn note_mcp(&mut self, tool: &str) {
         let Some(server) = mcp::used(tool) else {
             return;
         };
-        if self.mcp_used.len() < mcp::SERVERS_MAX && !self.mcp_used.contains(&server) {
-            self.mcp_used.push(server);
-            let names = std::mem::take(&mut self.mcp);
-            self.list_mcp(names);
+        if self.mcp.len() < mcp::SERVERS_MAX && !self.mcp.contains(&server) {
+            self.mcp.push(server);
+            self.mcp.sort_unstable();
         }
     }
 
@@ -615,7 +576,7 @@ mod tests {
     }
 
     #[test]
-    fn mcp_servers_are_the_configured_ones_and_the_ones_tool_calls_name() {
+    fn mcp_servers_are_the_ones_tool_calls_name() {
         let now = Instant::now();
         let mut c = card(Some("s"), None);
         let call = |tool: &str| {
@@ -623,32 +584,15 @@ mod tests {
                 r#"{{"hook_event_name":"PreToolUse","tool_name":"{tool}"}}"#
             ))
         };
+        c.reduce(&call("mcp__slack__send"), now);
         c.reduce(&call("mcp__claude_ai_Figma__get_screenshot"), now);
         c.reduce(&call("mcp__claude_ai_Figma__get_metadata"), now);
         c.reduce(&call("Bash"), now);
-        assert_eq!(c.mcp, ["Figma"]);
-        c.set_mcp(vec!["blender".into(), "slack".into()], [None, None]);
-        assert_eq!(c.mcp, ["Figma", "blender", "slack"], "a refresh keeps it");
-        c.reduce(&call("mcp__blender__get_scene_info"), now);
-        c.set_mcp(vec!["slack".into()], [None, None]);
-        assert_eq!(c.mcp, ["Figma", "blender", "slack"]);
-        assert_eq!(c.mcp_stamp, Some([None, None]));
-        c.set_mcp(vec!["my.server".into()], [None, None]);
-        c.reduce(&call("mcp__my_server__run"), now);
-        assert_eq!(c.mcp, ["Figma", "blender", "my.server"], "one server");
-        c.set_mcp((0..12).map(|n| format!("s{n:02}")).collect(), [None, None]);
+        assert_eq!(c.mcp, ["Figma", "slack"], "once each, sorted");
+        for n in 0..mcp::SERVERS_MAX {
+            c.reduce(&call(&format!("mcp__s{n:02}__run")), now);
+        }
         assert_eq!(c.mcp.len(), mcp::SERVERS_MAX, "a full list takes no more");
-        let in_use = |c: &Card| -> Vec<String> {
-            let used = c.mcp.iter().filter(|name| c.mcp_in_use(name));
-            used.cloned().collect()
-        };
-        assert_eq!(
-            in_use(&c),
-            ["Figma", "blender", "my_server"],
-            "idle ones go"
-        );
-        c.set_mcp(vec!["my.server".into(), "slack".into()], [None, None]);
-        assert_eq!(in_use(&c), ["Figma", "blender", "my.server"]);
     }
 
     #[test]

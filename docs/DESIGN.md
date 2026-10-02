@@ -515,13 +515,12 @@ whether there is a header line.
   minute for running sessions; absent without `gh` or a login.
 - MCP line, `fg-muted`: the MCP servers the session has used (a tool
   call named them, ARCHITECTURE §5.5), sorted by name; absent until the
-  first such call. Servers that are only configured are not on it. ascii
+  first such call. Servers that are only configured are not shown. ascii
   and unicode sets: `mcp` then the names joined by ` · `. nerd
   set: per server its logo alone (§3), or a kind glyph or the plug and
   the name when it has none, two spaces apart. The expanded card (§6.3) shows
-  an `mcp` row with the servers in use and an `mcp idle` row with the
-  configured servers the session has not used: their names, or in the
-  nerd set their glyphs as on the MCP line.
+  an `mcp` row with the same servers: their names, or in the nerd set
+  their glyphs as on the MCP line.
 - Gutter column: `┃` in `warn` for needs-you, `err` for failed, space otherwise.
 - Title = **the session's name**, as the agent itself knows it (decided):
   Claude's session name (set at launch with `--name`, renamed inside the
@@ -1290,6 +1289,7 @@ acceptance and permission answers are typed. Exceptions:
 | `ctrl-h`             | leave INTERACT to the sessions pane, as everywhere (the agent never sees it) |
 | `jj` · `jk` (fast)   | leave INTERACT to the sessions pane when the second key follows the `j` within 200 ms. The `j` has already reached the agent, so mc sends one backspace to take it back; slower pairs are ordinary typing |
 | `ctrl-l`             | swallowed: the output pane is already the rightmost (the agent never sees it) |
+| `ctrl-]`             | jump to the next needs-you session, as `!` does in NORMAL (the agent never sees it; `!` itself is typed to the agent). While another session needs you the getah bar adds `ctrl-] next needs you`; in NORMAL it leads with `! next needs you` |
 | `cmd`/`alt`/`ctrl` + `1`–`3` | focus projects / sessions / output (the agent never sees them); also in NORMAL. Cmd only arrives when the terminal does not keep it for its tabs |
 | `ctrl-z`             | swallowed (a suspended agent cannot be resumed from inside a pane)  |
 | mouse click on another pane | leaves INTERACT and focuses that pane                       |

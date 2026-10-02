@@ -331,8 +331,6 @@ pub(crate) struct Model {
     pub links_scan: bool,
     /// When the links of the running sessions were last read again.
     pub links_at: Option<Instant>,
-    /// Whether an MCP config scan is running.
-    pub mcp_scan: bool,
     /// Shows every key mc receives in the hint line (`BUNGKUS_MC_DEBUG_KEYS`),
     /// to find chords a terminal keeps for itself.
     pub debug_keys: bool,
@@ -478,7 +476,6 @@ impl Model {
             links: std::collections::HashMap::new(),
             links_scan: false,
             links_at: None,
-            mcp_scan: false,
             poke: None,
             notice: None,
             popup: None,
@@ -926,16 +923,6 @@ impl Model {
         cmd
     }
 
-    /// Gives each session in `changed` its configured MCP servers.
-    fn set_mcp(&mut self, changed: Vec<(SessionId, Vec<String>, crate::agent::mcp::Stamp)>) {
-        self.mcp_scan = false;
-        for (id, servers, stamp) in changed {
-            if let Some(card) = self.cards.iter_mut().find(|c| c.id == id) {
-                card.set_mcp(servers, stamp);
-            }
-        }
-    }
-
     /// Applies one event; [`Model::update`] keeps the selection in place.
     fn handle(&mut self, event: AppEvent) -> Option<Cmd> {
         match event {
@@ -970,7 +957,6 @@ impl Model {
             AppEvent::Links(read) => self.set_links(read),
             AppEvent::LinkList(folder, list) => self.set_link_list(&folder, list),
             AppEvent::LinkBody(url, text) => self.set_link_body(&url, text),
-            AppEvent::Mcp(changed) => self.set_mcp(changed),
             AppEvent::External(list) => {
                 self.external = list;
                 self.selected = self.selected.min(self.visible().len().saturating_sub(1));
@@ -1099,7 +1085,7 @@ impl Model {
 
     /// Jumps to the next session that needs you, across projects: selects
     /// its project and card and enters INTERACT (DESIGN §8.1).
-    fn next_needs_you(&mut self) -> Option<Cmd> {
+    pub(super) fn next_needs_you(&mut self) -> Option<Cmd> {
         let current = self.selected_card().map(|i| self.cards[i].id);
         let projects: Vec<PathBuf> = self.visible().iter().map(|p| p.path.clone()).collect();
         let mut found = Vec::new();
@@ -2687,6 +2673,32 @@ pub(crate) mod tests {
         m.focus = Focus::Sessions;
         m.update(press(KeyCode::Char('!')));
         assert_eq!(m.message.as_deref(), Some("nobody needs you right now"));
+    }
+
+    #[test]
+    fn ctrl_bracket_jumps_from_interact_and_bang_stays_the_agents() {
+        let mut m = sample(&["a"]);
+        let (first, _w1) = with_session(&mut m, "one");
+        let (second, w2) = with_session(&mut m, "two");
+        m.update(hook_line(
+            first,
+            r#"{"hook_event_name":"Notification","notification_type":"permission_prompt"}"#,
+        ));
+        let shown = |m: &Model| m.selected_card().map(|i| m.cards[i].id);
+        m.select_session(second);
+        m.update(press(KeyCode::Char('!')));
+        assert_eq!(shown(&m), Some(second), "! is typed to the agent");
+        assert_eq!(w2.try_iter().flatten().collect::<Vec<u8>>(), b"!");
+        for ch in [']', '5'] {
+            m.select_session(second);
+            m.update(AppEvent::Input(Event::Key(KeyEvent::new(
+                KeyCode::Char(ch),
+                KeyModifiers::CONTROL,
+            ))));
+            assert_eq!(shown(&m), Some(first), "ctrl-{ch} jumps");
+            assert_eq!(m.focus, Focus::Output);
+        }
+        assert_eq!(w2.try_iter().count(), 0, "the agent never sees the chord");
     }
 
     #[test]
