@@ -9,6 +9,7 @@
 
 pub(crate) mod kill;
 pub(crate) mod ports;
+pub(crate) mod usage;
 
 use std::collections::{HashMap, HashSet};
 use std::process::Command;

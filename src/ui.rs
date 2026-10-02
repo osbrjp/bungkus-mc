@@ -6,6 +6,7 @@
 //! number of list rows on screen, for half-page moves. [`panes`] is the
 //! one layout function: drawing, mouse hit tests and PTY sizes all use it.
 
+mod activity;
 mod cards;
 mod dialogs;
 mod form;
@@ -348,6 +349,7 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
     }
     match &model.overlay {
         Some(Overlay::Help) => help::draw(frame, area, model.focus.scope(), theme),
+        Some(Overlay::Activity) => activity::draw(frame, area, &model.activity, theme),
         Some(Overlay::Form(f)) => form::draw_settings(frame, area, f, theme, model.host_light),
         Some(Overlay::Picker(p)) => dialogs::draw_picker(frame, area, p, theme),
         Some(Overlay::Stop(d)) => dialogs::draw_stop(frame, area, d, model, theme),
@@ -1227,6 +1229,32 @@ pub(crate) mod tests {
         let mut model = sample(PROJECTS);
         key(&mut model, KeyCode::Char('?'));
         assert_golden("help-120x40.txt", &render(&mut model, 120, 40));
+    }
+
+    #[test]
+    fn activity_overlay_matches_golden() {
+        use crate::app::activity::Row;
+
+        let mut model = sample(PROJECTS);
+        key(&mut model, KeyCode::Char('A'));
+        assert!(render(&mut model, 80, 24).contains("measuring"));
+        let row = |label: &str, procs, rss_kb, cpu| Row {
+            label: label.into(),
+            procs,
+            rss_kb,
+            cpu_tenths: Some(cpu),
+        };
+        model.activity.rows = vec![
+            row("mc", 1, 28_000, 12),
+            row("#a3f1 checkout redesign", 7, 1_640_000, 1234),
+            row("terminals & other", 2, 9_000, 0),
+        ];
+        model.activity.cores = 8;
+        model.activity.mem_total_kb = Some(16 * 1024 * 1024);
+        model.activity.temp_c = Some(54);
+        assert_golden("activity-80x24.txt", &render(&mut model, 80, 24));
+        key(&mut model, KeyCode::Esc);
+        assert_eq!(model.overlay, None);
     }
 
     #[test]
