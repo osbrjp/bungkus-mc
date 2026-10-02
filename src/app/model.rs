@@ -184,6 +184,9 @@ pub(crate) enum Cmd {
     /// List the open pull requests and issues of this folder's repository
     /// for the `i` popup.
     ListLinks(PathBuf),
+    /// Read the text of this issue or pull request, in this folder, for
+    /// the `i` popup's text view.
+    ReadLink(PathBuf, crate::app::links::Link),
     /// Start the terminal pane's shell for this owner in this folder (`t`).
     OpenTerminal(crate::app::tools::Owner, PathBuf),
     /// Write the workspace's project groups to its `.bungkus-mc/config.json`.
@@ -962,6 +965,7 @@ impl Model {
             }
             AppEvent::Links(read) => self.set_links(read),
             AppEvent::LinkList(folder, list) => self.set_link_list(&folder, list),
+            AppEvent::LinkBody(url, text) => self.set_link_body(&url, text),
             AppEvent::Mcp(changed) => self.set_mcp(changed),
             AppEvent::External(list) => {
                 self.external = list;

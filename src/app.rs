@@ -93,6 +93,9 @@ pub(crate) enum AppEvent {
     /// The open pull requests and issues `gh` listed for the popup opened
     /// on this folder.
     LinkList(PathBuf, Vec<links::Link>),
+    /// The text `gh` read of the issue or pull request at this URL, for
+    /// the popup's text view; `None` when the read failed.
+    LinkBody(String, Option<String>),
     /// The configured MCP servers of sessions whose config files changed,
     /// with the files' state when they were read.
     Mcp(Vec<(SessionId, Vec<String>, agent::mcp::Stamp)>),
@@ -456,6 +459,7 @@ fn run_cmd(
         Cmd::OpenFolder(project) => open_folder(model, project),
         Cmd::OpenUrl(url) => open_folder(model, PathBuf::from(url)),
         Cmd::ListLinks(folder) => list_links(folder, tx.clone()),
+        Cmd::ReadLink(folder, link) => read_link(folder, link, tx.clone()),
         Cmd::OpenTerminal(owner, dir) => open_terminal(model, owner, &dir, tx),
         Cmd::SaveGroups(groups) => save_groups(model, &groups),
         Cmd::SaveWidths(widths) => {
@@ -535,6 +539,16 @@ fn list_links(folder: PathBuf, tx: SyncSender<AppEvent>) {
         let list = links::list(&folder);
         // reason: mc may have quit meanwhile.
         let _ = tx.send(AppEvent::LinkList(folder, list));
+    });
+}
+
+/// Reads the text of `link` in `folder` on a background thread, for the
+/// popup's text view ([`AppEvent::LinkBody`]).
+fn read_link(folder: PathBuf, link: links::Link, tx: SyncSender<AppEvent>) {
+    thread::spawn(move || {
+        let text = links::body(&folder, &link);
+        // reason: mc may have quit meanwhile.
+        let _ = tx.send(AppEvent::LinkBody(link.url, text));
     });
 }
 

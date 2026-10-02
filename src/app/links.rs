@@ -12,6 +12,7 @@ use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
+use ratatui::text::Span;
 use serde::Deserialize;
 
 use crate::app::model::{Cmd, Model, Overlay};
@@ -214,6 +215,85 @@ pub(crate) struct Viewer {
     pub linked: usize,
     /// Highlighted row.
     pub selected: usize,
+    /// The text view over the list (`enter`), while it shows.
+    pub body: Option<Body>,
+}
+
+/// The text of one issue or pull request, shown in the popup.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Body {
+    /// What it is the text of.
+    pub link: Link,
+    /// The text, sanitised and wrapped; `None` while `gh` runs.
+    pub lines: Option<Vec<String>>,
+    /// The first line shown.
+    pub scroll: usize,
+}
+
+/// Columns the text view wraps to (the popup's inner width less margins).
+pub(crate) const BODY_WIDTH: usize = 70;
+
+/// Lines `d`/`u` scroll the text view by, and the lines that stay in view
+/// at the end of a text.
+const BODY_PAGE: usize = 10;
+
+/// Most wrapped lines kept of one text; the browser has the rest.
+const BODY_MAX: usize = 2000;
+
+/// Longest source line kept, in characters, before wrapping.
+const BODY_LINE_MAX: usize = 4000;
+
+/// What `gh --json body` prints.
+#[derive(Debug, Deserialize)]
+struct RawBody {
+    #[serde(default)]
+    body: String,
+}
+
+/// Reads the text of `link` with `gh issue view` / `gh pr view` in `dir`
+/// (by its URL, so one in another repository is found too); `None` when
+/// `gh` failed.
+#[must_use]
+pub(crate) fn body(dir: &Path, link: &Link) -> Option<String> {
+    let what = match link.kind {
+        LinkKind::Issue => "issue",
+        LinkKind::Pr => "pr",
+    };
+    let json = gh(dir, &[what, "view", &link.url, "--json", "body"])?;
+    Some(serde_json::from_str::<RawBody>(&json).ok()?.body)
+}
+
+/// Sanitises `text` line by line and wraps it to [`BODY_WIDTH`] columns,
+/// at a space where the line has one; at most [`BODY_MAX`] lines. Wide
+/// characters (CJK) count two columns. The text is shown as written:
+/// Markdown is not rendered.
+fn wrap(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let line = sanitise(line, BODY_LINE_MAX);
+        let (mut current, mut used, mut space) = (String::new(), 0, None);
+        for ch in line.chars() {
+            let width = Span::raw(ch.to_string()).width();
+            if used + width > BODY_WIDTH {
+                let rest = space.map_or_else(String::new, |at| current.split_off(at));
+                out.push(std::mem::replace(&mut current, rest));
+                used = Span::raw(current.as_str()).width();
+                space = None;
+            }
+            current.push(ch);
+            used += width;
+            if ch == ' ' {
+                space = Some(current.len());
+            }
+        }
+        out.push(current);
+        if out.len() >= BODY_MAX {
+            out.truncate(BODY_MAX);
+            out.push("… (the rest is in the browser: o)".to_owned());
+            break;
+        }
+    }
+    out
 }
 
 impl Model {
@@ -273,6 +353,7 @@ impl Model {
             rows: None,
             linked: 0,
             selected: 0,
+            body: None,
         }));
         Some(Cmd::ListLinks(folder))
     }
@@ -303,29 +384,84 @@ impl Model {
         viewer.rows = Some(rows);
     }
 
-    /// Applies a key to the popup: `j`/`k` or `↑`/`↓` move, `enter` opens
-    /// the row in the browser (the popup stays), `esc` or `q` closes.
+    /// Gives the open text view what `gh` read for the link at `url`:
+    /// its text wrapped to [`BODY_WIDTH`], or a line saying there is none
+    /// or that the read failed. The first answer stays.
+    pub(super) fn set_link_body(&mut self, url: &str, text: Option<String>) {
+        let Some(Overlay::Links(viewer)) = &mut self.overlay else {
+            return;
+        };
+        let Some(body) = viewer
+            .body
+            .as_mut()
+            .filter(|body| body.link.url == url && body.lines.is_none())
+        else {
+            return;
+        };
+        body.lines = Some(match text {
+            Some(text) if text.trim().is_empty() => vec!["(no description)".to_owned()],
+            Some(text) => wrap(&text),
+            None => vec!["Could not read it (gh failed).".to_owned()],
+        });
+    }
+
+    /// Applies a key to the popup.
+    ///
+    /// In the list `j`/`k` or `↑`/`↓` move, `enter` shows the row's text
+    /// in the popup, `o` opens the row in the browser (the popup stays),
+    /// `esc` or `q` closes. In the text view the same keys scroll (`d`/`u`
+    /// or `pgdn`/`pgup` by [`BODY_PAGE`], `g`/`G` to the ends), `o` opens
+    /// it in the browser and `esc`, `q` or `h` go back to the list.
     pub(super) fn viewer_key(&mut self, mut viewer: Viewer, key: KeyEvent) -> Option<Cmd> {
-        let last = viewer
-            .rows
-            .as_ref()
-            .map_or(0, |r| r.len().saturating_sub(1));
-        let cmd = match key.code {
-            KeyCode::Esc | KeyCode::Char('q') => return None,
-            KeyCode::Up | KeyCode::Char('k') => {
-                viewer.selected = viewer.selected.saturating_sub(1);
-                None
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                viewer.selected = (viewer.selected + 1).min(last);
-                None
-            }
-            KeyCode::Enter => viewer
-                .rows
+        let cmd = if let Some(body) = &mut viewer.body {
+            let last = body
+                .lines
                 .as_ref()
-                .and_then(|rows| rows.get(viewer.selected))
-                .map(|link| Cmd::OpenUrl(link.url.clone())),
-            _ => None,
+                .map_or(0, |l| l.len().saturating_sub(BODY_PAGE));
+            match key.code {
+                KeyCode::Esc | KeyCode::Left | KeyCode::Char('q' | 'h') => viewer.body = None,
+                KeyCode::Up | KeyCode::Char('k') => body.scroll = body.scroll.saturating_sub(1),
+                KeyCode::Down | KeyCode::Char('j') => body.scroll = (body.scroll + 1).min(last),
+                KeyCode::PageUp | KeyCode::Char('u') => {
+                    body.scroll = body.scroll.saturating_sub(BODY_PAGE);
+                }
+                KeyCode::PageDown | KeyCode::Char('d') => {
+                    body.scroll = (body.scroll + BODY_PAGE).min(last);
+                }
+                KeyCode::Home | KeyCode::Char('g') => body.scroll = 0,
+                KeyCode::End | KeyCode::Char('G') => body.scroll = last,
+                KeyCode::Char('o') => {
+                    let url = body.link.url.clone();
+                    self.overlay = Some(Overlay::Links(viewer));
+                    return Some(Cmd::OpenUrl(url));
+                }
+                _ => {}
+            }
+            None
+        } else {
+            let rows = viewer.rows.as_deref().unwrap_or_default();
+            let chosen = rows.get(viewer.selected).cloned();
+            match key.code {
+                KeyCode::Esc | KeyCode::Char('q') => return None,
+                KeyCode::Up | KeyCode::Char('k') => {
+                    viewer.selected = viewer.selected.saturating_sub(1);
+                    None
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    viewer.selected = (viewer.selected + 1).min(rows.len().saturating_sub(1));
+                    None
+                }
+                KeyCode::Char('o') => chosen.map(|link| Cmd::OpenUrl(link.url)),
+                KeyCode::Enter => chosen.map(|link| {
+                    viewer.body = Some(Body {
+                        link: link.clone(),
+                        lines: None,
+                        scroll: 0,
+                    });
+                    Cmd::ReadLink(viewer.folder.clone(), link)
+                }),
+                _ => None,
+            }
         };
         self.overlay = Some(Overlay::Links(viewer));
         cmd
@@ -453,7 +589,7 @@ mod tests {
             link(LinkKind::Issue, 188),
             link(LinkKind::Issue, 5),
         ];
-        m.update(AppEvent::LinkList(folder, listed));
+        m.update(AppEvent::LinkList(folder.clone(), listed));
         let Some(Overlay::Links(viewer)) = &m.overlay else {
             panic!("i opens the popup");
         };
@@ -464,12 +600,56 @@ mod tests {
 
         m.update(press(KeyCode::Char('j')));
         m.update(press(KeyCode::Down));
+        let url = "https://github.com/o/r/x/7";
         assert_eq!(
-            m.update(press(KeyCode::Enter)),
-            Some(Cmd::OpenUrl("https://github.com/o/r/x/7".into()))
+            m.update(press(KeyCode::Char('o'))),
+            Some(Cmd::OpenUrl(url.into()))
         );
         assert!(m.overlay.is_some(), "the popup stays for the next row");
+
+        assert_eq!(
+            m.update(press(KeyCode::Enter)),
+            Some(Cmd::ReadLink(folder.clone(), link(LinkKind::Pr, 7)))
+        );
+        assert!(crate::ui::tests::render(&mut m, 120, 40).contains("asking gh"));
+        let text = format!("## Why\n\n{}\nlast \u{1b}[31mline", "word ".repeat(40));
+        m.update(AppEvent::LinkBody("https://other".into(), Some("x".into())));
+        m.update(AppEvent::LinkBody(url.into(), Some(text)));
+        let screen = crate::ui::tests::render(&mut m, 120, 40);
+        assert!(screen.contains("PR #7 · title 7") && screen.contains("## Why"));
+        assert!(
+            screen.contains("last line") && screen.contains("1/6"),
+            "{screen}"
+        );
+        m.update(press(KeyCode::Char('G')));
+        m.update(press(KeyCode::Char('j')));
+        assert!(
+            crate::ui::tests::render(&mut m, 120, 40).contains("1/6"),
+            "a short text does not scroll"
+        );
+        assert_eq!(
+            m.update(press(KeyCode::Char('o'))),
+            Some(Cmd::OpenUrl(url.into()))
+        );
+        m.update(press(KeyCode::Esc));
+        let Some(Overlay::Links(viewer)) = &m.overlay else {
+            panic!("esc goes back to the list");
+        };
+        assert!(viewer.body.is_none() && viewer.selected == 2);
         m.update(press(KeyCode::Esc));
         assert!(m.overlay.is_none());
+    }
+
+    #[test]
+    fn wraps_text_at_spaces_and_counts_wide_characters_as_two_columns() {
+        let lines = wrap(&format!("{} tail\n\n{}", "a".repeat(68), "漢".repeat(40)));
+        let widths: Vec<usize> = lines
+            .iter()
+            .map(|l| Span::raw(l.as_str()).width())
+            .collect();
+        assert_eq!(lines[0], format!("{} ", "a".repeat(68)));
+        assert_eq!((lines[1].as_str(), lines[2].as_str()), ("tail", ""));
+        assert_eq!(widths[3..], [70, 10]);
+        assert_eq!(wrap(&"x\n".repeat(3000)).len(), BODY_MAX + 1);
     }
 }

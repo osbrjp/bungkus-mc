@@ -748,6 +748,10 @@ pub(super) fn draw_links(
 ) {
     use crate::app::links::{Link, LinkKind};
 
+    if let Some(body) = &viewer.body {
+        draw_link_body(frame, area, body, theme);
+        return;
+    }
     let width: u16 = 76;
     let title_room = usize::from(width).saturating_sub(30);
     let muted = theme.fg(Token::FgMuted);
@@ -800,8 +804,60 @@ pub(super) fn draw_links(
     .areas(inner);
     frame.render_widget(Paragraph::new(lines), list);
     frame.render_widget(
-        Line::styled("j/k move · enter open in browser · esc close  ", muted)
+        Line::styled("j/k move · enter read · o browser · esc close  ", muted)
             .alignment(Alignment::Right),
+        hint,
+    );
+}
+
+/// Most text rows the popup's text view shows; fewer on a short screen.
+const BODY_ROWS: u16 = 24;
+
+/// Draws the popup's text view: the issue's or pull request's number and
+/// title in the border, its text from the scrolled line on, and the
+/// position (`first line/lines`) before the hint.
+fn draw_link_body(frame: &mut Frame, area: Rect, body: &crate::app::links::Body, theme: Theme) {
+    use crate::app::links::{BODY_WIDTH, LinkKind};
+
+    let muted = theme.fg(Token::FgMuted);
+    let rows = BODY_ROWS.min(area.height.saturating_sub(7)).max(1);
+    let kind = match body.link.kind {
+        LinkKind::Issue => "issue",
+        LinkKind::Pr => "PR",
+    };
+    let head = format!("{kind} #{} · ", body.link.number);
+    let room = BODY_WIDTH.saturating_sub(head.chars().count());
+    let title = format!("{head}{}", truncate(&body.link.title, room));
+    let (lines, place): (Vec<Line>, String) = match &body.lines {
+        None => (vec![Line::styled("  asking gh…", muted)], String::new()),
+        Some(text) => {
+            let shown = text.iter().skip(body.scroll).take(usize::from(rows));
+            let lines = shown.map(|line| Line::styled(format!("  {line}"), theme.fg(Token::Fg)));
+            (
+                lines.collect(),
+                format!("{}/{} · ", body.scroll + 1, text.len()),
+            )
+        }
+    };
+    let rect = centred(area, 76, rows + 5);
+    frame.render_widget(Clear, rect);
+    let block = dialog_block(&title, theme);
+    let inner = block.inner(rect);
+    frame.render_widget(block, rect);
+    let [_, text, _, hint] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(rows),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .areas(inner);
+    frame.render_widget(Paragraph::new(lines), text);
+    frame.render_widget(
+        Line::styled(
+            format!("{place}j/k d/u scroll · o browser · esc back  "),
+            muted,
+        )
+        .alignment(Alignment::Right),
         hint,
     );
 }

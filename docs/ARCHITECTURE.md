@@ -282,7 +282,9 @@ status: for a folder whose branch is not the one last read, and every 60 s
 for the folders of running sessions. Results are kept per folder in the
 model (not in `sessions.json`; they are read again on start) and arrive
 as `AppEvent::Links`. The `i` popup asks `gh pr list` and `gh issue list`
-(30 each) when it opens. `P`, `I` and `enter` in the popup hand the URL to
+(30 each) when it opens, and `gh issue view <url> --json body` (or `gh pr
+view`) when `enter` asks for a row's text, which is sanitised line by
+line, wrapped and capped at 2000 lines. `P`, `I` and `o` in the popup hand the URL to
 the desktop's opener, the same path as `O`. Without `gh`, a login or a
 GitHub remote every call fails and nothing is linked.
 
