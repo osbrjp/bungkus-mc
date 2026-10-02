@@ -9,7 +9,7 @@ use ratatui::widgets::{Clear, Paragraph};
 use crate::agent::Kind;
 use crate::app::form::{Field, Form};
 use crate::store::config::AgentScope;
-use crate::ui::icons::{Icon, IconChoice};
+use crate::ui::icons::{Icon, IconChoice, IconSet};
 use crate::ui::mascot::{self, Mascot};
 use crate::ui::theme::{Theme, ThemeChoice, ThemeName, Token};
 use crate::ui::{bold_if, centred, dialog};
@@ -414,28 +414,36 @@ fn icons_spans(form: &Form, theme: Theme, focused: bool) -> Vec<Span<'static>> {
 }
 
 /// Returns the line under the icon set choice: what the choice means and
-/// its state glyphs, so glyphs the terminal's font lacks show as boxes
-/// before the choice is saved.
+/// its state glyphs and agent badges, so glyphs the terminal's font lacks
+/// show as boxes before the choice is saved. The `nerd` set ends with
+/// where to read how to set the font up (the agent logos need Nerd Fonts
+/// 3.5 or newer).
 fn icons_note(form: &Form) -> String {
     let set = form.icons.resolve(|| form.nerd_font);
-    let sample: String = [
+    let states = [
         Icon::YourTurn,
         Icon::NeedsYou,
         Icon::Failed,
         Icon::Wrapped,
         Icon::Stopped,
-    ]
-    .iter()
-    .flat_map(|icon| [set.icon(*icon), ' '])
-    .collect();
+    ];
+    let glyphs = states.iter().map(|icon| set.icon(*icon));
+    let sample: String = glyphs
+        .chain(Kind::ALL.map(|kind| set.agent(kind)))
+        .flat_map(|glyph| [glyph, ' '])
+        .collect();
     let what = match (form.icons, form.nerd_font) {
-        (IconChoice::Auto, true) => "a Nerd Font is installed: nerd",
+        (IconChoice::Auto, true) => "Nerd Font found: nerd",
         (IconChoice::Auto, false) => "no Nerd Font is installed: ascii",
         (IconChoice::Ascii, _) => "plain ascii, right in every terminal",
         (IconChoice::Unicode, _) => "narrow unicode symbols",
-        (IconChoice::Nerd, _) => "needs a Nerd Font in your terminal",
+        (IconChoice::Nerd, _) => "needs Nerd Fonts 3.5+",
     };
-    format!("{what} · {}", sample.trim_end())
+    let help = match set {
+        IconSet::Nerd => " · box? README",
+        IconSet::Ascii | IconSet::Unicode => "",
+    };
+    format!("{what} · {}{help}", sample.trim_end())
 }
 
 /// Returns the editor choice row: the listed editors, then `other` for a

@@ -184,6 +184,10 @@ mc cannot see which font the terminal actually uses. So:
 - **The user wants the icons:** they need both: a Nerd Font installed, and
   that font selected in their terminal. A "Mono" variant keeps every icon
   one cell wide; with a "Propo" variant set `ascii`.
+- **Only the agent badge (or a Claude / OpenAI MCP server) is a box:** in
+  the `nerd` set the agent badge is the company's logo (`nf-cod-claude`
+  U+EC82, `nf-cod-openai` U+EC81), and those two glyphs need **Nerd Fonts
+  3.5 or newer**. The font is older. See "Agent logos" below.
 - **Over SSH:** the font is on the user's own machine, which mc cannot see;
   set `"icons": "nerd"` by hand if their terminal has one.
 - **Unsure:** try `bungkus-mc --icons nerd` and `--icons ascii` and keep the
@@ -198,6 +202,46 @@ find ~/Library/Fonts /Library/Fonts ~/.local/share/fonts ~/.fonts \
 
 Do not install a font unless the user asks; choosing the terminal font is
 theirs to do in the terminal's own settings.
+
+### Agent logos (Nerd Fonts 3.5+)
+
+With the `nerd` set the agent badge is the Claude or OpenAI logo instead
+of `C` / `X`. Whenever the user ends up on `nerd`, check that the terminal
+can draw the two logos; the user should see two logos, not boxes:
+
+```bash
+printf 'claude: \xee\xb2\x82  openai: \xee\xb2\x81\n'
+```
+
+If they are boxes, offer to fix it (ask first, this installs a font):
+
+1. Install the current symbols font. macOS with Homebrew:
+
+   ```bash
+   brew install --cask font-symbols-only-nerd-font
+   ```
+
+   If an upgrade fails with "the Font source … is not there", the old
+   cask points at files that are gone: run
+   `brew uninstall --cask --force font-symbols-only-nerd-font`, then
+   install again. Elsewhere, download `NerdFontsSymbolsOnly` from
+   <https://github.com/ryanoasis/nerd-fonts/releases> into the user's
+   font folder.
+2. **kitty** draws Nerd glyphs from its own bundled symbols font, which
+   can be older than 3.5. Add this to `~/.config/kitty/kitty.conf` so the
+   two logos come from the installed font, then reload the config
+   (`ctrl+cmd+,` on macOS, `ctrl+shift+f5` elsewhere) or restart kitty:
+
+   ```
+   symbol_map U+EC81-U+EC82 Symbols Nerd Font Mono
+   ```
+
+   Other terminals use the installed font once it is the terminal's font
+   or a fallback of it; restart the terminal.
+3. Run the `printf` check again.
+
+If the user does not want to install a font, the letters `C` / `X` come
+back with `"icons": "ascii"` or `"unicode"`.
 
 Borders and the mascot are not part of the icon set: they follow the
 locale (ASCII on a non-UTF-8 locale).
@@ -246,6 +290,7 @@ touched.
 | Symptom | Cause and fix |
 |---------|---------------|
 | Icons are boxes | step 5: set `"icons": "ascii"` or select the Nerd Font in the terminal |
+| Only the agent badge is a box | step 5 "Agent logos": the font is older than Nerd Fonts 3.5; in kitty also add the `symbol_map` line |
 | A Codex card says `hooks not trusted · /hooks in codex` | Codex asks once to trust mc's hooks: in the session, answer "Hooks need review" with "Trust all and continue". The trust is remembered while mc stays at the same path |
 | A Claude card says `output only` | no hook event arrived: the workspace-trust prompt in that session is not answered yet (answer it in INTERACT), or managed settings turn hooks off (`disableAllHooks` / `allowManagedHooksOnly`). The live pane still works; the card recovers on the first event |
 | Every card says `output only` | mc could not create its socket (the runtime directory is not usable or its path is too long). Check `$XDG_RUNTIME_DIR` / `$TMPDIR` |

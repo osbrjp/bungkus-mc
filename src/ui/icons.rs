@@ -181,6 +181,18 @@ impl IconSet {
         }
     }
 
+    /// Returns the badge of agent `kind` (DESIGN §5.4): the company's logo
+    /// in the `nerd` set (`nf-cod-claude`, `nf-cod-openai`), else the
+    /// agent's letter.
+    #[must_use]
+    pub(crate) const fn agent(self, kind: crate::agent::Kind) -> char {
+        match (self, kind) {
+            (Self::Nerd, crate::agent::Kind::Claude) => '\u{ec82}',
+            (Self::Nerd, crate::agent::Kind::Codex) => '\u{ec81}',
+            (Self::Ascii | Self::Unicode, _) => kind.badge(),
+        }
+    }
+
     /// Returns the spinner frames (DESIGN §3 "running").
     #[must_use]
     pub(crate) const fn spinner(self) -> &'static [char] {
