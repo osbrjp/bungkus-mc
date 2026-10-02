@@ -732,7 +732,28 @@ command unchanged.
 | routing consent | `${XDG_STATE_HOME:-~/.local/state}/bungkus/mc/consent.json` (`{"routing": "2026-09-30T…"}`) | 0600 |
 | debug log (`--debug` only) | `${XDG_STATE_HOME:-~/.local/state}/bungkus/mc/mc.log` | 0600 |
 | socket | `clean(${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}})/bungkus-mc-<uid>/<pid>.sock` | dir 0700, sock 0600 |
+| workspace overrides | `<workspace>/.bungkus-mc/config.json` (hand-edited, read only) | the user's |
+| workspace instructions | `<workspace>/.bungkus-mc/CLAUDE.md`, `<workspace>/.bungkus-mc/AGENTS.md` (read only) | the user's |
 | update-check cache | `${XDG_CACHE_HOME:-~/.cache}/bungkus-mc/latest-release` (macOS: `~/Library/Caches`, matching bungkus-cli's `os.UserCacheDir`) | 0600 |
+
+**The workspace's own folder.** `<workspace>/.bungkus-mc/` holds what is
+specific to one workspace; mc only reads it, at start and on every
+workspace switch. A hidden folder is never listed as a project.
+
+- `config.json` overrides the global file for that workspace, key by key:
+  `defaultAgent`, `worktrees`, `notify`, `cleanup.keep`. An unset key keeps
+  the global value; a file that cannot be parsed sets nothing and the
+  message line says so. Every other key is ignored there: what mc runs
+  (`agents.*.command`/`args`) and what belongs to the terminal (panes,
+  mouse, icons, motion, the exit chord, theme) stay global.
+- `CLAUDE.md` is appended to the system prompt of every Claude session mc
+  starts or resumes in the workspace (`--append-system-prompt-file
+  <path>`); `AGENTS.md` reaches every Codex session as the
+  `developer_instructions` config value (`-c developer_instructions=<TOML
+  string>`, the first 64 KiB, since the text travels in argv; it takes the
+  place of a `developer_instructions` in `~/.codex/config.toml`). Both add
+  to the instruction files the agents read from the project themselves.
+  Sessions started outside mc get neither.
 
 `config.json` (all keys optional; workspace can also be the first CLI argument):
 

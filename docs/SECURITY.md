@@ -81,6 +81,13 @@ agents already store.** No `tool_input` beyond a 200-char description, no
   `o` splits `$VISUAL`/`$EDITOR` on whitespace into an argv (no shell), and
   `t` runs `$SHELL` itself as the interactive terminal the user asked for;
   both come from the user's own environment, the same trust as the user.
+- A workspace's `.bungkus-mc/config.json` can come from elsewhere (a
+  clone, a shared drive), so it may only set `defaultAgent`, `worktrees`,
+  `notify` and `cleanup.keep`; agent commands and arguments are read from
+  the user's own `config.json` only. Its `CLAUDE.md`/`AGENTS.md` reach the
+  agents as instructions, the same trust as the instruction files the
+  agents already read from the projects in that workspace; the Codex text
+  is passed as one TOML-quoted argv value, never through a shell.
 - No raw agent bytes reach stdout (`print_stdout` is a denied lint; the
   emulator yields cells, and only printable cells + SGR reach the ratatui
   buffer); no string from a hook, prompt, directory name, process table or
