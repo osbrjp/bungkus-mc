@@ -176,8 +176,8 @@ pub(crate) enum Cmd {
     OpenEditor(PathBuf),
     /// Open this project folder with the desktop's opener (`O`).
     OpenFolder(PathBuf),
-    /// Start the terminal pane's shell in this folder (`t`).
-    OpenTerminal(PathBuf),
+    /// Start the terminal pane's shell for this owner in this folder (`t`).
+    OpenTerminal(crate::app::tools::Owner, PathBuf),
     /// Write the dragged pane widths to `config.json`.
     SaveWidths(crate::ui::Widths),
     /// Switch to this workspace (saved first in the list), then select this
@@ -336,9 +336,10 @@ pub(crate) struct Model {
     pub show_rest: bool,
     /// The editor whose popup shows (`o`; every key goes to it).
     pub editor: Option<Tool>,
-    /// The terminal pane's shells (`t`), one per folder it was opened in
-    /// (a project, or the workspace root); they keep running while hidden.
-    pub shells: Vec<(PathBuf, Tool)>,
+    /// The terminal pane's shells (`t`), one per session it was opened on
+    /// (or per folder, with no session selected); they keep running while
+    /// hidden.
+    pub shells: Vec<(crate::app::tools::Owner, Tool)>,
     /// How the terminal pane shows.
     pub term_view: TermView,
     /// The `quick` row that leads the projects list while quick sessions
@@ -880,6 +881,7 @@ impl Model {
                 let now = self.now;
                 self.state_dirty = true;
                 let selected = self.selected_card().map(|i| self.cards[i].id) == Some(id);
+                self.close_shell_of(id);
                 if let Some(card) = self.card_mut(id) {
                     card.exited(code, now);
                     if let State::Failed(reason) = &card.state {
@@ -1072,8 +1074,7 @@ impl Model {
             return Some(Cmd::KittyFocus(side));
         }
         if self.focus == Focus::Output && self.overlay.is_none() {
-            self.interact_key(key);
-            return None;
+            return self.interact_key(key);
         }
         self.message = None;
         if let Some(overlay) = self.overlay.take() {
@@ -1223,6 +1224,7 @@ impl Model {
                     .iter()
                     .find(|c| c.id == id)
                     .and_then(|c| Some((c.project.clone(), c.worktree.clone()?)));
+                self.close_shell_of(id);
                 self.cards.retain(|c| c.id != id);
                 self.card = self.card.min(self.project_cards().len().saturating_sub(1));
                 self.state_dirty = true;
@@ -1413,16 +1415,23 @@ impl Model {
     }
 
     /// Focuses pane `n`: 1 projects, 2 sessions, 3 output (INTERACT when
-    /// the selected session runs).
-    pub(crate) fn focus_pane(&mut self, n: u8) {
+    /// the selected session runs), 4 the terminal pane
+    /// ([`Model::focus_terminal`]).
+    ///
+    /// # Returns
+    ///
+    /// The command that starts the project's shell, for pane 4 without one.
+    pub(crate) fn focus_pane(&mut self, n: u8) -> Option<Cmd> {
         match n {
             1 => self.focus = Focus::Projects,
             2 => self.focus = Focus::Sessions,
-            _ => {
+            3 => {
                 self.focus = Focus::Sessions;
                 self.interact();
             }
+            _ => return self.focus_terminal(),
         }
+        None
     }
 
     /// Opens a past session of the selected project that mc did not start:
@@ -1647,7 +1656,7 @@ impl Model {
                 self.open_picker();
             }
             Action::Stop => return self.stop_selected(),
-            Action::Pane(n) => self.focus_pane(n),
+            Action::Pane(n) => return self.focus_pane(n),
             Action::TrashProject => self.ask_trash(),
             Action::NewProject => self.start_new_project(),
             Action::CleanWorktrees => self.ask_clean_worktrees(),
@@ -1658,6 +1667,7 @@ impl Model {
             Action::Editor => return self.open_editor(),
             Action::Folder => return self.open_folder(),
             Action::Terminal => return self.toggle_terminal(),
+            Action::CloseTerminal => self.close_terminal(),
             Action::Update => return self.start_update(),
             Action::MoveQuick => self.start_move(false),
             Action::MakeProject => self.start_move(true),

@@ -62,14 +62,16 @@ pub(crate) enum Action {
     Folder,
     /// Show or hide the terminal pane below the output pane.
     Terminal,
+    /// Close the selected project's shell.
+    CloseTerminal,
     /// Start a quick session at the workspace root (a popup).
     QuickSession,
     /// Move the selected quick session into a project.
     MoveQuick,
     /// Make a new project for the selected quick session.
     MakeProject,
-    /// Focus pane 1, 2 or 3 (projects, sessions, output) with cmd, alt or
-    /// ctrl plus the digit, whichever the terminal passes on.
+    /// Focus pane 1, 2, 3 or 4 (projects, sessions, output, terminal) with
+    /// cmd, alt or ctrl plus the digit, whichever the terminal passes on.
     Pane(u8),
     /// Open the settings screen on the workspace field.
     Workspace,
@@ -448,6 +450,14 @@ pub(crate) const BINDINGS: &[Binding] = &[
         scope: Scope::Global,
     },
     Binding {
+        keys: &pane_keys('4'),
+        label: "cmd/alt-4",
+        action: Action::Pane(4),
+        help: "terminal pane",
+        hint: None,
+        scope: Scope::Global,
+    },
+    Binding {
         keys: &[c('o')],
         label: "o",
         action: Action::Editor,
@@ -469,6 +479,14 @@ pub(crate) const BINDINGS: &[Binding] = &[
         action: Action::Terminal,
         help: "terminal on/off",
         hint: Some("t term"),
+        scope: Scope::Global,
+    },
+    Binding {
+        keys: &[Key::Press(KeyCode::Char('T'), KeyModifiers::SHIFT), c('T')],
+        label: "T",
+        action: Action::CloseTerminal,
+        help: "close terminal",
+        hint: None,
         scope: Scope::Global,
     },
     Binding {
@@ -645,6 +663,7 @@ impl Action {
             | Self::Redraw
             | Self::Update
             | Self::Terminal
+            | Self::CloseTerminal
             | Self::Quit => Group::App,
         }
     }
@@ -676,7 +695,7 @@ pub(crate) const AGENT_KEYS: [(&str, &str); 4] = [
     ("ctrl-\\", "leave · menu"),
     ("ctrl-h", "to sessions"),
     ("ctrl-m", "move (popup)"),
-    ("cmd/alt-1..3", "focus a pane"),
+    ("cmd/alt-1..4", "focus a pane"),
 ];
 
 #[cfg(test)]

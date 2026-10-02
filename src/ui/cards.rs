@@ -99,8 +99,8 @@ fn rows(inner: Rect, model: &Model, theme: Theme) -> Vec<(Line<'static>, Option<
                 (true, false) => Mark::Shown,
             };
             let card = &model.cards[i];
-            let repo = model.repos.get(&card.folder());
-            let mut lines = card_lines(card, repo, mark, width, spin, model.now, theme);
+            let around = (model.repos.get(&card.folder()), model.has_shell(card.id));
+            let mut lines = card_lines(card, around, mark, width, spin, model.now, theme);
             lines.push(Line::from(""));
             lines
         })
@@ -259,9 +259,12 @@ fn minutes(from: Instant, to: Instant) -> u64 {
 ///
 /// Column 0 carries `mark`: the focus marker on the title line, or the
 /// same bar the projects pane uses for its selected row on every line.
+/// `repo` is the state of the session's folder and `shell` whether the
+/// session has a shell in the terminal pane: `>_` before the title
+/// line's right-hand word.
 fn card_lines(
     card: &Card,
-    repo: Option<&crate::app::repo::Status>,
+    (repo, shell): (Option<&crate::app::repo::Status>, bool),
     mark: Mark,
     width: usize,
     spin: char,
@@ -286,7 +289,8 @@ fn card_lines(
         _ => word.to_owned(),
     };
     let id = card.id.short();
-    let fixed = 2 + 2 + 2 + id.len() + 1;
+    let shell_mark = if shell { ">_ " } else { "" };
+    let fixed = 2 + 2 + 2 + id.len() + 1 + shell_mark.len();
     let name = truncate(&card.name, width.saturating_sub(fixed + right.len() + 1));
     let pad = width.saturating_sub(fixed + name.chars().count() + right.len());
     let title_style = match (mark, muted) {
@@ -316,6 +320,7 @@ fn card_lines(
         Span::raw(" "),
         Span::styled(name, title_style),
         Span::raw(" ".repeat(pad)),
+        Span::styled(shell_mark, theme.fg(Token::Ok)),
         Span::styled(right, theme.fg(Token::FgMuted)),
     ]);
     let body_width = width.saturating_sub(4);
@@ -616,12 +621,16 @@ mod tests {
         );
         let repo = crate::app::repo::Status::parse("# branch.head main\n? x\n").unwrap();
         let text = |repo| -> Vec<String> {
-            card_lines(&card, repo, Mark::None, 36, '*', now, theme)
+            card_lines(&card, (repo, false), Mark::None, 36, '*', now, theme)
                 .iter()
                 .map(ToString::to_string)
                 .collect()
         };
         assert_eq!(text(None).len(), 3);
+        assert!(!text(None)[0].contains(">_"), "no shell: no mark");
+        let with_shell = card_lines(&card, (None, true), Mark::None, 36, '*', now, theme);
+        let title = with_shell[0].to_string();
+        assert!(title.ends_with(" >_ 0m") && title.chars().count() == 36);
         let lines = text(Some(&repo));
         assert_eq!(lines.len(), 4);
         assert_eq!(lines[2].trim(), "main · 1 changed");
@@ -642,7 +651,7 @@ mod tests {
         card.mcp = vec!["github".into(), "miko".into(), "slack".into()];
         card.mcp_used = vec!["miko".into(), "github".into()];
         let line = |theme, mark, n: usize| {
-            card_lines(&card, None, mark, 36, '*', now, theme)[n]
+            card_lines(&card, (None, false), mark, 36, '*', now, theme)[n]
                 .to_string()
                 .trim()
                 .to_owned()
@@ -654,7 +663,7 @@ mod tests {
         assert_eq!(line(nerd, Mark::Focused, 7), "mcp idle slack");
         card.mcp_used.clear();
         assert_eq!(
-            card_lines(&card, None, Mark::None, 36, '*', now, theme).len(),
+            card_lines(&card, (None, false), Mark::None, 36, '*', now, theme).len(),
             3
         );
     }

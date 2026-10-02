@@ -492,7 +492,7 @@ whether there is a header line.
 ### 5.2 Card anatomy (sessions pane, inner width 36)
 
 ```
-┃! C #a3f1 write proposal        12m   gutter · state glyph · agent badge · #id · title · right: elapsed or state word
+┃! C #a3f1 write proposal        12m   gutter · state glyph · agent badge · #id · title · right: `>_` (it has a shell) · elapsed or state word
 ┃  needs you · permission: Bash        line 2: state word · detail (tool / prompt kind / exit line) [· model when routed]
 ┃  i110-fix · 3 changed ↑2 ↓1          git line (only in a repository): branch · `clean` or changed files · ahead/behind upstream
 ┃  mcp github · slack                  MCP line (only with MCP servers in use): `mcp` + names; glyphs in the nerd set
@@ -705,7 +705,10 @@ told, §9) shows in the same bubble for 8 s, cut to the strip's width; a
 click's quote goes first. With no session the
 pane shows the big centred empty-state mascot as before. Smaller screens
 keep the corner mascot below. Pane titles carry their `cmd`/`alt`/`ctrl`
-digit: `[1] projects`, `[2] sessions`, `[3] output`.
+digit: `[1] projects`, `[2] sessions`, `[3] output`, `[4] terminal`. While
+the terminal pane is hidden and the selected session's shell still runs,
+the output pane's bottom border carries `[4] terminal · t shows · T closes`
+in `fg-muted`.
 
 Parts and fixed brand colours (exempt from theme tokens — they are the same
 in dark, light and painted/terminal modes):
@@ -1204,7 +1207,8 @@ the same frame.
 | `,`                                               | settings: workspace, default agent, theme (§5.8) |
 | `o`                                               | open the selected project in the user's editor (the `editor` setting, else `$VISUAL`, else `$EDITOR`): `vi`/`vim`/`nvim` run in a popup over the panes (mode word `EDITOR`, every key goes to it, it closes when the editor quits); any other editor is started on its own with the folder as its argument; with none of the three set, the first of `nvim` / `vim` / `vi` on `PATH` in the same popup, else the desktop's opener (`open` / `xdg-open`) |
 | `O`                                               | open the selected project's folder with the desktop's opener (`open` / `xdg-open`): Finder or the file manager |
-| `t`                                               | show / hide the terminal pane: the user's `$SHELL` in the lower third of the output pane, in mc's own emulator (no tmux or other program). Every project has its own shell, started in its folder the first time `t` is pressed there; the pane follows the selected project and is absent on one without a shell. Showing it gives it the keys (mode word `TERMINAL`); `ctrl-\` gives them back to mc and leaves it showing; `ctrl-h` goes left to the sessions pane and `ctrl-k` up to the output pane (INTERACT), from where `ctrl-j` comes back down while the pane shows; `ctrl-j`/`ctrl-l` in the terminal stay the shell's (enter, clear screen); hiding keeps the shells running; `exit` closes one |
+| `t`                                               | show / hide the terminal pane: the user's `$SHELL` in the lower third of the output pane, in mc's own emulator (no tmux or other program). Every session has its own shell, started in the folder the session works in (its worktree when it has one) the first time `t` is pressed on it; the pane follows the selected session and is absent on one without a shell, and its title names the session. With no session of mc's selected (a project without sessions, an outside session) the shell belongs to the project folder, or to the workspace root on a row that is no folder. A session's shell does not outlive it: when the session ends (it exits, `x` stops it) or is forgotten, mc hangs up on its shell. A card whose session has a shell carries `>_` in `ok` before the right-hand word of its title line, shown or hidden. Showing it gives it the keys (mode word `TERMINAL`); `ctrl-\` gives them back to mc and leaves it showing; `ctrl-h` goes left to the sessions pane and `ctrl-k` up to the output pane (INTERACT), from where `ctrl-j` comes back down while the pane shows; `ctrl-j`/`ctrl-l` in the terminal stay the shell's (enter, clear screen), except in kitty, where they move to the kitty window below / to the right as from the other panes; `cmd`/`alt`/`ctrl` + `4` shows the pane and gives it the keys from any pane (starting the shell when there is none), and + `1`–`3` leave it for that pane; hiding keeps the shells running and leaves a `[4] terminal` marker on the output pane's bottom border; `exit` (or `ctrl-d`) closes one, and when it had the keys they go up to the output pane, as `ctrl-k` does |
+| `T`                                               | close the selected session's shell, shown or hidden: mc hangs up on it (SIGHUP), as a terminal window that closes does; the pane goes when the shell has ended |
 | `?`                                               | help                                    |
 | `R`                                               | redraw |
 | `q` · `ctrl-c`                                    | quit (confirm if anything is running)   |
@@ -1290,7 +1294,7 @@ Click focuses a pane / selects a row (and exits INTERACT if the click is
 outside the output pane); a click on a project or a session selects it, and a click on the session that is already selected enters it like `enter`, a click on the
 `+ <n> more` line shows or hides the rest of the projects; a click on the
 terminal pane gives it the keys and a click anywhere else takes them back;
-a click on the output pane focuses it, i.e. enters INTERACT; wheel scrolls the pane under the pointer. Text selection: with mouse reporting on,
+a click on the output pane focuses it, i.e. enters INTERACT; wheel scrolls the pane under the pointer (the terminal pane too: its shell's scrollback, or the event goes to a program in it that asked for the mouse). Text selection: with mouse reporting on,
 terminals need a modifier to select (kitty/Ghostty/iTerm2 `shift`-drag,
 WezTerm/Alacritty `shift`, Terminal.app `option`-drag) — shown in the help
 overlay; `--no-mouse` / `mouse: false` turns reporting off entirely.

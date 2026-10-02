@@ -12,6 +12,7 @@
 ┃                    ║  z                    zoom output     /                    search projects ║                    │
 ┃                    ║  1-9                  jump to project cmd/alt-1            projects pane   ║                    │
 ┃                    ║  cmd/alt-2            sessions pane   cmd/alt-3            output pane     ║                    │
+┃                    ║  cmd/alt-4            terminal pane                                        ║                    │
 ┃                    ║                                                                            ║                    │
 ┃                    ║  sessions                                                                  ║                    │
 ┃                    ║  n                    new session     r                    past sessions   ║                    │
@@ -20,22 +21,21 @@
 ┃                    ║  projects                                                                  ║                    │
 ┃                    ║  a                    new project     V                    select lines    ║                    │
 ┃                    ║  u                    undo dd         dd                   to Trash        ║                    │
-┃                    ║  c                    clean worktrees e                    more projects   ║                    │
-┃                    ║  o                    open in editor  O                    open the folder ║.                   │
-┃                    ║                                                                            ║n                   │
+┃                    ║  c                    clean worktrees e                    more projects   ║.                   │
+┃                    ║  o                    open in editor  O                    open the folder ║n                   │
+┃                    ║                                                                            ║                    │
 ┃                    ║  workspace & app                                                           ║                    │
 ┃                    ║  U                    update+restart  t                    terminal on/off ║                    │
-┃                    ║  w                    workspaces      ,                    settings        ║                    │
-┃                    ║  R                    redraw          ? space              this help       ║                    │
-┃                    ║  q ctrl-c             quit                                                 ║                    │
+┃                    ║  T                    close terminal  w                    workspaces      ║                    │
+┃                    ║  ,                    settings        R                    redraw          ║                    │
+┃                    ║  ? space              this help       q ctrl-c             quit            ║                    │
 ┃                    ║                                                                            ║                    │
 ┃                    ║  agent pane & quick popup                                                  ║                    │
 ┃                    ║  ctrl-\               leave · menu    ctrl-h               to sessions     ║                    │
-┃                    ║  ctrl-m               move (popup)    cmd/alt-1..3         focus a pane    ║                    │
+┃                    ║  ctrl-m               move (popup)    cmd/alt-1..4         focus a pane    ║                    │
 ┃                    ║                                                                            ║                    │
 ┃                    ║                                         press a key to run it · esc close  ║                    │
 ┃                    ╚════════════════════════════════════════════════════════════════════════════╝                    │
-┃                    ┃│                                    ││                                                          │
 ┗━━━━━━━━━━━━━━━━━━━━┛└────────────────────────────────────┘└──────────────────────────────────────────────────────────┘
  NORMAL  enter → sessions · n new · c clean · e more · o edit · t term · ? keys
 cursor: hidden

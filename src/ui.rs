@@ -317,13 +317,18 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
     }
     if let (Some(rect), Some(shell)) = (layout.terminal, model.shell()) {
         let focused = model.term_view == TermView::Focused;
-        let name = model.selected_project().map_or("", |p| p.name.as_str());
+        let card = model.selected_card().map(|i| &model.cards[i]);
+        let project = model.selected_project().map_or("", |p| p.name.as_str());
+        let name = card.map_or(project, |c| c.name.as_str());
         let title = if focused {
-            format!("terminal · {name} · {} to leave", model.exit_chord.label())
+            let leave = model.exit_chord.label();
+            format!("[4] terminal · {name} · {leave} to leave")
         } else {
-            format!("terminal · {name} · t hides")
+            format!("[4] terminal · {name} · t hides · T closes")
         };
         output::draw_tool(frame, rect, &title, &shell.pty, focused, theme);
+    } else if let (Some(rect), Some(_)) = (layout.output, model.shell()) {
+        draw_hidden_terminal(frame, rect, theme);
     }
     draw_getah(frame, getah, model, theme);
     if model.popup.is_some() {
@@ -800,6 +805,20 @@ fn draw_search(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
         Line::styled(" / search", theme.fg(Token::FgMuted))
     };
     frame.render_widget(line, area);
+}
+
+/// Marks a hidden terminal pane whose shell still runs: a label on the
+/// bottom border of the output pane `output` (DESIGN §8.1).
+fn draw_hidden_terminal(frame: &mut Frame, output: Rect, theme: Theme) {
+    let label = " [4] terminal · t shows · T closes ";
+    let width = u16::try_from(label.chars().count()).unwrap_or(u16::MAX);
+    let at = Rect {
+        x: output.x + 1,
+        y: output.bottom().saturating_sub(1),
+        width: width.min(output.width.saturating_sub(2)),
+        height: 1,
+    };
+    frame.render_widget(Span::styled(label, theme.fg(Token::FgMuted)), at);
 }
 
 /// Returns the last `max` characters of `s`, so the end of a long search

@@ -441,7 +441,7 @@ fn run_cmd(
         Cmd::CleanWorktrees(project) => clean_worktrees(model, &project, tx),
         Cmd::OpenEditor(project) => open_editor(model, &project, tx),
         Cmd::OpenFolder(project) => open_folder(model, project),
-        Cmd::OpenTerminal(dir) => open_terminal(model, dir, tx),
+        Cmd::OpenTerminal(owner, dir) => open_terminal(model, owner, &dir, tx),
         Cmd::SaveWidths(widths) => {
             if let Some(path) = &env.config_path
                 && let Err(e) = config::save_widths(path, widths)
@@ -899,13 +899,18 @@ fn spawn_tool(
     }
 }
 
-/// Starts the terminal pane's shell (`$SHELL`, else `/bin/sh`) in `dir`
-/// and gives it the keys.
-fn open_terminal(model: &mut Model, dir: PathBuf, tx: &SyncSender<AppEvent>) {
+/// Starts the terminal pane's shell (`$SHELL`, else `/bin/sh`) for `owner`
+/// in `dir` and gives it the keys.
+fn open_terminal(
+    model: &mut Model,
+    owner: crate::app::tools::Owner,
+    dir: &Path,
+    tx: &SyncSender<AppEvent>,
+) {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
     let size = ui::terminal_size(model.screen, model.zoom, model.widths);
-    if let Some(tool) = spawn_tool(model, &[shell], &dir, size, tx) {
-        model.shells.push((dir, tool));
+    if let Some(tool) = spawn_tool(model, &[shell], dir, size, tx) {
+        model.shells.push((owner, tool));
         model.term_view = TermView::Focused;
     }
 }
