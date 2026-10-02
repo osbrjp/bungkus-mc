@@ -730,7 +730,7 @@ fn launch(
         ));
         return;
     };
-    let extra_args = extra_args(model, &agent.args, kind, worktree.as_deref());
+    let extra_args = extra_args(model, &env.config, kind, worktree.as_deref());
     card.worktree = worktree;
     let argv = agent::argv(kind, &program, &extra_args, &launch);
     let id = launch.id.0.hyphenated().to_string();
@@ -908,14 +908,22 @@ fn worktree_for(
 
 /// Returns what goes between the agent's program and mc's own arguments,
 /// for a new session and a resumed one alike: the configured `args`,
-/// `--worktree <name>` if any, and the open workspace's own instructions
-/// (`.bungkus-mc/CLAUDE.md`, `.bungkus-mc/AGENTS.md`; see
-/// [`agent::instruction_args`]).
-fn extra_args(model: &Model, args: &[String], kind: Kind, worktree: Option<&str>) -> Vec<String> {
-    let instructions = model.root().map_or_else(Vec::new, |root| {
-        agent::instruction_args(kind, &root.join(config::WORKSPACE_DIR))
-    });
-    [worktree_args(args, worktree), instructions].concat()
+/// `--worktree <name>` if any, and the instructions (the built-in rules
+/// unless `instructions` is off in the config, then the open workspace's
+/// `.bungkus-mc/CLAUDE.md` / `AGENTS.md`; see [`agent::instruction_args`]).
+fn extra_args(
+    model: &Model,
+    config: &config::Config,
+    kind: Kind,
+    worktree: Option<&str>,
+) -> Vec<String> {
+    let dir = model.root().map(|root| root.join(config::WORKSPACE_DIR));
+    let instructions = agent::instruction_args(kind, dir.as_deref(), config.instructions);
+    [
+        worktree_args(&config.agents.get(kind).args, worktree),
+        instructions,
+    ]
+    .concat()
 }
 
 /// Returns the agent's extra arguments plus `--worktree <name>`, if any.

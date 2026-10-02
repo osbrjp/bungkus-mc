@@ -86,9 +86,11 @@ agents already store.** No `tool_input` beyond a 200-char description, no
   clone, a shared drive), so it may only set `defaultAgent`, `worktrees`,
   `notify` and `cleanup.keep`; agent commands and arguments are read from
   the user's own `config.json` only. Its `CLAUDE.md`/`AGENTS.md` reach the
-  agents as instructions, the same trust as the instruction files the
-  agents already read from the projects in that workspace; the Codex text
-  is passed as one TOML-quoted argv value, never through a shell.
+  agents as instructions (after mc's built-in rules), the same trust as
+  the instruction files the agents already read from the projects in that
+  workspace. The text is one argv value for Claude and one TOML-quoted
+  argv value for Codex, never through a shell; argv is visible to the
+  user's other processes, so instruction files must hold no secret.
 - No raw agent bytes reach stdout (`print_stdout` is a denied lint; the
   emulator yields cells, and only printable cells + SGR reach the ratatui
   buffer); no string from a hook, prompt, directory name, process table or
