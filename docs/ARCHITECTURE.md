@@ -242,6 +242,21 @@ A thread lists them every 5 s (`src/external.rs`) and sends
   project like `r` does, so it becomes an ordinary card. Codex rows are
   refused: nothing tells mc which Codex session a process is.
 
+### 3.5 The user's tools: editor popup and terminal pane
+
+`o` and `t` run programs of the user's, not agents (`src/app/tools.rs`):
+vim (`$VISUAL`/`$EDITOR` when it is `vi`/`vim`/`nvim`, with `.` in the
+project) in the popup, and `$SHELL` in the terminal pane below the output
+pane, one shell per project, kept by folder. mc needs no other program
+for either (no tmux, no terminal app): both use its own PTY and emulator. Each is a `Session` (same PTY, emulator, threads and scrubbed
+environment as an agent) held by the model next to the cards, not as one:
+no card, no hooks, no usage, nothing in `sessions.json`, not in the stop
+dialog. Its PTY events are told apart by id. While the terminal pane
+shows (the selected project has a shell and `t` did not hide it), the output pane and every session's PTY are a third shorter. A
+tool ends when its program exits or when mc does (the PTY closes, the
+kernel sends SIGHUP). Any other editor is spawned once with an argument
+vector, null stdio and its own process group, and left alone.
+
 ## 4. Data flow
 
 ### 4.1 Live output

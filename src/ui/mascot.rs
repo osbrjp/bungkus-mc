@@ -52,6 +52,9 @@ pub(crate) const MINI_HEIGHT: u16 = 3;
 /// How long a click on the mascot shows its quote (DESIGN §5.7).
 pub(crate) const POKE: std::time::Duration = std::time::Duration::from_secs(4);
 
+/// How long the strip mascot's bubble shows a notification (DESIGN §5.7).
+pub(crate) const NOTICE: std::time::Duration = std::time::Duration::from_secs(8);
+
 /// What the mascot says when clicked, one picked at random.
 pub(crate) const QUOTES: &[&str] = &[
     "Bungkus dulu, makan kemudian.",

@@ -19,13 +19,16 @@ use crate::app::form::{Field, Form, FormKind, Outcome};
 use crate::app::picker::{self, Picker};
 use crate::app::sessions::{self, Card, HOOK_GRACE, STOP_GRACE, State};
 use crate::app::stop::{StopDialog, StopKind};
+use crate::app::tools::{TermView, Tool};
 use crate::external::External;
 use crate::ipc::Wire;
 use crate::proc::Proc;
 use crate::store::config::Settings;
 use crate::term::keys::Chord;
+use crate::term::session::Session;
 use crate::term::{PtyEvent, SessionId};
 use crate::ui::keymap::{self, Action, Lookup, Scope};
+use crate::ui::mascot::NOTICE;
 use crate::ui::theme::{Theme, ThemeChoice};
 use crate::workspace::Project;
 
@@ -104,6 +107,16 @@ pub(crate) struct LaunchRequest {
     pub replaces: Option<SessionId>,
 }
 
+/// The line of the projects list that shows or hides the projects that
+/// are not recent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Rest {
+    /// The row it sits before: the first project that is not recent.
+    pub at: usize,
+    /// How many projects are not recent.
+    pub count: usize,
+}
+
 /// Something the host terminal should announce (DESIGN §9).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Alert {
@@ -132,6 +145,10 @@ pub(crate) enum Cmd {
     Signal(Vec<Proc>, Signal),
     /// Take a background process snapshot.
     Scan,
+    /// Open this project folder in the user's editor (`o`).
+    OpenEditor(PathBuf),
+    /// Start the terminal pane's shell in this folder (`t`).
+    OpenTerminal(PathBuf),
     /// Write the dragged pane widths to `config.json`.
     SaveWidths(crate::ui::Widths),
     /// Switch to this workspace (saved first in the list), then select this
@@ -279,11 +296,23 @@ pub(crate) struct Model {
     pub popup: Option<SessionId>,
     /// Whether the popup's menu (`ctrl-\`: hide, move, new project) is open.
     pub popup_menu: bool,
+    /// Whether the projects that are not recent show (`e`).
+    pub show_rest: bool,
+    /// The editor whose popup shows (`o`; every key goes to it).
+    pub editor: Option<Tool>,
+    /// The terminal pane's shells (`t`), one per folder it was opened in
+    /// (a project, or the workspace root); they keep running while hidden.
+    pub shells: Vec<(PathBuf, Tool)>,
+    /// How the terminal pane shows.
+    pub term_view: TermView,
     /// The `quick` row that leads the projects list while quick sessions
     /// exist; its path is the workspace root.
     pub quick_row: Project,
     /// When the band mascot was last clicked and which quote it says.
     pub poke: Option<(Instant, usize)>,
+    /// The last notification and when it was raised; the band mascot says
+    /// it for [`crate::ui::mascot::NOTICE`].
+    pub notice: Option<(Instant, String)>,
     /// The "elsewhere" row that ends the projects list while an outside
     /// session runs in no project folder; its path is empty.
     pub elsewhere: Project,
@@ -364,6 +393,7 @@ impl Model {
             repos: std::collections::HashMap::new(),
             repo_scan: false,
             poke: None,
+            notice: None,
             popup: None,
             last_trash: Vec::new(),
             workspaces: Vec::new(),
@@ -374,6 +404,10 @@ impl Model {
             kitty: false,
             visual: None,
             popup_menu: false,
+            show_rest: false,
+            editor: None,
+            shells: Vec::new(),
+            term_view: TermView::Hidden,
             debug_keys: false,
             want_project: None,
             quick_row: Project {
@@ -399,12 +433,22 @@ impl Model {
         }
     }
 
-    /// Returns the projects matching the filter, in display order, then
-    /// the [`Model::elsewhere`] row while an outside session runs in no
-    /// project folder; the `quick` row (number 0) leads while quick
-    /// sessions exist.
-    #[must_use]
-    pub(crate) fn visible(&self) -> Vec<&Project> {
+    /// Returns the rows of the projects list in display order and, when
+    /// the projects are grouped, their "rest" line.
+    ///
+    /// The `quick` row (number 0) leads while quick sessions exist, and the
+    /// [`Model::elsewhere`] row ends the list while an outside session runs
+    /// in no project folder. Between them, recent projects come first: the
+    /// ones with a session (of mc's, running or finished, or an outside
+    /// one), a repository and its worktrees counting together. The rest
+    /// hide behind the rest line until [`Model::show_rest`].
+    ///
+    /// Nothing is grouped while a search is typed (it finds every
+    /// project), or when no project or every project is recent.
+    fn grouped(&self) -> (Vec<&Project>, Option<Rest>) {
+        fn family(project: &Project) -> &str {
+            project.worktree_of.as_deref().unwrap_or(&project.name)
+        }
         let needle = self.filter.to_lowercase();
         let elsewhere = (!self.external_in(Path::new("")).is_empty()).then_some(&self.elsewhere);
         let quick = self
@@ -412,12 +456,91 @@ impl Model {
             .iter()
             .any(|c| self.is_quick(c))
             .then_some(&self.quick_row);
-        quick
+        let recent: std::collections::HashSet<&str> = self
+            .projects
+            .iter()
+            .filter(|p| {
+                self.cards.iter().any(|c| c.project == p.path)
+                    || !self.external_in(&p.path).is_empty()
+            })
+            .map(family)
+            .collect();
+        let (first, rest): (Vec<&Project>, Vec<&Project>) = self
+            .projects
+            .iter()
+            .partition(|p| recent.contains(family(p)));
+        if !needle.is_empty() || first.is_empty() || rest.is_empty() {
+            let all = quick
+                .into_iter()
+                .chain(&self.projects)
+                .chain(elsewhere)
+                .filter(|p| p.name.to_lowercase().contains(&needle))
+                .collect();
+            return (all, None);
+        }
+        let group = Rest {
+            at: usize::from(quick.is_some()) + first.len(),
+            count: rest.len(),
+        };
+        let rest = if self.show_rest { rest } else { Vec::new() };
+        let rows = quick
             .into_iter()
-            .chain(&self.projects)
+            .chain(first)
+            .chain(rest)
             .chain(elsewhere)
-            .filter(|p| p.name.to_lowercase().contains(&needle))
-            .collect()
+            .collect();
+        (rows, Some(group))
+    }
+
+    /// Returns the rows of the projects list: the projects matching the
+    /// search, or the recent ones and (when shown) the rest, with the
+    /// `quick` and elsewhere rows around them (see [`Model::rest`]).
+    #[must_use]
+    pub(crate) fn visible(&self) -> Vec<&Project> {
+        self.grouped().0
+    }
+
+    /// Returns the rest line of the projects list, when recent projects
+    /// are grouped apart from the others.
+    #[must_use]
+    pub(crate) fn rest(&self) -> Option<Rest> {
+        self.grouped().1
+    }
+
+    /// Shows or hides the projects that are not recent (`e`, or a click on
+    /// the rest line), keeping the selected project selected while it
+    /// stays in the list.
+    pub(crate) fn toggle_rest(&mut self) {
+        if self.rest().is_none() {
+            return;
+        }
+        let path = self.selected_project().map(|p| p.path.clone());
+        self.show_rest = !self.show_rest;
+        let visible = self.visible();
+        let last = visible.len().saturating_sub(1);
+        let kept = path.and_then(|path| visible.iter().position(|p| p.path == path));
+        if kept.is_none() {
+            self.card = 0;
+        }
+        self.selected = kept.unwrap_or(last);
+    }
+
+    /// Selects the project at `path`, showing the rest when it hides
+    /// there.
+    ///
+    /// # Returns
+    ///
+    /// Whether the project is in the list.
+    pub(crate) fn select_project(&mut self, path: &Path) -> bool {
+        let row = |m: &Self| m.visible().iter().position(|p| p.path == path);
+        if row(self).is_none() && self.rest().is_some() {
+            self.show_rest = true;
+        }
+        let row = row(self);
+        if let Some(row) = row {
+            self.selected = row;
+        }
+        row.is_some()
     }
 
     /// Returns the selected project, if any is visible.
@@ -522,7 +645,8 @@ impl Model {
         let syncs = self
             .cards
             .iter()
-            .filter_map(|c| c.pty.as_ref()?.sync_deadline());
+            .filter_map(|c| c.pty.as_ref()?.sync_deadline())
+            .chain(self.tools().filter_map(Session::sync_deadline));
         let stops = self
             .cards
             .iter()
@@ -541,9 +665,11 @@ impl Model {
         let plans = self.plan_deadline();
         let takeover = self.take_over_deadline();
         let poke = self.poke.map(|(at, _)| at + crate::ui::mascot::POKE);
+        let notice = self.notice.as_ref().map(|(at, _)| *at + NOTICE);
         syncs
             .chain(takeover)
             .chain(poke)
+            .chain(notice)
             .chain(stops)
             .chain(silent)
             .chain(tick)
@@ -619,12 +745,10 @@ impl Model {
         match event {
             AppEvent::Tick => {
                 self.frame = self.frame.wrapping_add(1);
-                if self
+                self.poke = self
                     .poke
-                    .is_some_and(|(at, _)| self.now >= at + crate::ui::mascot::POKE)
-                {
-                    self.poke = None;
-                }
+                    .filter(|(at, _)| self.now < *at + crate::ui::mascot::POKE);
+                self.notice = self.notice.take().filter(|(at, _)| self.now < *at + NOTICE);
                 if let Some(cmd) = self.take_over_due() {
                     return Some(cmd);
                 }
@@ -660,7 +784,9 @@ impl Model {
             AppEvent::Updated(result) => return self.updated(result),
             AppEvent::Worktrees(text) => self.message = Some(text),
             AppEvent::Pty(PtyEvent::Output(id, bytes)) => {
-                if let Some(pty) = self.card_mut(id).and_then(|c| c.pty.as_mut()) {
+                if let Some(pty) = self.tool_mut(id) {
+                    pty.advance(&bytes);
+                } else if let Some(pty) = self.card_mut(id).and_then(|c| c.pty.as_mut()) {
                     pty.advance(&bytes);
                 }
             }
@@ -670,6 +796,7 @@ impl Model {
                 }
             }
             AppEvent::Usage(id, usage) => self.codex_usage(id, usage),
+            AppEvent::Pty(PtyEvent::Exited(id, code)) if self.tool_exited(id, code) => {}
             AppEvent::Pty(PtyEvent::Exited(id, code)) => {
                 crate::debug_log!("{} exited: {code:?}", id.short());
                 let now = self.now;
@@ -679,6 +806,7 @@ impl Model {
                     card.exited(code, now);
                     if let State::Failed(reason) = &card.state {
                         let text = format!("{} failed: {reason}", card.id.short());
+                        self.notice = Some((now, text.clone()));
                         self.alerts.push(Alert::Failed(text));
                     }
                 }
@@ -739,6 +867,7 @@ impl Model {
         );
         if card.state == State::NeedsYou && before != State::NeedsYou {
             let text = format!("{} needs you: {}", card.id.short(), card.name);
+            self.notice = Some((now, text.clone()));
             self.alerts.push(Alert::NeedsYou(text));
         }
         let first_bind = !bound && card.agent_session.is_some();
@@ -855,6 +984,11 @@ impl Model {
         if let (Some(id), None) = (self.popup, &self.overlay) {
             self.popup_key(id, key);
             return None;
+        }
+        if self.overlay.is_none()
+            && let std::ops::ControlFlow::Break(cmd) = self.tool_key(key)
+        {
+            return cmd;
         }
         if let Some(side) = self.kitty_edge(key) {
             return Some(Cmd::KittyFocus(side));
@@ -1407,6 +1541,10 @@ impl Model {
         if let Some(delta) = moved {
             match self.focus {
                 Focus::Projects => {
+                    // Down on the last recent project opens the rest.
+                    if delta == 1 && self.rest().is_some_and(|r| r.at == self.selected + 1) {
+                        self.show_rest = true;
+                    }
                     self.selected = Self::step(self.selected, delta, self.visible().len());
                     self.card = 0;
                 }
@@ -1441,15 +1579,7 @@ impl Model {
             {
                 self.open_picker();
             }
-            Action::Stop => {
-                if let Some(ext) = self.selected_external().cloned() {
-                    self.overlay = Some(Overlay::StopOutside(ext));
-                    return None;
-                }
-                if let Some(i) = self.selected_card().filter(|&i| self.cards[i].running()) {
-                    return Some(Cmd::OpenStop(StopKind::Session(self.cards[i].id)));
-                }
-            }
+            Action::Stop => return self.stop_selected(),
             Action::Pane(n) => self.focus_pane(n),
             Action::TrashProject => self.ask_trash(),
             Action::NewProject => self.start_new_project(),
@@ -1457,6 +1587,9 @@ impl Model {
             Action::UndoTrash => return self.undo_trash(),
             Action::Visual => self.visual = self.visual.xor(Some(self.selected)),
             Action::QuickSession => return self.quick_session(),
+            Action::ToggleRest => self.toggle_rest(),
+            Action::Editor => return self.open_editor(),
+            Action::Terminal => return self.toggle_terminal(),
             Action::Update => return self.start_update(),
             Action::MoveQuick => self.start_move(false),
             Action::MakeProject => self.start_move(true),
@@ -1492,6 +1625,17 @@ impl Model {
             | Action::HalfUp => {}
         }
         None
+    }
+
+    /// Asks before stopping the selected session (`x`): an outside one
+    /// with its own dialog, one of mc's (when it runs) with the stop dialog.
+    fn stop_selected(&mut self) -> Option<Cmd> {
+        if let Some(ext) = self.selected_external().cloned() {
+            self.overlay = Some(Overlay::StopOutside(ext));
+            return None;
+        }
+        let i = self.selected_card().filter(|&i| self.cards[i].running())?;
+        Some(Cmd::OpenStop(StopKind::Session(self.cards[i].id)))
     }
 
     /// Asks whether to remove the selected project's unused worktrees
@@ -1540,12 +1684,16 @@ impl Model {
         self.scan_error = error;
         self.filter.clear();
         let wanted = self.want_project.take();
-        self.selected = self
+        let wanted = self
             .projects
             .iter()
-            .position(|p| Some(&p.name) == wanted.as_ref())
-            .or_else(|| self.projects.iter().position(|p| cwd.starts_with(&p.path)))
-            .unwrap_or(0);
+            .find(|p| Some(&p.name) == wanted.as_ref())
+            .or_else(|| self.projects.iter().find(|p| cwd.starts_with(&p.path)))
+            .map(|p| p.path.clone());
+        self.selected = 0;
+        if let Some(path) = wanted {
+            self.select_project(&path);
+        }
         self.card = 0;
         self.quick_row.path.clone_from(&settings.workspace);
         self.settings = Some(settings);
@@ -2031,7 +2179,7 @@ pub(crate) mod tests {
         assert_eq!(req.kind, Kind::Claude);
         assert_eq!(req.project, PathBuf::from("/Users/me/Works/OSBR/kedai-web"));
         assert_eq!(req.launch.prompt.as_deref(), Some("-fix it"));
-        assert_eq!(req.launch.name.as_deref(), Some("-fix it"));
+        assert_eq!(req.launch.name, None, "the agent names the session");
     }
 
     #[test]
@@ -2099,6 +2247,12 @@ pub(crate) mod tests {
         ));
         assert_eq!(m.cards[0].state, State::NeedsYou);
         assert_eq!(m.alerts.len(), 1);
+        assert!(
+            m.notice
+                .as_ref()
+                .is_some_and(|(_, text)| text.ends_with("needs you: s")),
+            "the mascot says it too"
+        );
         assert_eq!(crate::ui::title(&m), "bungkus-mc · 1 needs you");
         m.update(hook_line(
             id,
@@ -2193,8 +2347,15 @@ pub(crate) mod tests {
         let (first, _w1) = with_session(&mut m, "one");
         m.update(press(KeyCode::Char('\x1c')));
         m.focus = Focus::Projects;
+        assert!(m.rest().is_some() && !m.show_rest, "b is folded away");
         m.update(press(KeyCode::Char('j')));
+        assert!(
+            m.show_rest,
+            "down on the last recent project opens the rest"
+        );
+        assert_eq!(m.selected, 1);
         let (second, _w2) = with_session(&mut m, "two");
+        assert!(m.rest().is_none(), "every project is recent now");
         for id in [first, second] {
             m.update(hook_line(
                 id,

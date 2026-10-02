@@ -17,9 +17,10 @@ pub(crate) mod repo;
 pub(crate) mod sessions;
 pub(crate) mod stop;
 mod takeover;
+pub(crate) mod tools;
 pub(crate) mod workspaces;
 
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, RecvTimeoutError, SyncSender};
@@ -37,9 +38,10 @@ use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use crate::agent::{self, Kind, find_on_path};
 use crate::app::model::{Alert, Cmd, LaunchRequest, Model};
 use crate::app::sessions::{Card, State};
+use crate::app::tools::{Opener, TermView, Tool};
 use crate::ipc::server;
 use crate::store::config::{self, Config, Notify};
-use crate::term::session::{Colors, Session, child_env};
+use crate::term::session::{Colors, Session, Size, child_env};
 use crate::term::{PtyEvent, SessionId};
 use crate::ui::sanitise::sanitise;
 use crate::ui::{self, theme};
@@ -246,6 +248,7 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<bool> {
                     pty.flush_sync();
                 }
             }
+            model.tools_mut().for_each(Session::flush_sync);
             if matches!(event, AppEvent::External(_) | AppEvent::Worktrees(_)) {
                 rescan(&mut model);
                 scan_repos(&mut model, &tx);
@@ -398,6 +401,15 @@ fn run_cmd(
         },
         Cmd::RemoveWorktree(project, name) => forget_worktree(model, &project, &name, tx),
         Cmd::CleanWorktrees(project) => clean_worktrees(model, &project, tx),
+        Cmd::OpenEditor(project) => open_editor(model, &project, tx),
+        Cmd::OpenTerminal(dir) => {
+            let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
+            let size = ui::terminal_size(model.screen, model.zoom, model.widths);
+            if let Some(tool) = spawn_tool(model, &[shell], &dir, size, tx) {
+                model.shells.push((dir, tool));
+                model.term_view = TermView::Focused;
+            }
+        }
         Cmd::SaveWidths(widths) => {
             if let Some(path) = &env.config_path
                 && let Err(e) = config::save_widths(path, widths)
@@ -687,7 +699,7 @@ fn launch(
     let size = if model.root() == Some(project.as_path()) {
         ui::popup_size(model.screen)
     } else {
-        ui::output_size(model.screen, model.zoom, model.widths)
+        model.output_size()
     };
     match Session::spawn(
         launch.id,
@@ -709,6 +721,86 @@ fn launch(
         }
     }
     model.add_card(card);
+}
+
+/// Starts `command` (program first, looked up on `PATH`) in a PTY of
+/// `size` in `dir`, with the same scrubbed environment as an agent.
+///
+/// # Returns
+///
+/// The running tool, or `None` with the reason in the message line.
+fn spawn_tool(
+    model: &mut Model,
+    command: &[String],
+    dir: &Path,
+    size: Size,
+    tx: &SyncSender<AppEvent>,
+) -> Option<Tool> {
+    let name = command.first()?;
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let program = if name.contains('/') {
+        Some(PathBuf::from(name))
+    } else {
+        find_on_path(name, &path)
+    };
+    let Some(program) = program else {
+        model.message = Some(format!("{name} not found on PATH."));
+        return None;
+    };
+    let argv: Vec<OsString> = std::iter::once(program.into_os_string())
+        .chain(command[1..].iter().map(OsString::from))
+        .collect();
+    let id = SessionId::new();
+    let env = child_env(std::env::vars_os(), &[]);
+    match Session::spawn(id, &argv, dir, &env, size, colors(model.theme), tx) {
+        Ok(pty) => Some(Tool { id, pty }),
+        Err(e) => {
+            model.message = Some(format!("Could not start {name}: {e}"));
+            None
+        }
+    }
+}
+
+/// Opens `project` in the user's editor (`$VISUAL`, else `$EDITOR`; see
+/// [`tools::opener`]): vim in the popup with the folder as its argument,
+/// anything else started on its own (argv, no shell) and left alone.
+fn open_editor(model: &mut Model, project: &Path, tx: &SyncSender<AppEvent>) {
+    let editor = ["VISUAL", "EDITOR"]
+        .iter()
+        .filter_map(|name| std::env::var(name).ok())
+        .find(|value| !value.trim().is_empty());
+    match tools::opener(editor.as_deref()) {
+        Opener::Popup(mut command) => {
+            command.push(".".into());
+            let size = ui::popup_size(model.screen);
+            model.editor = spawn_tool(model, &command, project, size, tx);
+        }
+        Opener::Detached(command) => {
+            use std::os::unix::process::CommandExt;
+            let Some((program, args)) = command.split_first() else {
+                return;
+            };
+            let spawned = std::process::Command::new(program)
+                .args(args)
+                .arg(project)
+                .current_dir(project)
+                .process_group(0)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn();
+            match spawned {
+                Ok(mut child) => {
+                    model.message = Some(format!("Opened in {program}."));
+                    thread::spawn(move || {
+                        // reason: reaps the child; its exit status does not matter.
+                        let _ = child.wait();
+                    });
+                }
+                Err(e) => model.message = Some(format!("Could not start {program}: {e}")),
+            }
+        }
+    }
 }
 
 /// Returns the git worktree a Claude session runs in, if any: the one of
@@ -953,10 +1045,18 @@ fn watch_rollout(model: &mut Model, id: SessionId, path: &Path, tx: &SyncSender<
 }
 
 /// Keeps every session's emulator and PTY at its pane's size: the output
-/// pane, or the popup for quick sessions.
+/// pane, or the popup for quick sessions; the editor has the popup's size
+/// and every shell the terminal pane's.
 fn resize_sessions(model: &mut Model) {
-    let size = ui::output_size(model.screen, model.zoom, model.widths);
+    let size = model.output_size();
     let quick = ui::popup_size(model.screen);
+    if let Some(editor) = model.editor.as_mut() {
+        editor.pty.resize(quick);
+    }
+    let pane = ui::terminal_size(model.screen, model.zoom, model.widths);
+    for (_, shell) in &mut model.shells {
+        shell.pty.resize(pane);
+    }
     let root = model.root().map(Path::to_path_buf);
     for card in model.cards.iter_mut().filter(|c| c.running()) {
         let want = if root.as_deref() == Some(card.project.as_path()) {
@@ -1034,11 +1134,8 @@ fn restore_projects(model: &mut Model, moved: &[(PathBuf, PathBuf)]) {
     {
         model.projects = projects;
     }
-    if let Some(row) = moved
-        .first()
-        .and_then(|(folder, _)| model.visible().iter().position(|p| p.path == *folder))
-    {
-        model.selected = row;
+    if let Some((folder, _)) = moved.first() {
+        model.select_project(folder);
     }
     model.message = failure.or_else(|| Some("Put back.".to_owned()));
 }
@@ -1096,9 +1193,7 @@ fn new_project(model: &mut Model, path: &Path, agent_files: bool) {
             {
                 model.projects = projects;
             }
-            if let Some(row) = model.visible().iter().position(|p| p.path == path) {
-                model.selected = row;
-            }
+            model.select_project(path);
             model.focus = crate::app::model::Focus::Projects;
             model.message = Some(format!("Created {name} · n starts a session in it"));
         }

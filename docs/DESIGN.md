@@ -310,9 +310,8 @@ them to `config.json` as `"panes": {"projects": 22, "sessions": 38}`.
 
 Rows: line 1 header, lines 2…H−1 panes (outer height H−2), line H getah bar.
 
-Breakpoints: **≥ 100 columns → three panes**; **< 100 → single-pane stack**
-(one pane at a time, breadcrumb in the header, `h`/`l` move through the
-stack). Minimum size **80×24**; below that a single centred line:
+Breakpoints: **≥ 100 columns → three panes side by side**; **< 100 →
+projects left, sessions over output on the right** (§4.3). Minimum size **80×24**; below that a single centred line:
 `bungkus-mc needs at least 80×24 (now 72×20)`. No other tiers.
 
 ### 4.1 Main screen, 120×40 (sessions pane focused, agent waiting on a permission prompt)
@@ -399,39 +398,41 @@ is the **mini** 8×3 sprite (here mid-step, "working" mood). The mock is
 the zoomed view (`z`, 3 content rows shown); unzoomed, the same banner
 sits on the output pane beside the other two.
 
-### 4.3 Narrow, 80×24 (single-pane stack, sessions shown)
+### 4.3 Narrow, 80×24 (sessions stacked over the output)
 
 ```
- bungkus-mc  kedai-web › sessions                      1 needs you · 2 working 
-┏ sessions · kedai-web ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃>┃! C #a3f1 write proposal                                                 12m┃
-┃ ┃  needs you · permission: Bash                                              ┃
-┃ ┃  tokens   in 486k · out 13k                                                ┃
-┃ ┃  cache    read 402k · write 19k                                            ┃
-┃ ┃  cost     $1.42 (claude list price)                                        ┃
-┃ ┃  context  37% of 200k · 74k used                                           ┃
-┃ ┃  limits   5h 42% ↻14:00 · 7d 18% ↻Mon                                      ┃
-┃ ┃  * research hooks                                                      / 3m┃
-┃ ┃  * research codex                                                      / 3m┃
-┃ ┃  * research go tui libs                                                + 1m┃
-┃                                                                              ┃
-┃  / X #77c0 flaky date test                                                41m┃
-┃    working · shell                                                           ┃
-┃    312k tok · - · ctx 22%                                                    ┃
-┃                                                                              ┃
-┃  + C #9be2 bump deps                                                  wrapped┃
-┃    22m · 38 tools · 2 subagents                                              ┃
-┃    61k tok · $0.98 · ctx -                                                   ┃
-┃                                                                              ┃
-┃                                                                              ┃
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
- NORMAL  j/k · enter → agent (ctrl-\ back) · n new · ? help         C 42% X 10% 
+ bungkus-mc  ~/Works/OSBR › kedai-web  x 1 failed · | 1 working · v0.1.0-beta.5
+┌ [1] projects ──────┐┌ [2] sessions · kedai-web ──────────────────────────────┐
+│ / search           ││: | C #a3f2 flaky payment test                        0m│
+│:| 1 kedai… | 1 x 1 ││:   output only · live tree unavailable                 │
+│ + 4 more (e)       ││:   - tok · - · ctx -                                   │
+│                    ││                                                        │
+│                    ││  + C #a3f3 bump deps                            wrapped│
+│                    │└────────────────────────────────────────────────────────┘
+│                    │╔ [3] output · C #a3f2 · f… · INTERACT · ctrl-\ to leave ╗
+│                    │║              ┌─────────────────────────────┐    ▄██▄   ║
+│                    │║              │ #a3f1 failed: exit 1 · boom │◂ ▄██████▄ ║
+│                    │║              └─────────────────────────────┘    ▀  ▀   ║
+│                    │║> fix the flaky date test                               ║
+│                    │║  run it twice                                          ║
+│                    │║                                                        ║
+│                    │║                                                        ║
+│                    │║                                                        ║
+│                    │║                                                        ║
+│                    │║                                                        ║
+│                    │║                                                        ║
+│                    │║                                                        ║
+│                    │║                                                        ║
+└────────────────────┘╚════════════════════════════════════════════════════════╝
+ INTERACT  keys go to claude · ctrl-\ back to mc
 ```
 
-The header carries the breadcrumb (`kedai-web › sessions`); limits
-collapse to the 5-hour figure per vendor. (This mock predates the corner
-mascot; in the narrow stack the output pane is a separate screen and gets
-the same corner treatment.)
+Below 100 columns the projects pane keeps the left and the right column
+stacks the sessions pane (a third of it, at least 7 rows) over the output
+pane; the terminal pane (`t`) still takes the output pane's lower third,
+so it sits at the bottom right. Every pane stays on screen, so the header
+keeps the workspace breadcrumb; limits collapse to the 5-hour figure per
+vendor.
 
 ### 4.4 Errors: cross eyes, corner or title bar
 
@@ -558,14 +559,14 @@ Subagents use the same glyphs at one indent with `*` (`◦`); their status
 comes from `background_tasks` on Stop/SubagentStop (authoritative), else
 from SubagentStart/Stop.
 
-Sidebar row = `<marker><spinner> <name>` … `<badge>`. The marker is `>`
+Sidebar row = `<marker><spinner> <name>` … `<working> <badge>`. The marker is `>`
 when the projects pane is focused, `▌` (ascii `:`) when it is not, space
 otherwise. The **spinner column** shows the global-clock frame `| / - \`
 for a project with any running session (static `|` under `motion:
 false`), space otherwise. The **badge** is the worst *non-running* state
 among the project's sessions, precedence **failed > needs you > your
-turn**, as `<glyph> <count>`; "working" is carried by the spinner alone,
-so there is no `/ n` badge. The header tally's `/` and every card's
+turn**, as `<glyph> <count>`; before it, `<spinner> <n>` says how many
+sessions are working (nothing when none is). The header tally's `/` and every card's
 working glyph tick with the same clock.
 
 ### 5.4 Badge
@@ -598,10 +599,12 @@ with no prompt; missing agents are listed greyed with "not on PATH". The
 `model` row defaults to `auto` when routing is on (§10) and to the agent's
 default otherwise; `←`/`→` (or `h`/`l`) change it — that is the override.
 With routing off the row reads `default · haiku · sonnet · opus` (Claude)
-or `default · <ids from config>` (Codex). The `name` row is prefilled from
-the prompt as you type (first line, ≤ 40 chars, leading verbs like
-"fix"/"add" kept) and passed to Claude as `--name`; for Codex it is only
-mc's card title (no launch flag). Empty name and empty prompt → `untitled`.
+or `default · <ids from config>` (Codex). The `name` row stays empty
+unless the user types one: a typed name is passed to Claude as `--name`
+(for Codex it is only mc's card title, no launch flag); with none, no
+`--name` is passed and Claude names the session itself, the card showing
+the prompt's first line until that name arrives. Empty name and empty
+prompt → `untitled`.
 
 The quit dialog (also the `x` dialog) lists everything that will be
 stopped — sessions first, then the descendants tracked in ARCHITECTURE.md
@@ -682,7 +685,10 @@ rows) at the right, so it never covers agent output (the PTY is three rows
 shorter); its mood follows the selected session. A click on it plays
 duck–hop–duck–hop–duck–look–blink (one pose per 350 ms tick; a single hop
 without motion) and shows a speech bubble with a random line from
-`QUOTES` (never the same twice in a row) for 4 s. With no session the
+`QUOTES` (never the same twice in a row) for 4 s. A notification (a
+session needs you, a session failed: the same text the host terminal is
+told, §9) shows in the same bubble for 8 s, cut to the strip's width; a
+click's quote goes first. With no session the
 pane shows the big centred empty-state mascot as before. Smaller screens
 keep the corner mascot below. Pane titles carry their `cmd`/`alt`/`ctrl`
 digit: `[1] projects`, `[2] sessions`, `[3] output`.
@@ -1141,6 +1147,8 @@ the same frame.
 | `1`–`9`                                           | jump to the project with that number (the numbers left of the names follow the searched list). The selection moves on every digit; a digit within 0.7 s of the previous one extends the number (`1` → 1, then `6` → 16), a number with no project leaves the last jump in place, and any other key ends the number (bungkus-cli's wizard rule) |
 | `w`                                               | settings, on the workspace field (§5.8) |
 | `,`                                               | settings: workspace, default agent, theme (§5.8) |
+| `o`                                               | open the selected project in the user's editor (`$VISUAL`, else `$EDITOR`): `vi`/`vim`/`nvim` run in a popup over the panes (mode word `EDITOR`, every key goes to it, it closes when the editor quits); any other editor is started on its own with the folder as its argument; with neither variable set, the desktop's opener (`open` / `xdg-open`) |
+| `t`                                               | show / hide the terminal pane: the user's `$SHELL` in the lower third of the output pane, in mc's own emulator (no tmux or other program). Every project has its own shell, started in its folder the first time `t` is pressed there; the pane follows the selected project and is absent on one without a shell. Showing it gives it the keys (mode word `TERMINAL`); `ctrl-\` gives them back to mc and leaves it showing; `ctrl-h` goes left to the sessions pane and `ctrl-k` up to the output pane (INTERACT), from where `ctrl-j` comes back down while the pane shows; `ctrl-j`/`ctrl-l` in the terminal stay the shell's (enter, clear screen); hiding keeps the shells running; `exit` closes one |
 | `?`                                               | help                                    |
 | `R`                                               | redraw |
 | `q` · `ctrl-c`                                    | quit (confirm if anything is running)   |
@@ -1155,6 +1163,7 @@ cleared by the next key).
 | `enter`     | focus the sessions pane of the selected project               |
 | `j` `k`     | move the sidebar selection; the sessions pane switches to that project |
 | `n`         | new session for the selected project (same picker as below)   |
+| `e`         | show / hide the projects that are not recent. Recent projects (the ones with a session, a repository and its worktrees together) lead the list; the others fold behind the line `+ <n> more (e)` (`-` while they show). `j`/`↓` on the last recent project opens them too. With no recent project, or only recent ones, the list is not grouped; a search finds every project |
 
 `n` `enter` from the projects pane therefore starts a session for the
 highlighted project with the default agent and no prompt.
@@ -1222,8 +1231,10 @@ through); `ctrl-\` is not among them.
 ### 8.6 Mouse
 
 Click focuses a pane / selects a row (and exits INTERACT if the click is
-outside the output pane); a click on the output pane focuses it, i.e.
-enters INTERACT; wheel scrolls the pane under the pointer. Text selection: with mouse reporting on,
+outside the output pane); a click on a project or a session selects it, a click on the
+`+ <n> more` line shows or hides the rest of the projects; a click on the
+terminal pane gives it the keys and a click anywhere else takes them back;
+a click on the output pane focuses it, i.e. enters INTERACT; wheel scrolls the pane under the pointer. Text selection: with mouse reporting on,
 terminals need a modifier to select (kitty/Ghostty/iTerm2 `shift`-drag,
 WezTerm/Alacritty `shift`, Terminal.app `option`-drag) — shown in the help
 overlay; `--no-mouse` / `mouse: false` turns reporting off entirely.

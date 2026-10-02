@@ -78,6 +78,9 @@ agents already store.** No `tool_input` beyond a 200-char description, no
 - No shell in `std::process::Command` for anything mc decides. Exceptions,
   each fixed and reviewed: `update` (the installer pipeline, ported from
   bungkus-cli) and the `statusline` wrapper running the user's own command.
+  `o` splits `$VISUAL`/`$EDITOR` on whitespace into an argv (no shell), and
+  `t` runs `$SHELL` itself as the interactive terminal the user asked for;
+  both come from the user's own environment, the same trust as the user.
 - No raw agent bytes reach stdout (`print_stdout` is a denied lint; the
   emulator yields cells, and only printable cells + SGR reach the ratatui
   buffer); no string from a hook, prompt, directory name, process table or
