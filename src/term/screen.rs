@@ -112,25 +112,6 @@ impl Screen<'_> {
         (visible && x < area.width && y < area.height)
             .then(|| Position::new(area.x + x, area.y + y))
     }
-
-    /// Returns whether every cell in `area` (relative to the screen's top
-    /// left) is blank: a space on the default background (DESIGN §5.7).
-    #[must_use]
-    pub(crate) fn is_blank(&self, area: Rect) -> bool {
-        let grid = self.term.grid();
-        let top = -i32::try_from(grid.display_offset()).unwrap_or(0);
-        (area.y..area.bottom()).all(|y| {
-            (area.x..area.right()).all(|x| {
-                let (y, x) = (usize::from(y), usize::from(x));
-                if y >= grid.screen_lines() || x >= grid.columns() {
-                    return true;
-                }
-                let line = Line(top + i32::try_from(y).unwrap_or(0));
-                let cell = &grid[Point::new(line, Column(x))];
-                cell.c == ' ' && matches!(cell.bg, AColor::Named(NamedColor::Background))
-            })
-        })
-    }
 }
 
 #[cfg(test)]
@@ -197,17 +178,5 @@ mod tests {
         assert_eq!(buf[(0, 0)].fg, Color::Indexed(1));
         assert!(buf[(0, 0)].modifier.contains(Modifier::BOLD));
         assert_eq!(buf[(4, 0)].fg, Color::Rgb(1, 2, 3));
-    }
-
-    #[test]
-    fn blank_check_sees_any_output() {
-        let s = session(b"\r\n                 x");
-        let screen = Screen {
-            term: s.term(),
-            fg: Color::Reset,
-            bg: Color::Reset,
-        };
-        assert!(screen.is_blank(Rect::new(0, 0, 20, 1)));
-        assert!(!screen.is_blank(Rect::new(10, 0, 10, 3)));
     }
 }

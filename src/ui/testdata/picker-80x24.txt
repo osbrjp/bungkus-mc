@@ -7,19 +7,19 @@
 ┃   4 teh-cli        ┃│                                                        │
 ┃   5 warung-╔ new session · kedai-web ═══════════════════════════╗────────────┘
 ┃            ║                                                    ║────────────┐
-┃            ║  agent   > claude    codex (not on PATH)           ║            │
-┃            ║  model   > default    haiku    sonnet    opus      ║            │
-┃            ║  name    ┃                                ┃        ║            │
+┃            ║  agent   > claude    codex (not on PATH)           ║     ▄██▄   │
+┃            ║  model   > default    haiku    sonnet    opus      ║   ▄██████▄ │
+┃            ║  name    ┃                                ┃        ║     ▀  ▀   │
 ┃            ║  prompt  ┃fix the flaky date test         ┃        ║            │
 ┃            ║                                                    ║            │
 ┃            ║  prompt and name are optional                      ║            │
 ┃            ║     enter start · j/k tab next · h/l change · esc  ║            │
 ┃            ║                                                    ║            │
 ┃            ╚════════════════════════════════════════════════════╝            │
+┃                    ┃│                         ▀▀ ▀▀                          │
 ┃                    ┃│                                                        │
 ┃                    ┃│                  Nothing wrapped yet.                  │
 ┃                    ┃│                  n to start a session                  │
-┃                    ┃│                                                        │
 ┗━━━━━━━━━━━━━━━━━━━━┛└────────────────────────────────────────────────────────┘
  NORMAL  enter → sessions · n new · c clean · e more · o edit · t term · ? keys
 cursor: 48,12

@@ -1070,6 +1070,8 @@ impl Model {
             let text = format!("{} needs you: {}", card.id.short(), card.name);
             self.notice = Some((now, text.clone()));
             self.alerts.push(Alert::NeedsYou(text));
+        } else if card.state == State::YourTurn && before == State::Working {
+            self.notice = Some((now, format!("{} finished: {}", card.id.short(), card.name)));
         }
         let first_bind = !bound && card.agent_session.is_some();
         let watch = card.kind == Kind::Codex && card.running() && card.rollout_stop.is_none();
@@ -2555,6 +2557,26 @@ pub(crate) mod tests {
             State::NeedsYou,
             "garbage and unknown sessions are dropped"
         );
+    }
+
+    #[test]
+    fn the_mascot_says_when_a_session_finishes_its_turn() {
+        let mut m = sample(&["a"]);
+        let (id, _w) = with_session(&mut m, "s");
+        m.cards[0].expect_hooks();
+        m.update(hook_line(id, r#"{"hook_event_name":"SessionStart"}"#));
+        assert!(m.notice.is_none(), "starting is not finishing");
+        m.update(hook_line(id, r#"{"hook_event_name":"UserPromptSubmit"}"#));
+        m.update(hook_line(id, r#"{"hook_event_name":"Stop"}"#));
+        assert_eq!(m.cards[0].state, State::YourTurn);
+        assert!(
+            m.notice
+                .as_ref()
+                .is_some_and(|(_, text)| text.ends_with("finished: s")),
+            "{:?}",
+            m.notice
+        );
+        assert!(m.alerts.is_empty(), "the host terminal is not told");
     }
 
     /// Returns a socket line for `id` carrying the status-line fixture.
