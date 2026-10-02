@@ -272,6 +272,9 @@ pub(crate) struct Model {
     pub list_rows: usize,
     /// The chord that leaves INTERACT.
     pub exit_chord: Chord,
+    /// When a plain `j` last went to the agent in INTERACT, while a `j` or
+    /// `k` right after it would still leave.
+    pub leave_j: Option<Instant>,
     /// Pane widths (dragged by the mouse, from `config.json`).
     pub widths: crate::ui::Widths,
     /// The pane border being dragged, if any.
@@ -438,6 +441,7 @@ impl Model {
             widths: crate::ui::Widths::default(),
             drag: None,
             exit_chord: Chord::DEFAULT,
+            leave_j: None,
             screen: Rect::new(0, 0, 120, 40),
             now: Instant::now(),
             frame: 0,
