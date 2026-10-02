@@ -1,4 +1,4 @@
- bungkus-mc  ~/Works/OSBR › kedai-web                                                                     v0.1.0-beta.7
+ bungkus-mc  ~/Works/OSBR › kedai-web                                                                     v0.1.0-beta.8
 ┏ [1] projects ━━━━━━┓┌ [2] sessions · kedai-web ──────────┐┌ [3] output ──────────────────────────────────────────────┐
 ┃ / search           ┃│ No sessions in kedai-web. n to     ││                                                          │
 ┃>  1 kedai-web      ┃│ start one.                         ││                                                          │

@@ -266,7 +266,7 @@ A TUI does not choose the font. We choose code points.
 | focus marker  | U+F0DA         | `▸`     | `>`   | N |
 | INTERACT      | U+F11C (kbd)   | `►`     | `>`   | N |
 | progress bar  | `█░` in every set on a UTF-8 terminal, `#-` without UTF-8 (not an icon: the same block characters as the mascot) | | | |
-| agent badge   | `C` / `X` letter in `accent`, all sets |
+| agent badge   | `C` / `X` letter in the ascii and unicode sets; the company's logo in the nerd set: `nf-cod-claude` (U+EC82), `nf-cod-openai` (U+EC81), which need Nerd Fonts 3.5 or newer. In `accent` |
 | MCP server    | logo alone (once per logo) when a word of the name is in `MCP_BRANDS` (`ui/icons.rs`: about 120 rows — GitHub, GitLab, Slack, Figma, Blender, Chrome, Playwright, Google Drive, Gmail, AWS, Azure, Cloudflare, Vercel, Supabase, Postgres, MongoDB, Redis, Docker, Kubernetes, Notion, Jira, Sentry, Stripe, …); else the glyph of its kind from `MCP_KINDS` (CMS such as Payload, files, memory, database, web, search, terminal, docs, …) or U+F1E6 (plug), then the name. Code points come from Nerd Fonts' `glyphnames.json`; some logos (Figma, Playwright, Notion, …) need Nerd Fonts 3.3 or newer | name | name | N |
 
 Nerd Font code points are private-use; patched "Mono" variants render them
@@ -513,9 +513,9 @@ whether there is a header line.
   and unicode sets: `mcp` then the names joined by ` · `. nerd
   set: per server its logo alone (§3), or a kind glyph or the plug and
   the name when it has none, two spaces apart. The expanded card (§6.3) shows
-  an `mcp` row with the name of every server in use in all sets instead,
-  so a glyph can always be read as a word, and an `mcp idle` row with the
-  configured servers the session has not used.
+  an `mcp` row with the servers in use and an `mcp idle` row with the
+  configured servers the session has not used: their names, or in the
+  nerd set their glyphs as on the MCP line.
 - Gutter column: `┃` in `warn` for needs-you, `err` for failed, space otherwise.
 - Title = **the session's name**, as the agent itself knows it (decided):
   Claude's session name (set at launch with `--name`, renamed inside the
@@ -581,11 +581,16 @@ false`), space otherwise. The **badge** is the worst *non-running* state
 among the project's sessions, precedence **failed > needs you > your
 turn**, as `<glyph> <count>`; before it, `<spinner><n>` (`|2`) says how
 many sessions are working, from two (one is the spinner column alone). The
-**link** cell between the number and the name is a bar (`│`, `|` without
-UTF-8) on a project that is in a group (`g`, §8.2) or that a running
-session of another project works in too (Claude's `/add-dir`, read from
-`workspace.added_dirs` of its status line; Codex reports none): `accent`
-when the link is with the selected project, `fg-muted` otherwise, a space
+**link** cells between the number and the name hold bars (`❚` U+275A,
+`|` without UTF-8). A project in groups (`g`, §8.2) carries one bar per
+group, in the group's colour: `accent`, `info`, `warn`, `ok` by the
+group's place in `groups` (the fifth group has the first colour again);
+the bar is full while the selected project is in that group and dim
+otherwise. A project in no group that a running session of another
+project works in too (Claude's `/add-dir`, read from
+`workspace.added_dirs` of its status line; Codex reports none) carries
+one bar: `fg` when the link is with the selected project, `fg-muted`
+otherwise. The cells are as wide as the most bars on a row, one space
 when there is none. A linked
 project counts as in use and stays in the recent group. The header tally's `/` and every card's
 working glyph tick with the same clock.
@@ -593,13 +598,17 @@ working glyph tick with the same clock.
 ### 5.4 Badge
 
 `<glyph> <count>` or `<letter>`; one cell glyph, one space, digits. Agent
-badges are the letters `C` (Claude Code) and `X` (Codex) in `accent`.
+badges are the letters `C` (Claude Code) and `X` (Codex) in `accent`; in
+the nerd set they are the companies' logos (§3, Nerd Fonts 3.5 or newer),
+on cards, outside sessions, the output pane's title, the `!` list and the
+limits.
 
 ### 5.5 Dialogs
 
 Centred, double border (they take input like INTERACT), title in the top
 border, one blank line of padding, hint line last, right-aligned. `esc`
-always cancels; destructive confirms take `y`, anything else is "no".
+always cancels; destructive confirms take `y` or `enter` (hinted as
+`y/enter`), anything else is "no" (hinted as `n/esc`).
 The `n` picker has four rows — agent, model, name, prompt:
 
 ```
@@ -1235,7 +1244,7 @@ cleared by the next key).
 | `j` `k`     | move the sidebar selection; the sessions pane switches to that project |
 | `n`         | new session for the selected project (same picker as below)   |
 | `v` · `V`   | choose rows for `d` and `g`: `v` marks the selected project (again to unmark), on any rows, not only neighbours; `V` starts a range that `j`/`k` extend. Both can be combined; the chosen rows are drawn reversed, the mode word is `VISUAL`, `esc` clears them |
-| `g` (rows chosen) | group the chosen projects as related, saved as `groups` in the workspace's `.bungkus-mc/config.json`. Chosen rows that are exactly one group are ungrouped; a project put in a new group leaves its old one; one chosen project only leaves its group. Members carry the link bar (§5.3). A session mc starts or resumes in a grouped project gets the other members with `--add-dir` and a "Related folders" section in its instructions. With nothing chosen `g` is still the first half of `gg` |
+| `g` (rows chosen) | group the chosen projects as related, saved as `groups` in the workspace's `.bungkus-mc/config.json`. Chosen rows that are exactly one group are ungrouped; a project put in a new group stays in the groups it is in already, so it can be in several; one chosen project leaves every group it is in. Members carry one bar per group, in the group's colour (§5.3). A session mc starts or resumes in a grouped project gets the other members with `--add-dir` and a "Related folders" section in its instructions. With nothing chosen `g` is still the first half of `gg` |
 | `e`         | show / hide the projects that are not recent. Recent projects lead the list, 5 at most (a repository and its worktrees counting as one): the ones a session runs in now, then the most recently used by their latest session start; more than 5 only when more than 5 have a running session, so one that needs you never folds away; the others fold behind the line `+ <n> more (e)` (`-` while they show). `j`/`↓` on the last recent project opens them too. With no recent project, or only recent ones, the list is not grouped; a search finds every project |
 
 `n` `enter` from the projects pane therefore starts a session for the

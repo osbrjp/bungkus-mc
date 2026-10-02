@@ -1,4 +1,4 @@
- bungkus-mc  ~/Works/OSBR                                                                                 v0.1.0-beta.7
+ bungkus-mc  ~/Works/OSBR                                                                                 v0.1.0-beta.8
 ┏ [1] projects ━━━━━━┓┌ [2] sessions ──────────────────────┐┌ [3] output ──────────────────────────────────────────────┐
 ┃ / search           ┃│ No projects in ~/Works/OSBR. A     ││                                                          │
 ┃                    ┃│ project is a folder with           ││                                                          │

@@ -138,7 +138,7 @@ pub(super) fn draw_stop(
         StopKind::Session(_) => (
             "stop?",
             "Stopping this session and what it started:".to_owned(),
-            "space keep/stop · y stop · n keep  ",
+            "space keep/stop · y/enter stop · n/esc keep  ",
         ),
     };
     let mut lines = vec![
@@ -168,7 +168,7 @@ pub(super) fn draw_stop(
             Target::Session(id) => {
                 if let Some(card) = model.cards.iter().find(|c| c.id == *id) {
                     spans.push(Span::styled(
-                        format!("{} ", card.kind.badge()),
+                        format!("{} ", theme.icons.agent(card.kind)),
                         theme.agent_style(card.kind),
                     ));
                     spans.push(Span::styled(
@@ -233,7 +233,8 @@ pub(super) fn draw_forget(
             theme.fg(Token::FgMuted),
         ),
         Line::from(""),
-        Line::styled("y forget · n keep  ", theme.fg(Token::FgMuted)).alignment(Alignment::Right),
+        Line::styled("y/enter forget · n/esc keep  ", theme.fg(Token::FgMuted))
+            .alignment(Alignment::Right),
     ];
     let rect = centred(area, 50, 7);
     frame.render_widget(Clear, rect);
@@ -267,7 +268,8 @@ pub(super) fn draw_clean_worktrees(
         ),
         Line::styled("  Branches are kept.", theme.fg(Token::FgMuted)),
         Line::from(""),
-        Line::styled("y remove · n keep  ", theme.fg(Token::FgMuted)).alignment(Alignment::Right),
+        Line::styled("y/enter remove · n/esc keep  ", theme.fg(Token::FgMuted))
+            .alignment(Alignment::Right),
     ];
     let rect = centred(area, 54, 8);
     frame.render_widget(Clear, rect);
@@ -521,7 +523,8 @@ pub(super) fn draw_stop_outside(
             theme.fg(Token::FgMuted),
         ),
         Line::from(""),
-        Line::styled("y stop · n keep  ", theme.fg(Token::FgMuted)).alignment(Alignment::Right),
+        Line::styled("y/enter stop · n/esc keep  ", theme.fg(Token::FgMuted))
+            .alignment(Alignment::Right),
     ];
     let rect = centred(area, 64, 7);
     frame.render_widget(Clear, rect);
@@ -564,8 +567,11 @@ pub(super) fn draw_trash_project(
             theme.fg(Token::FgMuted),
         ),
         Line::from(""),
-        Line::styled("y move to Trash · n keep  ", theme.fg(Token::FgMuted))
-            .alignment(Alignment::Right),
+        Line::styled(
+            "y/enter move to Trash · n/esc keep  ",
+            theme.fg(Token::FgMuted),
+        )
+        .alignment(Alignment::Right),
     ];
     let rect = centred(area, 64, 8);
     frame.render_widget(Clear, rect);
