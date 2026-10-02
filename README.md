@@ -153,7 +153,7 @@ pane; press one to run it.
 | `r` | on a finished session: resume it. Anywhere else: open the agent's own list of this project's past sessions (`claude --resume` / `codex resume`) to pick any of them |
 | `x` | stop a session (lists what it started too) |
 | `P` · `I` | open the pull request · the issue of the session's branch in the browser. mc finds them itself through the `gh` CLI: the pull request GitHub has for the branch, and the issue from a branch named `i{issue#}-…` (else the first issue the pull request closes). The card shows their numbers after the branch |
-| `i` | issues & pull requests popup: the session's own first (`●`), then the repository's open ones; `j` `k` move, `enter` reads one and its comments in the popup, Markdown rendered (`j` `k` `d` `u` scroll, `esc` back), `o` opens it in the browser |
+| `i` | issues & pull requests popup: the session's own first (`●`), then the repository's open ones; `j` `k` move, `enter` reads one and its comments in the popup (a pull request's reviews and review comments on code too), Markdown rendered (`j` `k` `d` `u` scroll, `esc` back), `o` opens it in the browser |
 | `d` | forget a finished session |
 
 ### Projects and workspaces
