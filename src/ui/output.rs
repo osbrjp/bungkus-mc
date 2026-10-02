@@ -21,16 +21,15 @@ use crate::ui::theme::{Theme, Token, bg, rgb, spec};
 /// Draws the output pane.
 pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
     let Some(card) = model.selected_card().map(|i| &model.cards[i]) else {
-        draw_empty(frame, area, theme, model.frame);
+        draw_empty(frame, area, model, theme);
         return;
     };
     if model.is_quick(card) {
-        draw_quick_note(frame, area, theme, card.running());
+        draw_quick_note(frame, area, model, theme, card.running());
         return;
     }
     let interact = model.focus == Focus::Output;
     let title = output_title(card, model, area.width);
-    let title_width = title.chars().count() + 4;
     let block = if interact {
         super::bordered(super::Weight::Double, theme)
             .border_style(theme.fg(Token::Warn))
@@ -40,6 +39,7 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
     };
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    let inner = draw_strip(frame, area, inner, mood(&card.state), model, theme);
     if card.state == State::Stopped {
         let lines = [
             Line::styled("Stopped.", theme.fg(Token::Fg)),
@@ -47,15 +47,6 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
         ];
         return draw_centred(frame, inner, theme, mascot::Pose::Died, &lines);
     }
-    let strip = super::strip_height(model.screen);
-    let inner = if let Some(spot) = super::strip_mascot(area, model.screen) {
-        let [top, rest] =
-            Layout::vertical([Constraint::Length(strip), Constraint::Fill(1)]).areas(inner);
-        super::draw_strip(frame, top, spot, mood(&card.state), model, theme);
-        rest
-    } else {
-        inner
-    };
     match &card.pty {
         Some(pty) if pty.last_output.is_some() => {
             let (fg, bg) = default_colors(theme);
@@ -65,47 +56,7 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
                 bg,
             };
             let cursor = screen.cursor(inner);
-            let busy = pty
-                .last_output
-                .is_some_and(|t| model.now.saturating_duration_since(t) < BUSY);
-            let (w, h) = if busy {
-                (mascot::MINI_WIDTH, mascot::MINI_HEIGHT)
-            } else {
-                (mascot::WIDTH, mascot::HEIGHT)
-            };
-            let corner = (strip == 0 && inner.width > w + 1 && inner.height > h)
-                .then(|| Rect::new(inner.width - 1 - w, 0, w, h));
-            let blank = corner.is_some_and(|c| screen.is_blank(c));
             frame.render_widget(screen, inner);
-            let mood = mood(&card.state);
-            match corner {
-                Some(c) if blank => {
-                    let pose = mood.pose(model.frame, !theme.no_color());
-                    let at = Rect {
-                        x: inner.x + c.x,
-                        y: inner.y + c.y,
-                        ..c
-                    };
-                    frame.render_widget(
-                        Mascot {
-                            theme,
-                            pose,
-                            mini: busy,
-                        },
-                        at,
-                    );
-                }
-                Some(_) if usize::from(area.width) >= title_width + 8 => {
-                    let (text, token) = if mood == Mood::Failed {
-                        ("/xx\\", Token::Err)
-                    } else {
-                        ("/..\\", Token::Ok)
-                    };
-                    let at = Rect::new(area.right() - 8, area.y, 6, 1);
-                    frame.render_widget(Line::styled(format!(" {text} "), theme.fg(token)), at);
-                }
-                _ => {}
-            }
             if let (true, Some(position)) = (interact, cursor) {
                 frame.set_cursor_position(position);
             }
@@ -205,10 +156,11 @@ pub(super) fn draw_tool(
 
 /// Draws the output pane for a selected quick session, which lives in
 /// its popup instead (issue #46).
-fn draw_quick_note(frame: &mut Frame, area: Rect, theme: Theme, running: bool) {
+fn draw_quick_note(frame: &mut Frame, area: Rect, model: &Model, theme: Theme, running: bool) {
     let block = pane("[3] output", false, theme);
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    let inner = draw_strip(frame, area, inner, Mood::Idle, model, theme);
     let [row] = Layout::vertical([Constraint::Length(1)])
         .flex(Flex::Center)
         .areas(inner);
@@ -226,8 +178,25 @@ fn draw_quick_note(frame: &mut Frame, area: Rect, theme: Theme, running: bool) {
     );
 }
 
-/// How recently the agent must have written to count as busy (mini sprite).
-const BUSY: std::time::Duration = std::time::Duration::from_secs(1);
+/// Draws the mascot strip in the top rows of `inner` (the inside of output
+/// pane `area`) and returns the rows under it.
+///
+/// Every view of the pane has the strip, so a notification always has a
+/// bubble to show in (DESIGN §5.7).
+fn draw_strip(
+    frame: &mut Frame,
+    area: Rect,
+    inner: Rect,
+    mood: Mood,
+    model: &Model,
+    theme: Theme,
+) -> Rect {
+    let [top, rest] =
+        Layout::vertical([Constraint::Length(super::STRIP_HEIGHT), Constraint::Fill(1)])
+            .areas(inner);
+    super::draw_strip(frame, top, super::strip_mascot(area), mood, model, theme);
+    rest
+}
 
 /// Returns the mascot's mood for a session state (DESIGN §5.7).
 fn mood(state: &State) -> Mood {
@@ -280,12 +249,14 @@ fn draw_message(frame: &mut Frame, inner: Rect, card: &Card, theme: Theme) {
     );
 }
 
-/// Draws the empty state: the mascot and two lines, centred (DESIGN
-/// §5.7). A stopped session gets the same layout with the died mascot.
-fn draw_empty(frame: &mut Frame, area: Rect, theme: Theme, tick: usize) {
+/// Draws the empty state: the mascot and two lines, centred under the
+/// strip (DESIGN §5.7). A stopped session gets the same layout with the
+/// died mascot.
+fn draw_empty(frame: &mut Frame, area: Rect, model: &Model, theme: Theme) {
     let block = pane("[3] output", false, theme);
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    let inner = draw_strip(frame, area, inner, Mood::Idle, model, theme);
     let lines = [
         Line::styled("Nothing wrapped yet.", theme.fg(Token::Fg)),
         Line::styled("n to start a session", theme.fg(Token::FgMuted)),
@@ -294,7 +265,7 @@ fn draw_empty(frame: &mut Frame, area: Rect, theme: Theme, tick: usize) {
         frame,
         inner,
         theme,
-        Mood::Empty.pose(tick, theme.animated()),
+        Mood::Empty.pose(model.frame, theme.animated()),
         &lines,
     );
 }
@@ -308,7 +279,7 @@ fn draw_centred(
     pose: mascot::Pose,
     lines: &[Line<'static>],
 ) {
-    let with_mascot = inner.height >= mascot::HEIGHT + 4;
+    let with_mascot = inner.height >= mascot::HEIGHT + 3;
     let height = if with_mascot { mascot::HEIGHT + 3 } else { 2 };
     let [content] = Layout::vertical([Constraint::Length(height)])
         .flex(Flex::Center)

@@ -2,15 +2,16 @@
 //! (DESIGN §8.5, §8.6).
 //!
 //! While the output pane has focus every key goes to the agent except the
-//! exit chord and `ctrl-z`. The mouse focuses panes, scrolls mc's
+//! exit chord, a fast `jj` / `jk` and `ctrl-z`. The mouse focuses panes, scrolls mc's
 //! scrollback, and is forwarded when the agent turned mouse reporting on.
 
 use std::ops::ControlFlow;
+use std::time::Duration;
 
 use alacritty_terminal::grid::Scroll;
 use alacritty_terminal::term::TermMode;
 use ratatui::crossterm::event::{
-    KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 use ratatui::layout::{Position, Rect};
 
@@ -21,6 +22,10 @@ use crate::ui;
 
 /// Lines scrolled per mouse wheel notch (ARCHITECTURE §4.1).
 const WHEEL_LINES: i32 = 3;
+
+/// Longest gap between the two keys of `jj` / `jk` that still leaves
+/// INTERACT (DESIGN §8.5); slower pairs are ordinary typing.
+const LEAVE_WINDOW: Duration = Duration::from_millis(200);
 
 /// A pane border the mouse can drag.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,7 +42,8 @@ impl Model {
     /// down to the terminal pane while it shows (otherwise it is the
     /// agent's), `ctrl-l` (already the rightmost pane) and `ctrl-z` are
     /// swallowed, everything else is encoded for the agent (and snaps
-    /// its view back to the bottom).
+    /// its view back to the bottom). A plain `j` followed within
+    /// [`LEAVE_WINDOW`] by `j` or `k` also returns to the sessions pane.
     ///
     /// # Returns
     ///
@@ -69,13 +75,34 @@ impl Model {
         if ctrl_z {
             return None;
         }
+        let plain = key.modifiers == KeyModifiers::NONE && key.kind == KeyEventKind::Press;
+        let armed = self
+            .leave_j
+            .take()
+            .is_some_and(|at| self.now.duration_since(at) <= LEAVE_WINDOW);
+        let leave = plain && armed && matches!(key.code, KeyCode::Char('j' | 'k'));
+        if plain && !leave && key.code == KeyCode::Char('j') {
+            self.leave_j = Some(self.now);
+        }
         if let Some(pty) = self
             .selected_card()
             .and_then(|i| self.cards[i].pty.as_mut())
         {
             pty.scroll(Scroll::Bottom);
+            // ponytail: the first `j` already went to the agent, so a
+            // backspace takes it back; wrong where `j` is not text (a menu,
+            // vim normal mode). Hold the `j` until the window ends if that
+            // matters.
+            let key = if leave {
+                KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)
+            } else {
+                key
+            };
             let bytes = keys::encode(&key, pty.mode());
             pty.send(bytes);
+        }
+        if leave {
+            self.focus = Focus::Sessions;
         }
         None
     }
@@ -113,11 +140,9 @@ impl Model {
         let at = Position::new(event.column, event.row);
         let panes = self.panes(self.screen);
         if matches!(event.kind, MouseEventKind::Down(MouseButton::Left))
-            && self.selected_card().is_some()
             && panes
                 .output
-                .and_then(|o| ui::strip_mascot(o, self.screen))
-                .is_some_and(|r| r.contains(at))
+                .is_some_and(|o| ui::strip_mascot(o).contains(at))
         {
             self.poke();
             return None;
@@ -251,12 +276,12 @@ impl Model {
     /// enabled mouse reporting and INTERACT is on; returns whether it did.
     ///
     /// The agent's screen starts below the border and the mascot strip
-    /// ([`ui::strip_height`]); an event on the strip is not forwarded.
+    /// ([`ui::STRIP_HEIGHT`]); an event on the strip is not forwarded.
     fn forward_mouse(&self, event: MouseEvent, pane: Option<Rect>) -> bool {
         let (Some(pane), Focus::Output) = (pane, self.focus) else {
             return false;
         };
-        let top = pane.y + 1 + ui::strip_height(self.screen);
+        let top = pane.y + 1 + ui::STRIP_HEIGHT;
         if event.row < top {
             return false;
         }
@@ -348,6 +373,32 @@ mod tests {
         send(&mut m, KeyCode::Char('\\'), KeyModifiers::CONTROL);
         assert!(drain(&writes).is_empty(), "the exit chord is not sent");
         assert_eq!(m.focus, Focus::Sessions);
+    }
+
+    #[test]
+    fn a_fast_jj_or_jk_leaves_interact_and_takes_the_j_back() {
+        let j = KeyCode::Char('j');
+        for second in [j, KeyCode::Char('k')] {
+            let mut m = sample(&["a"]);
+            let (_, writes) = with_session(&mut m, "s");
+            send(&mut m, j, KeyModifiers::NONE);
+            assert_eq!((drain(&writes), m.focus), (b"j".to_vec(), Focus::Output));
+            send(&mut m, second, KeyModifiers::NONE);
+            assert_eq!(
+                (drain(&writes), m.focus),
+                (b"\x7f".to_vec(), Focus::Sessions)
+            );
+        }
+        let mut m = sample(&["a"]);
+        let (_, writes) = with_session(&mut m, "s");
+        send(&mut m, j, KeyModifiers::NONE);
+        m.now += LEAVE_WINDOW + Duration::from_millis(1);
+        send(&mut m, KeyCode::Char('k'), KeyModifiers::NONE);
+        assert_eq!((drain(&writes), m.focus), (b"jk".to_vec(), Focus::Output));
+        send(&mut m, j, KeyModifiers::NONE);
+        send(&mut m, KeyCode::Char('a'), KeyModifiers::NONE);
+        send(&mut m, KeyCode::Char('k'), KeyModifiers::NONE);
+        assert_eq!(m.focus, Focus::Output, "a key between them disarms");
     }
 
     #[test]
@@ -549,8 +600,7 @@ mod tests {
             b"\x1b[?1000h\x1b[?1006h".to_vec(),
         )));
         let pane = ui::panes(m.screen, m.zoom, m.widths).output.unwrap();
-        let strip = ui::strip_height(m.screen);
-        assert!(strip > 0, "the sample screen has a strip");
+        let strip = ui::STRIP_HEIGHT;
         let click = |row| {
             AppEvent::Input(Event::Mouse(MouseEvent {
                 kind: MouseEventKind::Down(MouseButton::Left),

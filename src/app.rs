@@ -11,6 +11,7 @@ pub(crate) mod browser;
 pub(crate) mod form;
 pub(crate) mod groups;
 mod interact;
+pub(crate) mod links;
 pub(crate) mod model;
 pub(crate) mod picker;
 pub(crate) mod quick;
@@ -62,6 +63,11 @@ const CHANNEL_CAPACITY: usize = 64;
 /// sees the release: every later key then arrives shifted, until a click.
 const FOLDER_DELAY: Duration = Duration::from_millis(300);
 
+/// How often the pull request and issue of a running session's branch are
+/// read again: two `gh` calls per folder, well inside GitHub's hourly
+/// limit of 5000 for a handful of sessions.
+const LINKS_EVERY: Duration = Duration::from_mins(1);
+
 /// How often sessions outside mc are listed (ARCHITECTURE §3.4).
 const EXTERNAL_EVERY: Duration = Duration::from_secs(5);
 
@@ -82,6 +88,14 @@ pub(crate) enum AppEvent {
     External(Vec<crate::external::External>),
     /// The git branch and status of the session folders in a repository.
     Repos(Vec<(PathBuf, repo::Status)>),
+    /// The pull request and issue of the session folders that were read.
+    Links(Vec<(PathBuf, links::Links)>),
+    /// The open pull requests and issues `gh` listed for the popup opened
+    /// on this folder.
+    LinkList(PathBuf, Vec<links::Link>),
+    /// The text `gh` read of the issue or pull request at this URL, for
+    /// the popup's text view; `None` when the read failed.
+    LinkBody(String, Option<String>),
     /// The configured MCP servers of sessions whose config files changed,
     /// with the files' state when they were read.
     Mcp(Vec<(SessionId, Vec<String>, agent::mcp::Stamp)>),
@@ -255,15 +269,11 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<bool> {
         }
         for event in std::iter::once(first).chain(rx.try_iter()) {
             model.now = Instant::now();
-            for card in &mut model.cards {
-                if let Some(pty) = card.pty.as_mut() {
-                    pty.flush_sync();
-                }
-            }
-            model.tools_mut().for_each(Session::flush_sync);
+            before_event(&mut model, &event);
             if matches!(event, AppEvent::External(_) | AppEvent::Worktrees(_)) {
                 rescan(&mut model);
                 scan_repos(&mut model, &tx);
+                scan_links(&mut model, &env.config, &tx);
                 scan_mcp(&mut model, &tx);
             }
             let Some(cmd) = model.update(event) else {
@@ -278,6 +288,21 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<bool> {
                 Next::Continue => {}
             }
         }
+    }
+}
+
+/// Runs before each event is applied: ends overdue synchronized updates in
+/// every emulator and, in kitty, sets [`KITTY_PASS_KEYS_ON`] again after a
+/// PTY event.
+fn before_event(model: &mut Model, event: &AppEvent) {
+    for card in &mut model.cards {
+        if let Some(pty) = card.pty.as_mut() {
+            pty.flush_sync();
+        }
+    }
+    model.tools_mut().for_each(Session::flush_sync);
+    if model.kitty && matches!(event, AppEvent::Pty(_)) {
+        write_host(KITTY_PASS_KEYS_ON);
     }
 }
 
@@ -442,6 +467,11 @@ fn run_cmd(
         Cmd::CleanWorktrees(project) => clean_worktrees(model, &project, tx),
         Cmd::OpenEditor(project) => open_editor(model, &env.config, &project, tx),
         Cmd::OpenFolder(project) => open_folder(model, project),
+        Cmd::OpenUrl(url) => open_folder(model, PathBuf::from(url)),
+        Cmd::ListLinks(folder) => list_links(gh_dir(model, env, &folder), folder, tx.clone()),
+        Cmd::ReadLink(folder, link) => {
+            read_link(gh_dir(model, env, &folder), folder, link, tx.clone());
+        }
         Cmd::OpenTerminal(owner, dir) => open_terminal(model, &env.config, owner, &dir, tx),
         Cmd::SaveGroups(groups) => save_groups(model, &groups),
         Cmd::SaveWidths(widths) => {
@@ -511,6 +541,87 @@ fn scan_repos(model: &mut Model, tx: &SyncSender<AppEvent>) {
             .collect();
         // reason: mc may have quit meanwhile.
         let _ = tx.send(AppEvent::Repos(repos));
+    });
+}
+
+/// Returns the `gh` config folder of the workspace `folder` is in
+/// ([`Config::gh_config_dir`]), for mc's own `gh` reads.
+fn gh_dir(model: &Model, env: &Env, folder: &Path) -> Option<PathBuf> {
+    env.config.gh_config_dir(folder, model.home.as_deref())
+}
+
+/// Lists the open pull requests and issues of the repository `folder` is
+/// in on a background thread, for the `i` popup ([`AppEvent::LinkList`]).
+/// `gh` is the workspace's `gh` config folder ([`gh_dir`]).
+fn list_links(gh: Option<PathBuf>, folder: PathBuf, tx: SyncSender<AppEvent>) {
+    thread::spawn(move || {
+        let list = links::list(&folder, gh.as_deref());
+        // reason: mc may have quit meanwhile.
+        let _ = tx.send(AppEvent::LinkList(folder, list));
+    });
+}
+
+/// Reads the text of `link` in `folder` on a background thread, for the
+/// popup's text view ([`AppEvent::LinkBody`]). `gh` is the workspace's `gh`
+/// config folder ([`gh_dir`]).
+fn read_link(gh: Option<PathBuf>, folder: PathBuf, link: links::Link, tx: SyncSender<AppEvent>) {
+    thread::spawn(move || {
+        let text = links::body(&folder, gh.as_deref(), &link);
+        // reason: mc may have quit meanwhile.
+        let _ = tx.send(AppEvent::LinkBody(link.url, text));
+    });
+}
+
+/// Reads the pull request and issue of session folders' branches on a
+/// background thread (one read at a time) and reports them as
+/// [`AppEvent::Links`].
+///
+/// A folder is read when its branch is not the one its links were read
+/// for, and the folders of running sessions again every [`LINKS_EVERY`],
+/// so a pull request opened meanwhile shows up. Each folder is read with
+/// its workspace's `gh` config folder ([`Config::gh_config_dir`]).
+fn scan_links(model: &mut Model, config: &Config, tx: &SyncSender<AppEvent>) {
+    if model.links_scan {
+        return;
+    }
+    let stale = model
+        .links_at
+        .is_none_or(|at| model.now >= at + LINKS_EVERY);
+    let mut due: Vec<(PathBuf, String)> = model
+        .cards
+        .iter()
+        .filter_map(|card| {
+            let folder = card.folder();
+            let branch = &model.repos.get(&folder)?.branch;
+            let read = model.links.get(&folder).map(|links| &links.branch) == Some(branch);
+            (!read || (stale && card.running())).then(|| (folder, branch.clone()))
+        })
+        .collect();
+    due.sort();
+    due.dedup();
+    if due.is_empty() {
+        return;
+    }
+    model.links_scan = true;
+    if stale {
+        model.links_at = Some(model.now);
+    }
+    let home = model.home.as_deref();
+    let due: Vec<_> = due
+        .into_iter()
+        .map(|(folder, branch)| (config.gh_config_dir(&folder, home), folder, branch))
+        .collect();
+    let tx = tx.clone();
+    thread::spawn(move || {
+        let read = due
+            .into_iter()
+            .map(|(gh, folder, branch)| {
+                let links = links::read(&folder, gh.as_deref(), &branch);
+                (folder, links)
+            })
+            .collect();
+        // reason: mc may have quit meanwhile.
+        let _ = tx.send(AppEvent::Links(read));
     });
 }
 
@@ -630,6 +741,10 @@ fn kitty_focus(side: &str) {
 
 /// The kitty user variable kitty's `map --when-focus-on var:IS_VIM=true`
 /// rules test, so `ctrl-h/j/k/l` reach mc instead of moving kitty windows.
+///
+/// Written at start and again after every PTY event: a program inside mc
+/// (vim-kitty-navigator, over `KITTY_LISTEN_ON`) sets the variable to
+/// `false` on mc's window when it quits, and its last output comes after.
 const KITTY_PASS_KEYS_ON: &[u8] = b"\x1b]1337;SetUserVar=IS_VIM=dHJ1ZQ==\x07";
 /// Clears [`KITTY_PASS_KEYS_ON`] when mc exits.
 const KITTY_PASS_KEYS_OFF: &[u8] = b"\x1b]1337;SetUserVar=IS_VIM\x07";
@@ -957,9 +1072,9 @@ fn open_editor(model: &mut Model, config: &Config, project: &Path, tx: &SyncSend
     }
 }
 
-/// Opens `project` with the desktop's opener ([`tools::desktop_opener`])
-/// after [`FOLDER_DELAY`], off the UI thread; a missing opener goes to the
-/// message line.
+/// Opens `project` (a folder, or an `https://` address) with the desktop's
+/// opener ([`tools::desktop_opener`]) after [`FOLDER_DELAY`], off the UI
+/// thread; a missing opener goes to the message line.
 fn open_folder(model: &mut Model, project: PathBuf) {
     use std::os::unix::process::CommandExt;
     let opener = tools::desktop_opener();
@@ -1132,9 +1247,17 @@ fn worktree_name(name: &str, id: SessionId) -> String {
 /// group, so a signal that ends mc (a closed terminal) does not cut a
 /// worktree removal off halfway.
 fn git(dir: &Path, args: &[&OsStr]) -> Option<String> {
+    output("git", dir, args, &[])
+}
+
+/// Runs `program` in `dir` with fixed arguments (no shell, no input, its
+/// own process group) and `env` added to mc's environment, and returns
+/// what it printed, or `None` when it failed or is missing.
+fn output(program: &str, dir: &Path, args: &[&OsStr], env: &[(&str, &OsStr)]) -> Option<String> {
     use std::os::unix::process::CommandExt;
-    let output = std::process::Command::new("git")
+    let output = std::process::Command::new(program)
         .args(args)
+        .envs(env.iter().copied())
         .current_dir(dir)
         .process_group(0)
         .stdin(std::process::Stdio::null())

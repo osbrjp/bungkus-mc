@@ -263,7 +263,7 @@ pub(crate) fn output_size(area: Rect, zoom: bool, widths: Widths, terminal: bool
         .unwrap_or(area);
     Size {
         cols: pane.width.saturating_sub(2).max(1),
-        rows: pane.height.saturating_sub(2 + strip_height(area)).max(1),
+        rows: pane.height.saturating_sub(2 + STRIP_HEIGHT).max(1),
     }
 }
 
@@ -360,6 +360,7 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
         Some(Overlay::Switcher(switcher)) => {
             dialogs::draw_switcher(frame, area, switcher, model, theme);
         }
+        Some(Overlay::Links(viewer)) => dialogs::draw_links(frame, area, viewer, theme),
         Some(Overlay::CleanWorktrees(project)) => {
             dialogs::draw_clean_worktrees(frame, area, project, theme);
         }
@@ -370,44 +371,30 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
     }
 }
 
-/// Screens at least this big give the output pane a three-row strip at
-/// its top with the mascot at the right (DESIGN §5.7); smaller ones keep
-/// the corner mascot that steps aside for agent output.
-const STRIP_SIZE: (u16, u16) = (120, 36);
-
 /// Columns between the bubble's tail and the mascot.
 const STRIP_GAP: u16 = 1;
 
-/// Returns the rows the output pane gives the mascot strip: 3 on big
-/// screens, 0 otherwise.
-#[must_use]
-pub(crate) fn strip_height(screen: Rect) -> u16 {
-    if screen.width >= STRIP_SIZE.0 && screen.height >= STRIP_SIZE.1 {
-        mascot::MINI_HEIGHT
-    } else {
-        0
-    }
-}
+/// Rows the output pane gives the mascot strip at its top (DESIGN §5.7),
+/// so the mascot and its bubble never cover agent output.
+pub(crate) const STRIP_HEIGHT: u16 = mascot::MINI_HEIGHT;
 
 /// Returns where the strip mascot sits in output pane `output` (the click
-/// target), if the screen has a strip.
+/// target).
 #[must_use]
-pub(crate) fn strip_mascot(output: Rect, screen: Rect) -> Option<Rect> {
-    (strip_height(screen) > 0).then(|| {
-        Rect::new(
-            output.right().saturating_sub(mascot::MINI_WIDTH + 2),
-            output.y + 1,
-            mascot::MINI_WIDTH,
-            mascot::MINI_HEIGHT,
-        )
-    })
+pub(crate) fn strip_mascot(output: Rect) -> Rect {
+    Rect::new(
+        output.right().saturating_sub(mascot::MINI_WIDTH + 2),
+        output.y + 1,
+        mascot::MINI_WIDTH,
+        mascot::MINI_HEIGHT,
+    )
 }
 
 /// Draws the strip mascot at `spot` in `mood` and, after a click or a
 /// notification, its speech bubble to the left (within `strip`).
 ///
 /// A click plays [`mascot::poke_pose`] and shows a quote for
-/// [`mascot::POKE`]. A notification (a session needs you or failed, see
+/// [`mascot::POKE`]. A notification (a session finished, needs you or failed, see
 /// [`Model::notice`]) is said for [`mascot::NOTICE`], cut to the room the
 /// strip has; a quote from a click goes first.
 pub(super) fn draw_strip(
@@ -1579,24 +1566,19 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn big_screens_put_the_mascot_in_the_output_pane_and_a_click_shows_a_quote() {
+    fn the_mascot_sits_in_the_output_pane_and_a_click_shows_a_quote() {
         use ratatui::crossterm::event::{
             Event, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
         };
 
         use crate::app::model::tests::with_session;
 
-        assert_eq!(
-            strip_height(Rect::new(0, 0, 100, 30)),
-            0,
-            "small screens: no strip"
-        );
         let mut model = sample(PROJECTS);
         let (_id, _w) = with_session(&mut model, "s");
         let output = panes(model.screen, model.zoom, model.widths)
             .output
             .unwrap();
-        let spot = strip_mascot(output, model.screen).unwrap();
+        let spot = strip_mascot(output);
         assert!(
             output.contains(spot.as_position()),
             "the mascot is in the output pane"
@@ -1631,6 +1613,19 @@ pub(crate) mod tests {
         model.now += mascot::NOTICE;
         model.update(crate::app::AppEvent::Tick);
         assert!(model.notice.is_none(), "it goes after a while");
+    }
+
+    #[test]
+    fn a_notification_shows_on_a_small_screen_and_with_no_session() {
+        let mut model = sample(PROJECTS);
+        model.screen = Rect::new(0, 0, 80, 24);
+        model.notice = Some((model.now, "#a3f1 finished: deploy".into()));
+        let screen = render(&mut model, 80, 24);
+        assert!(screen.contains("#a3f1 finished: deploy"), "{screen}");
+        assert!(
+            screen.contains("Nothing wrapped yet."),
+            "the empty state stays: {screen}"
+        );
     }
 
     #[test]
