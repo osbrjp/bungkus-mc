@@ -565,6 +565,14 @@ fn expanded_usage(card: &Card, width: usize, text: Style, theme: Theme) -> Vec<V
 
 /// Returns the state line: state word and detail (DESIGN §5.2).
 fn detail(card: &Card, now: Instant) -> String {
+    if card.mode == crate::agent::Mode::Cloud {
+        let id = card.cloud_id.as_deref().unwrap_or("claude.ai/code");
+        return match &card.state {
+            State::Failed(reason) => format!("cloud · {reason}"),
+            State::Working | State::YourTurn | State::NeedsYou => format!("cloud · {id}"),
+            State::Stopped | State::Wrapped => format!("cloud · {id} · C to bring here"),
+        };
+    }
     if card.output_only(now) {
         return if card.hooked && card.kind == Kind::Codex {
             "hooks not trusted · /hooks in codex".to_owned()

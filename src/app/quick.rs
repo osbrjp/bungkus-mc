@@ -97,6 +97,7 @@ impl Model {
                 resume: None,
                 pick: false,
                 fork: false,
+                cloud: None,
             },
             replaces: None,
         }))
@@ -445,6 +446,7 @@ impl Model {
                 settings: None,
                 hook_args: Vec::new(),
                 fork: resume.is_some() && card.kind == Kind::Claude,
+                cloud: None,
                 resume,
                 pick: false,
             },

@@ -357,6 +357,7 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
         Some(Overlay::TakeOver(ext, _)) => dialogs::draw_take_over(frame, area, ext, theme),
         Some(Overlay::ResumeAgent(kind)) => dialogs::draw_resume_agent(frame, area, *kind, theme),
         Some(Overlay::Move(dialog)) => dialogs::draw_move(frame, area, dialog, model, theme),
+        Some(Overlay::Mode(dialog)) => dialogs::draw_mode(frame, area, dialog, theme),
         Some(Overlay::StopOutside(ext)) => dialogs::draw_stop_outside(frame, area, ext, theme),
         Some(Overlay::NewProject(dialog)) => dialogs::draw_new_project(frame, area, dialog, theme),
         Some(Overlay::Switcher(switcher)) => {

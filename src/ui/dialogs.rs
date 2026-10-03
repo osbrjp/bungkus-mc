@@ -5,7 +5,7 @@ use ratatui::layout::{Alignment, Constraint, Flex, Layout, Position, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph};
 
-use crate::agent::Kind;
+use crate::agent::{Kind, Mode};
 use crate::app::model::Model;
 use crate::app::picker::{Picker, Row};
 use crate::app::stop::{StopDialog, StopKind, Target};
@@ -22,7 +22,7 @@ const CONFIRM_ROWS: usize = 8;
 
 /// Draws the `n` picker: agent, model, name and prompt rows.
 pub(super) fn draw_picker(frame: &mut Frame, area: Rect, p: &Picker, theme: Theme) {
-    let rect = centred(area, 54, 11);
+    let rect = centred(area, 54, 12);
     frame.render_widget(Clear, rect);
     let block = dialog_block(&format!("new session · {}", p.project), theme);
     let inner = block.inner(rect);
@@ -59,6 +59,17 @@ pub(super) fn draw_picker(frame: &mut Frame, area: Rect, p: &Picker, theme: Them
     for (i, model) in p.agent.models().iter().enumerate() {
         models.push(choice(model, p.model == i, false));
     }
+    let cloud = p.cloud();
+    let places = vec![
+        label(Row::Mode, "mode"),
+        choice("local", !cloud, false),
+        choice("cloud", cloud, false),
+    ];
+    let note = match (cloud, p.agent) {
+        (true, _) => "  cloud: runs on claude.ai/code; the prompt is its task",
+        (false, Kind::Claude) => "  prompt and name are optional",
+        (false, Kind::Codex) => "  prompt and name are optional · no cloud for codex",
+    };
     let field = |row: Row, text: &str| {
         let shown = tail(text, FIELD - 1);
         let bar = theme.fg(if p.row == row {
@@ -69,7 +80,7 @@ pub(super) fn draw_picker(frame: &mut Frame, area: Rect, p: &Picker, theme: Them
         let pad = FIELD.saturating_sub(shown.chars().count());
         let name = match row {
             Row::Name => "name",
-            Row::Prompt | Row::Agent | Row::Model => "prompt",
+            Row::Prompt | Row::Agent | Row::Model | Row::Mode => "prompt",
         };
         Line::from(vec![
             label(row, name),
@@ -83,10 +94,11 @@ pub(super) fn draw_picker(frame: &mut Frame, area: Rect, p: &Picker, theme: Them
         Line::from(""),
         Line::from(agents),
         Line::from(models),
+        Line::from(places),
         field(Row::Name, &p.name),
         field(Row::Prompt, &p.prompt),
         Line::from(""),
-        Line::styled("  prompt and name are optional", theme.fg(Token::FgMuted)),
+        Line::styled(note, theme.fg(Token::FgMuted)),
         Line::styled(
             "enter start · j/k tab next · h/l change · esc  ",
             theme.fg(Token::FgMuted),
@@ -95,9 +107,9 @@ pub(super) fn draw_picker(frame: &mut Frame, area: Rect, p: &Picker, theme: Them
     ];
     frame.render_widget(Paragraph::new(lines), inner);
     let (row_y, text) = match p.row {
-        Row::Name => (3, &p.name),
-        Row::Prompt => (4, &p.prompt),
-        Row::Agent | Row::Model => return,
+        Row::Name => (4, &p.name),
+        Row::Prompt => (5, &p.prompt),
+        Row::Agent | Row::Model | Row::Mode => return,
     };
     let len = u16::try_from(tail(text, FIELD - 1).chars().count()).unwrap_or(0);
     frame.set_cursor_position(Position::new(inner.x + 11 + len, inner.y + row_y));
@@ -354,6 +366,80 @@ pub(super) fn draw_resume_agent(frame: &mut Frame, area: Rect, kind: Kind, theme
     let inner = block.inner(rect);
     frame.render_widget(block, rect);
     frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// Draws the `C` dialog: the two modes with the chosen one marked, what
+/// the change does, and the task field for a session going to the cloud.
+pub(super) fn draw_mode(
+    frame: &mut Frame,
+    area: Rect,
+    dialog: &crate::app::cloud::ModeDialog,
+    theme: Theme,
+) {
+    let choice = |mode: Mode, text: &str| {
+        let here = if mode == dialog.from { " (now)" } else { "" };
+        let (mark, style) = if mode == dialog.to {
+            (">", bold_if(theme.fg(Token::Accent), true))
+        } else {
+            (" ", theme.fg(Token::Fg))
+        };
+        Span::styled(format!("{:<16}", format!("{mark} {text}{here}")), style)
+    };
+    let muted = |text: &'static str| Line::styled(text, theme.fg(Token::FgMuted));
+    let mut lines = vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::raw("  "),
+            choice(Mode::Local, "local"),
+            choice(Mode::Cloud, "cloud"),
+        ]),
+        Line::from(""),
+    ];
+    let typing = dialog.from == Mode::Local && dialog.to == Mode::Cloud;
+    match (dialog.from, dialog.to) {
+        (Mode::Local, Mode::Cloud) => {
+            let shown = tail(&dialog.task, FIELD - 1);
+            let pad = FIELD.saturating_sub(shown.chars().count());
+            lines.extend([
+                Line::from(vec![
+                    Span::styled("  task    ", theme.fg(Token::Fg)),
+                    Span::styled("┃", theme.fg(Token::Ok)),
+                    Span::styled(shown, theme.fg(Token::Fg)),
+                    Span::raw(" ".repeat(pad)),
+                    Span::styled("┃", theme.fg(Token::Ok)),
+                ]),
+                muted("  Starts a new session on claude.ai/code with this"),
+                muted("  task. Claude cannot send the conversation: it"),
+                muted("  stays here. Push your branch first."),
+            ]);
+        }
+        (Mode::Cloud, Mode::Local) => lines.extend([
+            muted("  Brings the cloud session here (claude --teleport)"),
+            muted("  with its conversation. Its branch is checked out"),
+            muted("  in this folder, which must have no changes."),
+            Line::from(""),
+        ]),
+        (Mode::Local, Mode::Local) | (Mode::Cloud, Mode::Cloud) => {
+            lines.extend([
+                muted("  No change."),
+                Line::from(""),
+                Line::from(""),
+                Line::from(""),
+            ]);
+        }
+    }
+    lines.push(Line::from(""));
+    lines.push(muted("← → tab mode · enter apply · esc cancel  ").alignment(Alignment::Right));
+    let rect = centred(area, 56, 11);
+    frame.render_widget(Clear, rect);
+    let block = dialog_block("mode", theme);
+    let inner = block.inner(rect);
+    frame.render_widget(block, rect);
+    frame.render_widget(Paragraph::new(lines), inner);
+    if typing {
+        let len = u16::try_from(tail(&dialog.task, FIELD - 1).chars().count()).unwrap_or(0);
+        frame.set_cursor_position(Position::new(inner.x + 11 + len, inner.y + 3));
+    }
 }
 
 /// Draws the quick-session move dialog (issue #46): the mascot, the

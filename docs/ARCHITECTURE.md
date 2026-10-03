@@ -628,6 +628,27 @@ No capability flags, no registry.
   when the session continues as a new one under the launch folder.
 - **Past sessions:** `claude --resume --settings <json>` (no id, no
   `--session-id`, no `--name`) opens Claude's own list.
+- **Cloud mode** (`C` on a session, the `mode` row of the `n` picker;
+  Claude only; `app/cloud.rs`). A card is `local` or `cloud`
+  (`sessions.json`: `mode`, `cloudSessionId`) and changes at any time:
+  mc stops the card's process, then starts the other side in its place.
+  - **To the cloud:** `claude [args] --cloud=<task> [--model <id>]` in the
+    session's folder (its worktree when it has one). Claude's CLI starts a
+    *new* cloud session for the folder's repository (the pushed branch, or
+    an upload of the local repository); it cannot send a local
+    conversation there, so the task line is all the cloud session knows.
+    No hooks, no `--session-id`, no `--worktree`, no instructions: the
+    process here only shows the cloud session, and stopping it (`x`) does
+    not stop the session on claude.ai/code.
+  - **To this machine:** `claude [args] --teleport [<id>] --settings <json>`
+    in the same folder: Claude fetches and checks out the cloud session's
+    branch (the folder must have no changes) and continues with its
+    conversation, as a local session mc's hooks report on. The id
+    (`session_…` / `cse_…`) is read off the cloud card's screen
+    (`agent::cloud_id`); without one Claude's own list of cloud sessions
+    opens.
+  - `r` does not resume a cloud card: there is no conversation on this
+    machine.
 - `<json>` is built with `serde_json`, passed as one argv element;
   contains only `hooks` (synchronous) and `statusLine` (§6.2). Hook
   command = `'<std::env::current_exe() → canonicalize, POSIX single-quoted>' hook`
@@ -899,7 +920,7 @@ request budget (1.5 s) and the confidence floor (0.6) are `const`s in
 
 ```json
 [{ "id": "m-7c5d", "agent": "claude", "project": "kedai-web",
-   "cwd": "/Users/me/Works/OSBR/kedai-web", "agentSessionId": "5f1c…",
+   "cwd": "/Users/me/Works/OSBR/kedai-web", "agentSessionId": "5f1c…", "mode": "local", "cloudSessionId": null,
    "transcript": "/Users/me/.claude/projects/…/5f1c….jsonl",
    "name": "write proposal", "nameSource": "session_name", "status": "wrapped",
    "model": "haiku", "modelSource": "routed", "routeConfidence": 0.82,

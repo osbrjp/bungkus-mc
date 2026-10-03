@@ -72,7 +72,8 @@ has none. Coverage is not a target.
   + `--` + prompt) and resume (`--resume` + `--settings`, no `--session-id`,
   no `--name`) for Claude; new/resume with `-c hooks.*` and `-m` for Codex;
   a prompt starting with `-`; strict-UUID validation rejects names, `..`,
-  spaces.
+  spaces; cloud (`--cloud=<task>`, `--teleport [id]` + `--settings`) with a
+  task starting with `-` and an id that is not a cloud session id.
 - **Hook command quoting**: executable paths with a space and a `'`; the
   generated settings JSON parses and contains exactly the expected events.
 - **Hook subcommand silence** (`tests/hook.rs`, an integration test because
