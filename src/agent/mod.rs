@@ -93,6 +93,66 @@ pub(crate) struct Launch {
     /// With `resume`, continues as a new Claude session saved under the
     /// launch folder (`--fork-session`), leaving the original untouched.
     pub fork: bool,
+    /// Starts the session in Claude's cloud, or pulls a cloud session to
+    /// this machine; `None` for a session that runs here.
+    pub cloud: Option<Cloud>,
+}
+
+impl Launch {
+    /// Returns where the launched session runs: the cloud for a new cloud
+    /// session, else this machine (a pulled one included).
+    #[must_use]
+    pub(crate) fn mode(&self) -> Mode {
+        match self.cloud {
+            Some(Cloud::Start) => Mode::Cloud,
+            Some(Cloud::Pull(_)) | None => Mode::Local,
+        }
+    }
+}
+
+/// Where a session runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Mode {
+    /// On this machine, in mc's PTY.
+    #[default]
+    Local,
+    /// In Claude's cloud (claude.ai/code); Claude only.
+    Cloud,
+}
+
+/// What a Claude launch does with Claude's cloud.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Cloud {
+    /// `claude --cloud=<prompt>`: a new cloud session for the folder's
+    /// repository. Claude's CLI cannot send a local conversation there, so
+    /// the prompt is all the cloud session knows.
+    Start,
+    /// `claude --teleport [id]`: the cloud session, with its conversation
+    /// and branch, continues on this machine. Without an id Claude's own
+    /// list of cloud sessions opens.
+    Pull(Option<String>),
+}
+
+/// Fewest characters after the prefix of a cloud session id.
+const CLOUD_ID_MIN: usize = 8;
+
+/// Returns the first cloud session id in `text`: `session_` or `cse_`,
+/// then ASCII letters and digits (at least [`CLOUD_ID_MIN`]). A
+/// `claude.ai/code/<id>` address yields its id.
+///
+/// An id is therefore never a flag or a path (SECURITY.md "Launch argv").
+#[must_use]
+pub(crate) fn cloud_id(text: &str) -> Option<String> {
+    ["session_", "cse_"].iter().find_map(|prefix| {
+        text.match_indices(prefix).find_map(|(at, _)| {
+            let rest = &text[at + prefix.len()..];
+            let len = rest
+                .find(|c: char| !c.is_ascii_alphanumeric())
+                .unwrap_or(rest.len());
+            (len >= CLOUD_ID_MIN).then(|| format!("{prefix}{}", &rest[..len]))
+        })
+    })
 }
 
 /// Builds the argument vector for a new session (ARCHITECTURE §5.1, §5.2).
@@ -100,6 +160,11 @@ pub(crate) struct Launch {
 /// The prompt is always one argument after `--`, so a prompt starting with
 /// `-` cannot become a flag; the name is one `--name` value. Nothing goes
 /// through a shell.
+///
+/// A [`Cloud`] launch is Claude's alone: `--cloud=<prompt>` (one argument,
+/// so the prompt cannot become a flag either) with the model, or
+/// `--teleport [id]` with mc's hooks; the id only when [`cloud_id`]
+/// accepts it.
 ///
 /// # Arguments
 ///
@@ -118,6 +183,26 @@ pub(crate) fn argv(kind: Kind, program: &Path, args: &[String], launch: &Launch)
         out.push(name.into());
         out.push(value.into());
     };
+    match (kind, &launch.cloud) {
+        (Kind::Claude, Some(Cloud::Start)) => {
+            let task = launch.prompt.as_deref().unwrap_or_default();
+            out.push(format!("--cloud={task}").into());
+            if let Some(model) = &launch.model {
+                flag(&mut out, "--model", model);
+            }
+            return out;
+        }
+        (Kind::Claude, Some(Cloud::Pull(id))) => {
+            out.push("--teleport".into());
+            let id = id.as_deref().and_then(cloud_id);
+            out.extend(id.map(OsString::from));
+            if let Some(settings) = &launch.settings {
+                flag(&mut out, "--settings", settings);
+            }
+            return out;
+        }
+        (Kind::Claude, None) | (Kind::Codex, _) => {}
+    }
     match (kind, &launch.resume) {
         (Kind::Claude, resume) => {
             match resume {
@@ -355,6 +440,7 @@ mod tests {
             resume: None,
             pick: false,
             fork: false,
+            cloud: None,
         };
         let bare = Launch {
             id,
@@ -366,6 +452,7 @@ mod tests {
             resume: None,
             pick: false,
             fork: false,
+            cloud: None,
         };
         let s = |v: Vec<OsString>| {
             v.into_iter()
@@ -424,6 +511,7 @@ mod tests {
             resume: None,
             pick: true,
             fork: false,
+            cloud: None,
         };
         let s = |v: Vec<OsString>| {
             v.into_iter()
@@ -454,6 +542,7 @@ mod tests {
             resume: Some("5f1c0000-0000-0000-0000-000000000000".into()),
             pick: false,
             fork: false,
+            cloud: None,
         };
         let s = |v: Vec<OsString>| {
             v.into_iter()
@@ -480,6 +569,59 @@ mod tests {
                 "5f1c0000-0000-0000-0000-000000000000"
             ]
         );
+    }
+
+    #[test]
+    fn builds_cloud_argv_and_accepts_only_cloud_ids() {
+        let launch = |cloud, prompt: Option<&str>| Launch {
+            id: SessionId(uuid::Uuid::nil()),
+            model: Some("opus".into()),
+            name: Some("ignored".into()),
+            prompt: prompt.map(str::to_owned),
+            settings: Some("{}".into()),
+            hook_args: Vec::new(),
+            resume: None,
+            pick: false,
+            fork: false,
+            cloud: Some(cloud),
+        };
+        let s = |l: &Launch| {
+            argv(Kind::Claude, Path::new("/bin/claude"), &["-v".into()], l)
+                .into_iter()
+                .map(|a| a.into_string().unwrap())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            s(&launch(Cloud::Start, Some("--help me"))),
+            ["/bin/claude", "-v", "--cloud=--help me", "--model", "opus"],
+            "the task is one argument; no hooks, no session id"
+        );
+        let id = "session_01DiUkqY2kzbUbDmW1w96rfi";
+        assert_eq!(
+            s(&launch(Cloud::Pull(Some(id.into())), None)),
+            ["/bin/claude", "-v", "--teleport", id, "--settings", "{}"]
+        );
+        assert_eq!(
+            s(&launch(Cloud::Pull(Some("--resume".into())), None)),
+            ["/bin/claude", "-v", "--teleport", "--settings", "{}"],
+            "not an id: Claude's own list opens"
+        );
+        let cases = [
+            (
+                "View: https://claude.ai/code/session_01DiUkqY2k?from=cli",
+                Some("session_01DiUkqY2k"),
+            ),
+            ("cse_abcDEF123", Some("cse_abcDEF123")),
+            ("session_short", None),
+            (
+                "the session_id field, then cse_0123456789.",
+                Some("cse_0123456789"),
+            ),
+            ("nothing here", None),
+        ];
+        for (text, want) in cases {
+            assert_eq!(cloud_id(text).as_deref(), want, "{text}");
+        }
     }
 
     #[test]

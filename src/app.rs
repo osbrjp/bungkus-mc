@@ -9,6 +9,7 @@
 
 pub(crate) mod activity;
 pub(crate) mod browser;
+pub(crate) mod cloud;
 pub(crate) mod finder;
 pub(crate) mod form;
 pub(crate) mod groups;
@@ -40,7 +41,7 @@ use ratatui::crossterm::execute;
 use ratatui::crossterm::terminal::supports_keyboard_enhancement;
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
 
-use crate::agent::{self, Kind, find_on_path};
+use crate::agent::{self, Cloud, Kind, find_on_path};
 use crate::app::finder::{Reply, Request};
 use crate::app::model::{Alert, Cmd, LaunchRequest, Model};
 use crate::app::sessions::{Card, State};
@@ -854,8 +855,43 @@ fn claude_config_dir(home: Option<&Path>) -> PathBuf {
     )
 }
 
+/// Returns the environment of session `id`'s agent ([`child_env`]) with
+/// mc's own variables: the session id, the workspace's `GH_CONFIG_DIR`,
+/// the hook socket and the user's own status line command.
+fn session_env(
+    id: SessionId,
+    gh: Option<&Path>,
+    hooks: Option<&Hooks>,
+    user_line: Option<&agent::claude::UserStatusLine>,
+) -> Vec<(OsString, OsString)> {
+    let id = id.0.hyphenated().to_string();
+    let mut extra = vec![("BUNGKUS_MC_SESSION", OsStr::new(&id))];
+    extra.extend(gh.map(|dir| ("GH_CONFIG_DIR", dir.as_os_str())));
+    if let Some(hooks) = hooks {
+        extra.push(("BUNGKUS_MC_SOCK", hooks.socket.as_os_str()));
+    }
+    if let Some(line) = user_line {
+        extra.push(("BUNGKUS_MC_USER_STATUSLINE", OsStr::new(&line.command)));
+    }
+    child_env(std::env::vars_os(), &extra)
+}
+
+/// Returns the executable of an agent's `command`: the path itself when it
+/// names one, else the first match on `PATH`.
+fn program_of(command: &str) -> Option<PathBuf> {
+    if command.contains('/') {
+        return Some(PathBuf::from(command));
+    }
+    find_on_path(command, &std::env::var_os("PATH").unwrap_or_default())
+}
+
 /// Starts a session for `request` and adds its card; a failure to start
 /// becomes a failed card with the reason.
+///
+/// A cloud launch ([`Cloud`]) runs in the folder of the card it replaces
+/// (its worktree, when it has one) with the configured arguments only: no
+/// `--worktree`, no shared folders, no instructions. A new cloud session
+/// gets no hooks; its process here only shows it.
 fn launch(
     model: &mut Model,
     env: &Env,
@@ -863,6 +899,7 @@ fn launch(
     request: LaunchRequest,
     tx: &SyncSender<AppEvent>,
 ) {
+    let cloud = request.launch.cloud.clone();
     let worktree = worktree_for(model, env, &request, has_commit);
     let LaunchRequest {
         project,
@@ -874,7 +911,7 @@ fn launch(
         launch.hook_args = agent::codex::hook_args(&hooks.exe);
     }
     let mut user_line = None;
-    if let (Some(hooks), Kind::Claude) = (hooks, kind) {
+    if let (Some(hooks), Kind::Claude, false) = (hooks, kind, cloud == Some(Cloud::Start)) {
         let config_dir = claude_config_dir(model.home.as_deref());
         user_line = agent::claude::user_statusline(&project, &config_dir);
         launch.settings = Some(agent::claude::settings(&hooks.exe, user_line.as_ref()));
@@ -892,38 +929,30 @@ fn launch(
         .command
         .clone()
         .unwrap_or_else(|| kind.command().to_owned());
-    let path = std::env::var_os("PATH").unwrap_or_default();
-    let program = if command.contains('/') {
-        Some(PathBuf::from(&command))
-    } else {
-        find_on_path(&command, &path)
-    };
-    let Some(program) = program else {
+    let Some(program) = program_of(&command) else {
         model.message = Some(format!(
             "{command} not found on PATH. Install {}, then n again.",
             kind.product()
         ));
         return;
     };
-    let extra_args = extra_args(model, &env.config, (kind, &project), worktree.as_deref());
+    let extra_args = match cloud {
+        Some(_) => agent.args.clone(),
+        None => extra_args(model, &env.config, (kind, &project), worktree.as_deref()),
+    };
     card.worktree = worktree;
+    card.mode = launch.mode();
+    let cwd = cloud
+        .as_ref()
+        .map_or_else(|| project.clone(), |_| card.folder());
     let argv = agent::argv(kind, &program, &extra_args, &launch);
-    let id = launch.id.0.hyphenated().to_string();
     let gh = env.config.gh_config_dir(&project, model.home.as_deref());
-    let mut extra = vec![("BUNGKUS_MC_SESSION", OsStr::new(&id))];
-    extra.extend(gh.iter().map(|dir| ("GH_CONFIG_DIR", dir.as_os_str())));
-    if let Some(hooks) = hooks {
-        extra.push(("BUNGKUS_MC_SOCK", hooks.socket.as_os_str()));
-    }
-    if let Some(line) = &user_line {
-        extra.push(("BUNGKUS_MC_USER_STATUSLINE", OsStr::new(&line.command)));
-    }
-    let child = child_env(std::env::vars_os(), &extra);
+    let child = session_env(launch.id, gh.as_deref(), hooks, user_line.as_ref());
     if launch.settings.is_some() || !launch.hook_args.is_empty() {
         card.expect_hooks();
     }
     card.agent_session.clone_from(&launch.resume);
-    card.prompted = launch.resume.is_some();
+    card.prompted = launch.resume.is_some() || matches!(cloud, Some(Cloud::Pull(_)));
     if let Some(old) = replaces {
         model.cards.retain(|c| c.id != old);
     }
@@ -945,7 +974,7 @@ fn launch(
     match Session::spawn(
         launch.id,
         &argv,
-        &project,
+        &cwd,
         &child,
         size,
         colors(model.theme),
@@ -1246,8 +1275,9 @@ fn open_detached(model: &mut Model, command: &[String], dir: &Path, target: &Pat
 /// the project (`replaces` aside), so the two do not edit one checkout.
 ///
 /// A new one needs `worktrees` on in the config, a fresh session (not a
-/// resume, not the picker of past sessions), a project other than the
-/// workspace root, and a repository with a commit to branch from.
+/// resume, not the picker of past sessions, not a cloud launch), a project
+/// other than the workspace root, and a repository with a commit to branch
+/// from.
 fn worktree_for(
     model: &Model,
     env: &Env,
@@ -1263,7 +1293,7 @@ fn worktree_for(
         .and_then(|id| model.cards.iter().find(|c| c.id == id))
         .filter(|c| c.project == project)
         .and_then(|c| c.worktree.clone());
-    if resumed.is_some() {
+    if resumed.is_some() || request.launch.cloud.is_some() {
         return resumed;
     }
     let shared = model.root() != Some(project)
@@ -1858,6 +1888,7 @@ mod tests {
                 resume: resume.map(str::to_owned),
                 pick: false,
                 fork: false,
+                cloud: None,
             },
             replaces,
         };

@@ -115,6 +115,8 @@ pub(crate) enum Action {
     Resume,
     /// Forget the selected finished session (with a confirm).
     Forget,
+    /// Choose where the selected session runs: this machine or the cloud.
+    Mode,
 }
 
 /// One key, or `gg`-style double press.
@@ -306,6 +308,14 @@ pub(crate) const BINDINGS: &[Binding] = &[
         help: "past sessions",
         hint: None,
         scope: Scope::Projects,
+    },
+    Binding {
+        keys: &[Key::Press(KeyCode::Char('C'), KeyModifiers::SHIFT), c('C')],
+        label: "C",
+        action: Action::Mode,
+        help: "local / cloud",
+        hint: None,
+        scope: Scope::Sessions,
     },
     Binding {
         keys: &[c('d')],
@@ -741,6 +751,7 @@ impl Action {
             | Self::Issue
             | Self::Links
             | Self::MoveQuick
+            | Self::Mode
             | Self::MakeProject => Group::Sessions,
             Self::NewProject
             | Self::TrashProject

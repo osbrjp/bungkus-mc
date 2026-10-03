@@ -13,7 +13,7 @@ use ratatui::layout::Rect;
 use rustix::process::Signal;
 
 use crate::agent::usage::{Usage, Window};
-use crate::agent::{Kind, Launch};
+use crate::agent::{Cloud, Kind, Launch};
 use crate::app::AppEvent;
 use crate::app::form::{Field, Form, FormKind, Outcome};
 use crate::app::picker::{self, Picker};
@@ -84,6 +84,8 @@ pub(crate) enum Overlay {
     ResumeAgent(Kind),
     /// Moving a quick session into a project, or a new one.
     Move(crate::app::quick::MoveDialog),
+    /// The `C` dialog: this machine or Claude's cloud.
+    Mode(crate::app::cloud::ModeDialog),
     /// "Stop this session started outside mc?"
     StopOutside(External),
     /// The `a` new-project dialog.
@@ -126,6 +128,7 @@ fn resume_cmd(card: &Card) -> Option<Cmd> {
         resume: Some(card.resume_id()?),
         pick: false,
         fork: false,
+        cloud: None,
     };
     Some(Cmd::Launch(LaunchRequest {
         project: card.project.clone(),
@@ -1047,6 +1050,9 @@ impl Model {
         if let Some(cmd) = self.moved_after_exit(id) {
             return Some(cmd);
         }
+        if let Some(request) = self.card_mut(id).and_then(|card| card.then.take()) {
+            return Some(Cmd::Launch(request));
+        }
         if let Some(cmd) = self.plan_after_exit(id) {
             return Some(cmd);
         }
@@ -1330,6 +1336,7 @@ impl Model {
             },
             Overlay::Stop(dialog) => self.stop_key(dialog, key),
             Overlay::Move(dialog) => self.move_key(dialog, key),
+            Overlay::Mode(dialog) => self.mode_key(dialog, key),
             Overlay::StopOutside(ext) => confirms(key).then_some(Cmd::StopOutside(ext.pid)),
             Overlay::ResumeAgent(kind) => match key.code {
                 KeyCode::Enter => self.pick_past(kind),
@@ -1396,6 +1403,12 @@ impl Model {
         }
         let project = self.selected_project()?.path.clone();
         let text = |s: &str| (!s.trim().is_empty()).then(|| s.trim().to_owned());
+        let cloud = p.cloud().then_some(Cloud::Start);
+        if cloud.is_some() && text(&p.prompt).is_none() {
+            self.message = Some("A cloud session needs a prompt: it is its task.".into());
+            self.overlay = Some(Overlay::Picker(p.clone()));
+            return None;
+        }
         let launch = Launch {
             id: SessionId::new(),
             model: p.model_id(),
@@ -1406,6 +1419,7 @@ impl Model {
             resume: None,
             pick: false,
             fork: false,
+            cloud,
         };
         Some(Cmd::Launch(LaunchRequest {
             project,
@@ -1424,7 +1438,9 @@ impl Model {
             return None;
         }
         let cmd = resume_cmd(card);
-        if cmd.is_none() {
+        if card.mode == crate::agent::Mode::Cloud {
+            self.message = Some("A cloud session: C brings it to this machine.".into());
+        } else if cmd.is_none() {
             self.message = Some("not resumable — hooks off".into());
         }
         cmd
@@ -1626,6 +1642,7 @@ impl Model {
                 resume: None,
                 pick: true,
                 fork: false,
+                cloud: None,
             },
             replaces: None,
         }))
@@ -1832,6 +1849,7 @@ impl Model {
             Action::Update => return self.start_update(),
             Action::MoveQuick => self.start_move(false),
             Action::MakeProject => self.start_move(true),
+            Action::Mode => self.open_mode(),
             Action::Zoom => self.zoom = !self.zoom,
             Action::Resume => {
                 if self

@@ -45,6 +45,10 @@ pub(crate) struct Record {
     pub worktree: Option<String>,
     /// Whether quitting mc stopped it, so the next start resumes it.
     pub resume: bool,
+    /// Where it runs: `local`, or `cloud` for a Claude cloud session.
+    pub mode: crate::agent::Mode,
+    /// The cloud session's id (`session_…`), once mc has seen it.
+    pub cloud_session_id: Option<String>,
 }
 
 /// Returns `$XDG_STATE_HOME/bungkus/mc/sessions.json`, or the same under

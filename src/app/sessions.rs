@@ -11,9 +11,9 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use crate::agent::Kind;
 use crate::agent::mcp;
 use crate::agent::usage::Usage;
+use crate::agent::{Kind, Mode};
 use crate::ipc::HookEvent;
 use crate::proc::{Descendants, Proc};
 use crate::store::state::Record;
@@ -164,6 +164,14 @@ pub(crate) struct Card {
     pub mcp: Vec<String>,
     /// Whether quitting mc stopped it, so the next start resumes it.
     pub auto_resume: bool,
+    /// Where it runs. A cloud session's process here is only Claude's
+    /// view of it: stopping that does not stop the cloud session.
+    pub mode: Mode,
+    /// The cloud session's id, once seen on its screen ([`Card::note_cloud_id`]).
+    pub cloud_id: Option<String>,
+    /// What to start in this card's place once its process has exited
+    /// (a change of mode, `C`).
+    pub then: Option<crate::app::model::LaunchRequest>,
 }
 
 impl Card {
@@ -231,6 +239,22 @@ impl Card {
             worktree: None,
             mcp: Vec::new(),
             auto_resume: false,
+            mode: Mode::Local,
+            cloud_id: None,
+            then: None,
+        }
+    }
+
+    /// Reads the cloud session's id off the screen when it is not known
+    /// yet ([`crate::agent::cloud_id`]).
+    pub(crate) fn note_cloud_id(&mut self) {
+        if self.mode == Mode::Cloud && self.cloud_id.is_none() {
+            // ponytail: an id wrapped over two screen lines is missed; the
+            // change to local then opens Claude's own list of cloud sessions.
+            self.cloud_id = self
+                .pty
+                .as_ref()
+                .and_then(|pty| crate::agent::cloud_id(&pty.lines().join("\n")));
         }
     }
 
@@ -279,6 +303,8 @@ impl Card {
             usage,
             worktree: self.worktree.clone(),
             resume: self.auto_resume,
+            mode: self.mode,
+            cloud_session_id: self.cloud_id.clone(),
         }
     }
 
@@ -312,15 +338,24 @@ impl Card {
         card.prompted = true;
         card.worktree.clone_from(&record.worktree);
         card.auto_resume = record.resume;
+        card.mode = record.mode;
+        card.cloud_id = record
+            .cloud_session_id
+            .as_deref()
+            .and_then(crate::agent::cloud_id);
         Some(card)
     }
 
     /// Returns the agent session id to resume, when it is a valid UUID
     /// (SECURITY.md: anything else would be read as a name or a picker).
     /// A Claude session without hooks still has mc's own id, which it was
-    /// started with; a Codex session without hooks cannot be resumed.
+    /// started with; a Codex session without hooks cannot be resumed, and
+    /// a cloud session has no conversation on this machine.
     #[must_use]
     pub(crate) fn resume_id(&self) -> Option<String> {
+        if self.mode == Mode::Cloud {
+            return None;
+        }
         let own = self.id.0.hyphenated().to_string();
         let id = match (self.kind, &self.agent_session) {
             (_, Some(bound)) => bound.as_str(),
@@ -367,6 +402,7 @@ impl Card {
     pub(crate) fn exited(&mut self, code: Option<u32>, now: Instant) {
         self.ended = Some(now);
         self.rollout_stop = None;
+        self.note_cloud_id();
         for sub in self.subagents.iter_mut().filter(|s| s.ended.is_none()) {
             sub.ended = Some(now);
         }
@@ -772,6 +808,27 @@ mod tests {
             ..record
         };
         assert!(Card::from_record(&bad, now, 1).is_none());
+    }
+
+    #[test]
+    fn a_cloud_session_keeps_its_mode_and_id_and_is_not_resumed_here() {
+        let now = Instant::now();
+        let mut c = card(Some("in the cloud"), None);
+        c.mode = Mode::Cloud;
+        c.cloud_id = Some("session_01DiUkqY2kzb".into());
+        assert_eq!(c.resume_id(), None, "no conversation on this machine");
+        let mut record = c.to_record(now, 1);
+        let back = Card::from_record(&record, now, 1).unwrap();
+        assert_eq!(
+            (back.mode, back.cloud_id.as_deref()),
+            (Mode::Cloud, Some("session_01DiUkqY2kzb"))
+        );
+        record.cloud_session_id = Some("--resume".into());
+        let back = Card::from_record(&record, now, 1).unwrap();
+        assert_eq!(
+            back.cloud_id, None,
+            "a stored id that is not one is dropped"
+        );
     }
 
     #[test]
