@@ -25,11 +25,11 @@
 ┃                    ║  o                    open in editor  O                    open the folder ║                    │
 ┃                    ║                                                                            ║.                   │
 ┃                    ║  workspace & app                                                           ║n                   │
-┃                    ║  U                    update+restart  t                    terminal on/off ║                    │
-┃                    ║  T                    close terminal  w                    workspaces      ║                    │
-┃                    ║  ,                    settings        A                    activity        ║                    │
-┃                    ║  R                    redraw          ? space              this help       ║                    │
-┃                    ║  q ctrl-c             quit                                                 ║                    │
+┃                    ║  U                    update+restart  D                    changes (diff)  ║                    │
+┃                    ║  t                    terminal on/off T                    close terminal  ║                    │
+┃                    ║  w                    workspaces      ,                    settings        ║                    │
+┃                    ║  A                    activity        R                    redraw          ║                    │
+┃                    ║  ? space              this help       q ctrl-c             quit            ║                    │
 ┃                    ║                                                                            ║                    │
 ┃                    ║  agent pane & quick popup                                                  ║                    │
 ┃                    ║  ctrl-\               leave · menu    ctrl-h · jj · jk     to sessions     ║                    │

@@ -1,0 +1,25 @@
+ bungkus-mc  ~/Works/OSBR › kedai-web                             v0.1.0-beta.9
+┏ ╔ changes · 3 ═════════════════════════════════════════════════════════════╗─┐
+┃ ║   M  src/app.rs        │ diff --git a/summary.tsx b/summary.tsx          ║ │
+┃>║ >  M …ckout/summary.tsx│ @@ -1,3 +1,3 @@                                 ║ │
+┃ ║   ?? notes.md          │  export function Summary() {                    ║ │
+┃ ║                        │ -  return <p>total</p>;                         ║ │
+┃ ║                        │ +  return <p>total, with a line longer than the ║ │
+┃ ║                        │  }                                              ║─┘
+┃ ║                        │                                                 ║─┐
+┃ ║                        │                                                 ║ │
+┃ ║                        │                                                 ║ │
+┃ ║                        │                                                 ║ │
+┃ ║                        │                                                 ║ │
+┃ ║                        │                                                 ║ │
+┃ ║                        │                                                 ║ │
+┃ ║                        │                                                 ║ │
+┃ ║                        │                                                 ║ │
+┃ ║                        │                                                 ║ │
+┃ ║                        │                                                 ║ │
+┃ ║                        │                                                 ║ │
+┃ ║                        │                                                 ║ │
+┃ ║                      1/6 · j/k file · d/u scroll · r reload · esc close  ║ │
+┗━╚══════════════════════════════════════════════════════════════════════════╝─┘
+ NORMAL  enter → sessions · n new · c clean · e more · o edit · t term · ? keys
+cursor: hidden

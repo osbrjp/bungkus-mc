@@ -642,7 +642,7 @@ pub(super) fn draw_new_project(
 
 /// Returns `text` cut to `max` characters from the front (`…/OSBR`), so
 /// the end of a long path, which tells workspaces apart, stays visible.
-fn keep_end(text: &str, max: usize) -> String {
+pub(super) fn keep_end(text: &str, max: usize) -> String {
     let n = text.chars().count();
     if n <= max {
         return text.to_owned();
