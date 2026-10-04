@@ -1857,6 +1857,7 @@ impl Model {
             Action::Settings => self.open_form(FormKind::Settings, Field::Agent),
             Action::Help => self.overlay = Some(Overlay::Help),
             Action::Activity => return Some(self.open_activity()),
+            Action::Dashboard => self.overlay = Some(Overlay::Dashboard(0)),
             Action::Redraw => return Some(Cmd::Redraw),
             Action::Quit => return Some(self.request_quit()),
             Action::Jump
