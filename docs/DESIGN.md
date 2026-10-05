@@ -721,6 +721,41 @@ global set):
 ╚════════════════════════════════════════════════════════════╝
 ```
 
+Start dashboard (issue #215): the one screen that is not a bordered
+dialog. It covers the whole screen on the theme's background when mc is
+started with no workspace or project argument (not on first run, where
+the wizard comes first, and not with `--quick`), and `H` reopens it. The
+full-size mascot plays the empty-state sequence (§5.7; left out when the
+screen is too short), then `bungkus mc` in bold, then the rows: `continue
+<project>` (the most recently started stored session, switched to in its
+workspace with its card selected; absent when there is none), the saved
+workspaces numbered `1`–`9`, `+ add a workspace…` (the settings folder
+field) and `find a project…` (the `fp` finder over every saved
+workspace). The highlighted row is `> ` in bold `accent`, the keys in
+`ok`, the hint centred in `fg-muted`. `j`/`k` · `↓`/`↑` and `enter` pick,
+`1`–`9`, `a`, `f` or `/` jump to a row's action, `esc` or `q` closes on the
+workspace `config.json` names. Goldens: `dashboard-120x40.txt`, `dashboard-80x24.txt`.
+
+```
+                           ▄▄
+                         ▄████▄
+                        ████████
+                      ▄██▀████▀██▄
+                    ▄██████▀▀██████▄
+                          █  █
+                         ▀▀ ▀▀
+
+                       bungkus mc
+
+              continue kedai-web
+          > 1 ~/Works/OSBR
+            2 ~/personal
+            a + add a workspace…
+            f find a project…
+
+          j/k enter pick · 1-9 workspace · a add · f find · esc close
+```
+
 ### 5.6 Voice
 
 Short, warm, hawker-stall casual. English UI; the only Malay words are the
@@ -1097,7 +1132,7 @@ row saves.
 ```
 
 **Settings screen** — `,` in NORMAL (and `w`, which opens it on the
-workspace field). A dialog with all five fields; `tab`/`shift-tab` (and
+workspace field). A dialog with all six fields; `tab`/`shift-tab` (and
 `↑`/`↓` off the workspace field) move between them, `←`/`→` change a
 choice (on the editor row with `other` chosen, letters type its command
 on the line below, so `h`/`j`/`k`/`l` do not move there), and on the workspace field the same folder browser opens under it
@@ -1106,7 +1141,8 @@ and reverts the theme and icon preview. The `icons` row (`auto`, `ascii`,
 `unicode`, `nerd`; not a wizard step) applies the set to the whole screen
 while the dialog is open, and the line under the rows says what the choice
 means and shows its five state glyphs, so a set the terminal's font lacks
-shows as boxes before it is saved. On the agent row a line under the choices
+shows as boxes before it is saved. The `sound` row (`on`, `off`; not a
+wizard step) turns the ding off (§9). On the agent row a line under the choices
 says where the default agent is saved, `saved for: all workspaces` (the
 global `config.json`) or `saved for: this workspace only` (the workspace's
 `.bungkus-mc/config.json`), and `w` switches between the two; the screen
@@ -1252,18 +1288,21 @@ the same frame.
 | `dd` · `V` … `d` · `u`                            | projects pane: move the project, or the `V` line selection (`j`/`k` extend, `esc` cancels, mode word `VISUAL`), to the Trash after a `y` confirm — `~/.Trash` on macOS, the freedesktop trash elsewhere, by `rename` (refused across disks, for running projects, and for anything but a direct child of the workspace); `u` puts the last batch back |
 | `w`                                               | workspace switcher: a bordered filter field over the saved workspaces (`config.json` `workspaces`, most recent first, up to 20, each with its project count and `●` on the current one) and `+ add a folder…` (the settings folder browser). `1`–`9` or `enter` switch, `ctrl-d` drops an entry from the list (never the folder). Switching applies the workspace like settings do and stops nothing: other workspaces' sessions run on, the header still counts them, and `!` switches to the workspace of a session that needs you |
 | `/`                                               | search projects: the search row at the top of the projects pane takes the text (FILTER mode: type, `↑`/`↓` pick, `enter` opens the project's sessions and keeps the search, `esc` clears). Works from the sessions pane too |
-| `fp` · `ff` · `fg`                                | the finder, a popup like telescope.nvim over the open workspace: `fp` project names, `ff` file names, `fg` file contents (a regex, smart case). Typing searches at once; `↑`/`↓` (`ctrl-p`/`ctrl-n`, `ctrl-k`/`ctrl-j`) move, `ctrl-u` clears, `esc` closes. `enter` opens the project's sessions, or the file in the editor as `o` does (vim at the matching line for `fg`). `fp` and `ff` rank a file-name match first, then a path match, then a fuzzy one (the letters in order). `ff` and `fg` run ripgrep (`rg`, required on `PATH`) off the UI thread, so `.gitignore`d, hidden and binary files are skipped; `fg` shows the first 500 matching lines. For `ff` and `fg` the right half of the popup (when it is at least 70 columns inside) previews the highlighted row's file, read off the UI thread: its first 40 lines, or for `fg` the lines from 8 above the match, with the matching line in the accent colour; a file with a NUL byte shows `(binary file)` |
+| `fp` · `ff` · `fg`                                | the finder, a popup like telescope.nvim: `fp` the projects of every saved workspace (as `~/…` paths, the open workspace's first; `enter` on one elsewhere switches to its workspace and selects it), `ff` the open workspace's file names, `fg` its file contents (a regex, smart case). Typing searches at once; `↑`/`↓` (`ctrl-p`/`ctrl-n`, `ctrl-k`/`ctrl-j`) move, `ctrl-u` clears, `esc` closes. `enter` opens the project's sessions, or the file in the editor as `o` does (vim at the matching line for `fg`). `fp` and `ff` rank a file-name match first, then a path match, then a fuzzy one (the letters in order). `ff` and `fg` run ripgrep (`rg`, required on `PATH`) off the UI thread, so `.gitignore`d, hidden and binary files are skipped; `fg` shows the first 500 matching lines. For `ff` and `fg` the right half of the popup (when it is at least 70 columns inside) previews the highlighted row's file, read off the UI thread: its first 40 lines, or for `fg` the lines from 8 above the match, with the matching line in the accent colour; a file with a NUL byte shows `(binary file)` |
 | `1`–`9`                                           | jump to the project with that number (the numbers left of the names follow the searched list). The selection moves on every digit; a digit within 0.7 s of the previous one extends the number (`1` → 1, then `6` → 16), a number with no project leaves the last jump in place, and any other key ends the number (bungkus-cli's wizard rule) |
 | `w`                                               | settings, on the workspace field (§5.8) |
-| `,`                                               | settings: workspace, default agent, theme, icons, editor (§5.8) |
+| `,`                                               | settings: workspace, default agent, theme, icons, sound, editor (§5.8) |
 | `o`                                               | open the selected project in the user's editor (the `editor` setting, else `$VISUAL`, else `$EDITOR`): `vi`/`vim`/`nvim` run in a popup over the panes (mode word `EDITOR`, every key goes to it, it closes when the editor quits); any other editor is started on its own with the folder as its argument; with none of the three set, the first of `nvim` / `vim` / `vi` on `PATH` in the same popup, else the desktop's opener (`open` / `xdg-open`) |
 | `O`                                               | open the selected project's folder with the desktop's opener (`open` / `xdg-open`): Finder or the file manager |
 | `P` · `I`                                         | open the pull request (`P`) or the issue (`I`) of the selected session's branch in the browser, with the desktop's opener (`open` / `xdg-open`). With none linked (or no session selected) the hint line says so |
 | `i`                                               | issues & pull requests popup (§5.5): the session's own issue and pull request first (marked `●`), then the repository's open pull requests and issues (30 each at most), each with number, title and state. `j`/`k` · `↓`/`↑` move, `enter` shows the row's description and its comments in the popup (each comment under a `---` rule and a line `@author · date`; for a pull request also its reviews, tagged `review: approved` or `review: changes requested`, and the review comments on its code, tagged with their `path:line` and with the code they are on quoted above their text (the last line of the comment's diff hunk, or its lines for a comment on several, 8 at most, with the diff's `+`/`-`), all in date order; the Markdown rendered by mc's own small reader, `app/markdown.rs`: headings in bold `accent` without their `#`, `**bold**`, `*italic*`, `code` and fenced code in `info`, list markers, `| ` quotes and `---` rules in `fg-muted`, links and images as their text only; tables, HTML and anything else as written; wrapped to 70 columns with a hanging indent in lists and quotes, wide characters counting two; title in the border, `first line/lines` before the hint; `j`/`k` scroll, `d`/`u` or `pgdn`/`pgup` by 10 lines, `g`/`G` to the ends, `esc`, `q` or `h` back to the list), `o` opens the row in the browser from either (the popup stays), `esc` or `q` closes. `asking gh…` shows until `gh` answered |
+| `D`                                               | changes popup (§5.5), like lazygit's files panel, over most of the screen: on the left the changed files of the repository the selected session works in (its worktree when it has one; the selected project without a session), each with the two status letters of `git status` (staged in `ok`, unstaged and `??` in `err`), a long path keeping its end; on the right, behind a rule, the highlighted file's diff against `HEAD` (staged and unstaged together; an untracked file whole, as added): header lines in bold `fg-muted`, `@@` hunk headers in `info`, `+` lines in `ok`, `-` lines in `err`, long lines cut at the pane's edge. `j`/`k` · `↓`/`↑` highlight another file, `d`/`u` or `pgdn`/`pgup` scroll the diff by 10 lines, `g`/`G` go to its ends, `r` reads the files again (the highlighted file and the scroll stay), `esc`, `q` or `D` closes. The border title counts the files (`changes · 3`); `first line/lines` shows before the hint; `asking git…` shows until `git` answered. Read-only: nothing is staged, discarded or committed from mc |
 | `t`                                               | show / hide the terminal pane: the user's `$SHELL` in the lower third of the output pane, in mc's own emulator (no tmux or other program). Every session has its own shell, started in the folder the session works in (its worktree when it has one) the first time `t` is pressed on it; the pane follows the selected session and is absent on one without a shell, and its title names the session. With no session of mc's selected (a project without sessions, an outside session) the shell belongs to the project folder, or to the workspace root on a row that is no folder. A session's shell does not outlive it: when the session ends (it exits, `x` stops it) or is forgotten, mc hangs up on its shell. A card whose session has a shell carries `>_` in `ok` before the right-hand word of its title line, shown or hidden. Showing it gives it the keys (mode word `TERMINAL`); `ctrl-\` gives them back to mc and leaves it showing; `ctrl-h` goes left to the sessions pane and `ctrl-k` up to the output pane (INTERACT), from where `ctrl-j` comes back down while the pane shows; `ctrl-j`/`ctrl-l` in the terminal stay the shell's (enter, clear screen), except in kitty, where they move to the kitty window below / to the right as from the other panes; `cmd`/`alt`/`ctrl` + `4` shows the pane and gives it the keys from any pane (starting the shell when there is none), and + `1`–`3` leave it for that pane; hiding keeps the shells running and leaves a `[4] terminal` marker on the output pane's bottom border; `exit` (or `ctrl-d`) closes one, and when it had the keys they go up to the output pane, as `ctrl-k` does |
+| `ctrl-t`                                          | open the terminal as a popup over the panes (the quick session's rectangle): the same shell `t` shows, started when there is none, with the keys (mode word `TERMINAL`). The popup shows only while it has the keys: `ctrl-\\`, `ctrl-h`, `ctrl-k`, `cmd`/`alt`/`ctrl` + `1`–`3` or a click outside it hide it and the shell runs on (the `[4] terminal` marker shows); the wheel over it scrolls it. While the terminal is a popup the output pane keeps its full height and every shell's PTY has the popup's size; `t` brings the pane back |
 | `T`                                               | close the selected session's shell, shown or hidden: mc hangs up on it (SIGHUP), as a terminal window that closes does; the pane goes when the shell has ended |
 | `?`                                               | help                                    |
 | `A`                                               | activity monitor (§5.5): what mc and its sessions use of the device; `esc`, `A` or `q` closes it |
+| `H`                                               | start dashboard (§5.5): last project, saved workspaces, add, find |
 | `R`                                               | redraw |
 | `q` · `ctrl-c`                                    | quit (confirm if anything is running)   |
 
@@ -1359,7 +1398,19 @@ overlay; `--no-mouse` / `mouse: false` turns reporting off entirely.
 
 ## 9. Notifications
 
-Setting `notify: "bell" | "desktop" | "off"`, **default `bell`**.
+Setting `notify: "bell" | "desktop" | "off"`, **default `bell`**, and
+`sound: true | false`, **default `true`** (the `sound` row of the settings
+screen).
+
+- The ding (`sound`): a kitchen-timer bell, 0.8 s, on the transitions
+  **working → your turn** (the session finished), **→ needs you** and
+  **→ failed**; sessions that change in the same pass share one ding. mc
+  synthesises it (no audio file ships), keeps it as `ding.wav` next to
+  `sessions.json` and plays it with the system's own player: `afplay`
+  (macOS), else `pw-play`, `paplay` or `aplay`. Where it plays it takes
+  the place of the BEL below; over SSH or with no player it does not
+  play and the BEL rings as before. `sound` and `notify` are independent:
+  `notify: "off"` does not silence the ding.
 
 - On the transitions **→ needs you** and **→ failed**: `bell` sends BEL
   (terminals map it to a sound, a badge or a tab highlight); `desktop`
@@ -1414,6 +1465,7 @@ launches the agent with the mapped model. What the user sees:
 | Where                          | Copy                                                                       |
 |--------------------------------|----------------------------------------------------------------------------|
 | first run / no workspace       | setup wizard (§5.8)                                                        |
+| start, no workspace argument  | start dashboard (§5.5): mascot, `continue <project>`, workspaces, add, find |
 | workspace has no projects      | `No projects in ~/Works/OSBR. A project is a folder with CLAUDE.md, AGENTS.md or .git in it — w to pick another folder.` |
 | project has no sessions        | `No sessions in kedai-web. n to start one.` |
 | session running, no output yet | `Warming up the wok…`                                                      |

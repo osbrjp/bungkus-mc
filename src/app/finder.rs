@@ -1,10 +1,12 @@
-//! The finder (`fp`, `ff`, `fg`): a popup that searches the open workspace
-//! while the user types, as telescope.nvim does.
+//! The finder (`fp`, `ff`, `fg`): a popup that searches while the user
+//! types, as telescope.nvim does.
 //!
-//! `fp` matches project names, `ff` file names and `fg` file contents. The
-//! file names and the matching lines come from ripgrep, which the event
-//! loop runs off the UI thread ([`Request::Find`]); this module ranks, picks
-//! and never reads a file itself.
+//! `fp` matches the projects of every saved workspace (picking one in
+//! another workspace switches to it), `ff` the open workspace's file names
+//! and `fg` its file contents. The file names and the matching lines come
+//! from ripgrep, which the event loop runs off the UI thread
+//! ([`Request::Find`]); this module ranks, picks and never reads a file
+//! itself.
 
 use std::path::{Path, PathBuf};
 
@@ -51,7 +53,7 @@ pub(crate) enum Reply {
 /// What the finder searches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Source {
-    /// The workspace's project names (`fp`).
+    /// The projects of every saved workspace (`fp`).
     Projects,
     /// The workspace's file names (`ff`).
     Files,
@@ -80,8 +82,8 @@ pub(crate) struct Finder {
     pub query: String,
     /// Highlighted row of [`Finder::rows`].
     pub selected: usize,
-    /// Everything `fp` and `ff` match against: the project names, or the
-    /// file paths relative to the workspace.
+    /// Everything `fp` and `ff` match against: the `~`-shortened project
+    /// paths, or the file paths relative to the workspace.
     items: Vec<String>,
     /// The rows shown, best first: matching items, or for `fg` ripgrep's
     /// `path:line:text` lines.
@@ -173,7 +175,7 @@ impl Model {
     pub(super) fn open_finder(&mut self, source: Source) -> Option<Cmd> {
         let root = self.root()?.to_path_buf();
         let items = match source {
-            Source::Projects => self.projects.iter().map(|p| p.name.clone()).collect(),
+            Source::Projects => self.all_projects(),
             Source::Files | Source::Grep => Vec::new(),
         };
         let mut finder = Finder {
@@ -191,6 +193,30 @@ impl Model {
         self.overlay = Some(Overlay::Finder(finder));
         self.find_seq += 1;
         (source == Source::Files).then_some(Cmd::Finder(Request::Find(root, self.find_seq, None)))
+    }
+
+    /// Returns the projects `fp` searches, as `~`-shortened paths: the open
+    /// workspace's first, then those of the other saved workspaces, each
+    /// folder once.
+    ///
+    /// The other workspaces are scanned here, as the `w` switcher does.
+    fn all_projects(&self) -> Vec<String> {
+        let mut paths: Vec<PathBuf> = self.projects.iter().map(|p| p.path.clone()).collect();
+        for workspace in self
+            .workspaces
+            .iter()
+            .filter(|w| Some(w.as_path()) != self.root())
+        {
+            for project in crate::workspace::scan(workspace).unwrap_or_default() {
+                if !paths.contains(&project.path) {
+                    paths.push(project.path);
+                }
+            }
+        }
+        paths
+            .iter()
+            .map(|p| crate::store::config::tilde(p, self.home.as_deref()))
+            .collect()
     }
 
     /// Takes ripgrep's lines for search `seq` into the open finder: the
@@ -353,7 +379,11 @@ impl Model {
             )));
         }
         let row = finder.rows.get(finder.selected)?;
-        let path = self.projects.iter().find(|p| p.name == *row)?.path.clone();
+        let path = crate::store::config::expand(row, self.home.as_deref())?;
+        if !self.projects.iter().any(|p| p.path == path) {
+            self.want_project = Some(path.file_name()?.to_string_lossy().into_owned());
+            return Some(Cmd::SwitchWorkspace(self.workspace_of(&path)?, None));
+        }
         self.filter.clear();
         if self.select_project(&path) {
             self.card = 0;
@@ -419,13 +449,37 @@ mod tests {
         typed(&mut m, "fp");
         assert_eq!(rows(&m).len(), 3);
         typed(&mut m, "wrg");
-        assert_eq!(rows(&m), ["warung-api"]);
+        assert_eq!(rows(&m), ["~/Works/OSBR/warung-api"]);
         assert_eq!(m.update(press(KeyCode::Enter)), None);
         assert_eq!(
             m.selected_project().map(|p| p.name.as_str()),
             Some("warung-api")
         );
         assert!(m.overlay.is_none() && m.focus == Focus::Sessions);
+    }
+
+    #[test]
+    fn fp_finds_a_project_of_another_workspace_and_switches_to_it() {
+        let other = std::env::temp_dir().join(format!("mc-fp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&other);
+        std::fs::create_dir_all(other.join("kedai-web/.git")).unwrap();
+        let mut m = sample(&["kedai-web", "warung-api"]);
+        m.workspaces = vec![m.root().unwrap().to_path_buf(), other.clone()];
+        typed(&mut m, "fp");
+        let theirs = other.join("kedai-web").display().to_string();
+        assert_eq!(
+            rows(&m),
+            ["~/Works/OSBR/kedai-web", "~/Works/OSBR/warung-api", &theirs],
+            "the open workspace first, then the others"
+        );
+        typed(&mut m, "kedai");
+        m.update(press(KeyCode::Down));
+        assert_eq!(
+            m.update(press(KeyCode::Enter)),
+            Some(Cmd::SwitchWorkspace(other.clone(), None))
+        );
+        assert_eq!(m.want_project.as_deref(), Some("kedai-web"));
+        std::fs::remove_dir_all(&other).unwrap();
     }
 
     #[test]

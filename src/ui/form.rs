@@ -81,7 +81,7 @@ pub(super) fn draw_wizard(
         Field::Editor if form.typing_editor() => {
             "type a command · ← → choose · enter next · esc back"
         }
-        Field::Agent | Field::Theme | Field::Icons | Field::Editor => {
+        Field::Agent | Field::Theme | Field::Icons | Field::Sound | Field::Editor => {
             "← → choose · enter next · esc back"
         }
         Field::Done => "enter start · esc back",
@@ -97,7 +97,7 @@ fn title_lines(field: Field, theme: Theme) -> Vec<Line<'static>> {
     let (step, name) = match field {
         Field::Workspace => (1, "workspace"),
         Field::Agent => (2, "default agent"),
-        Field::Theme | Field::Icons => (3, "theme"),
+        Field::Theme | Field::Icons | Field::Sound => (3, "theme"),
         Field::Editor => (4, "editor"),
         Field::Done => (5, "all set"),
     };
@@ -135,6 +135,7 @@ fn step_rows(form: &Form, theme: Theme, host_light: Option<bool>) -> Vec<Line<'s
             preview_line(theme),
         ],
         Field::Icons => vec![label_line("icons", icons_spans(form, theme, true))],
+        Field::Sound => vec![label_line("sound", sound_spans(form, theme, true))],
         Field::Editor => vec![
             label_line("editor", editor_spans(form, theme, true)),
             Line::from(""),
@@ -186,7 +187,7 @@ pub(super) fn draw_settings(
 ) {
     let browsing = form.field == Field::Workspace;
     let list_rows = if browsing { 9 } else { 0 };
-    let rect = centred(area, 74, 14 + list_rows);
+    let rect = centred(area, 74, 15 + list_rows);
     frame.render_widget(Clear, rect);
     let block = dialog("settings", theme);
     let inner = block.inner(rect);
@@ -198,6 +199,7 @@ pub(super) fn draw_settings(
         agent,
         theme_row,
         icons,
+        sound,
         editor,
         note,
         error,
@@ -207,6 +209,7 @@ pub(super) fn draw_settings(
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Length(list_rows),
+        Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Length(1),
@@ -230,10 +233,11 @@ pub(super) fn draw_settings(
     if browsing {
         draw_browser(frame, shift(list), form, theme);
     }
-    let choices: [(Rect, Field, &str, Spans); 4] = [
+    let choices: [(Rect, Field, &str, Spans); 5] = [
         (agent, Field::Agent, "agent", agent_spans),
         (theme_row, Field::Theme, "theme", theme_spans),
         (icons, Field::Icons, "icons", icons_spans),
+        (sound, Field::Sound, "sound", sound_spans),
         (editor, Field::Editor, "editor", editor_spans),
     ];
     for (row, field, label, spans) in choices {
@@ -246,6 +250,7 @@ pub(super) fn draw_settings(
         Field::Agent => found_text(form),
         Field::Theme => theme_note(form.theme, host_light),
         Field::Icons => icons_note(form),
+        Field::Sound => "a ding when a session finishes, needs you or fails".into(),
         Field::Editor => editor_note(form),
         Field::Workspace | Field::Done => {
             "projects = folders with CLAUDE.md, AGENTS.md or .git".into()
@@ -276,7 +281,7 @@ fn settings_hint(form: &Form) -> &'static str {
         Field::Editor if form.typing_editor() => {
             "type a command · ← → change · ↑↓ field · enter save · esc cancel "
         }
-        Field::Agent | Field::Theme | Field::Icons | Field::Editor | Field::Done => {
+        Field::Agent | Field::Theme | Field::Icons | Field::Sound | Field::Editor | Field::Done => {
             "j/k ↑↓ field · h/l ← → change · enter save · esc cancel "
         }
     }
@@ -407,6 +412,19 @@ fn icons_spans(form: &Form, theme: Theme, focused: bool) -> Vec<Span<'static>> {
         .flat_map(|c| {
             [
                 choice(c.label(), form.icons == *c, focused, theme),
+                Span::raw("  "),
+            ]
+        })
+        .collect()
+}
+
+/// Returns the ding's on / off choice row.
+fn sound_spans(form: &Form, theme: Theme, focused: bool) -> Vec<Span<'static>> {
+    [("on", true), ("off", false)]
+        .iter()
+        .flat_map(|(label, on)| {
+            [
+                choice(label, form.sound == *on, focused, theme),
                 Span::raw("  "),
             ]
         })

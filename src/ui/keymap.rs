@@ -74,8 +74,13 @@ pub(crate) enum Action {
     /// List the session's and the repository's open issues and pull
     /// requests in a popup.
     Links,
+    /// Show the changed files of the session's repository and their diffs
+    /// in a popup.
+    Diff,
     /// Show or hide the terminal pane below the output pane.
     Terminal,
+    /// Open the terminal as a popup over the panes.
+    TerminalPopup,
     /// Close the selected project's shell.
     CloseTerminal,
     /// Start a quick session at the workspace root (a popup).
@@ -95,6 +100,8 @@ pub(crate) enum Action {
     Help,
     /// Show the activity monitor: mc's memory and CPU use.
     Activity,
+    /// Reopen the start dashboard.
+    Dashboard,
     /// Clear and redraw the whole screen.
     Redraw,
     /// Quit mc.
@@ -550,11 +557,27 @@ pub(crate) const BINDINGS: &[Binding] = &[
         scope: Scope::Global,
     },
     Binding {
+        keys: &[Key::Press(KeyCode::Char('D'), KeyModifiers::SHIFT), c('D')],
+        label: "D",
+        action: Action::Diff,
+        help: "changes (diff)",
+        hint: None,
+        scope: Scope::Global,
+    },
+    Binding {
         keys: &[c('t')],
-        label: "t",
+        label: "t · ctrl-t",
         action: Action::Terminal,
-        help: "terminal on/off",
+        help: "term · popup",
         hint: Some("t term"),
+        scope: Scope::Global,
+    },
+    Binding {
+        keys: &[ctrl('t')],
+        label: "ctrl-t",
+        action: Action::TerminalPopup,
+        help: "terminal popup",
+        hint: None,
         scope: Scope::Global,
     },
     Binding {
@@ -586,6 +609,14 @@ pub(crate) const BINDINGS: &[Binding] = &[
         label: "A",
         action: Action::Activity,
         help: "activity",
+        hint: None,
+        scope: Scope::Global,
+    },
+    Binding {
+        keys: &[Key::Press(KeyCode::Char('H'), KeyModifiers::SHIFT), c('H')],
+        label: "H",
+        action: Action::Dashboard,
+        help: "dashboard",
         hint: None,
         scope: Scope::Global,
     },
@@ -730,6 +761,8 @@ impl Action {
             | Self::Pane(_)
             | Self::NextNeedsYou
             | Self::Zoom
+            | Self::TerminalPopup
+            | Self::Dashboard
             | Self::OpenProject => Group::Navigate,
             Self::Interact
             | Self::NewSession
@@ -758,6 +791,7 @@ impl Action {
             | Self::Activity
             | Self::Redraw
             | Self::Update
+            | Self::Diff
             | Self::Terminal
             | Self::CloseTerminal
             | Self::Quit => Group::App,
@@ -767,6 +801,8 @@ impl Action {
 
 /// Returns the key menu for `scope`: per [`Group`], the `(label, help)`
 /// rows of that pane's and the global bindings, skipping empty groups.
+/// The terminal popup shares the terminal's row: the menu has no row to
+/// spare on a 40-row screen.
 #[must_use]
 pub(crate) fn help_groups(scope: Scope) -> Vec<(Group, Vec<(&'static str, &'static str)>)> {
     Group::ALL
@@ -775,7 +811,9 @@ pub(crate) fn help_groups(scope: Scope) -> Vec<(Group, Vec<(&'static str, &'stat
             let rows = BINDINGS
                 .iter()
                 .filter(|b| {
-                    (b.scope == scope || b.scope == Scope::Global) && b.action.group() == group
+                    (b.scope == scope || b.scope == Scope::Global)
+                        && b.action.group() == group
+                        && !matches!(b.action, Action::TerminalPopup)
                 })
                 .map(|b| (b.label, b.help))
                 .collect();

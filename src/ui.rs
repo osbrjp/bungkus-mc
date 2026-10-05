@@ -9,6 +9,7 @@
 mod activity;
 mod cards;
 mod dialogs;
+mod diff;
 mod form;
 mod help;
 pub(crate) mod icons;
@@ -268,6 +269,29 @@ pub(crate) fn output_size(area: Rect, zoom: bool, widths: Widths, terminal: bool
     }
 }
 
+/// Draws the selected session's shell in `rect`: the terminal pane below
+/// the output pane, or with `popup` the terminal popup over the panes
+/// (which always has the keys). The title names the session.
+fn draw_terminal(frame: &mut Frame, rect: Rect, popup: bool, model: &Model, theme: Theme) {
+    let Some(shell) = model.shell() else {
+        return;
+    };
+    let focused = model.term_view == TermView::Focused;
+    let card = model.selected_card().map(|i| &model.cards[i]);
+    let project = model.selected_project().map_or("", |p| p.name.as_str());
+    let name = card.map_or(project, |c| c.name.as_str());
+    let leave = model.exit_chord.label();
+    let title = if popup {
+        frame.render_widget(ratatui::widgets::Clear, rect);
+        format!("terminal · {name} · {leave} to hide")
+    } else if focused {
+        format!("[4] terminal · {name} · {leave} to leave")
+    } else {
+        format!("[4] terminal · {name} · t hides · T closes")
+    };
+    output::draw_tool(frame, rect, &title, &shell.pty, focused, theme);
+}
+
 /// Draws the whole screen.
 ///
 /// Below [`MIN_SIZE`] only a one-line notice is drawn. Before the first
@@ -316,24 +340,17 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
     if let Some(rect) = layout.output {
         output::draw(frame, rect, model, theme);
     }
-    if let (Some(rect), Some(shell)) = (layout.terminal, model.shell()) {
-        let focused = model.term_view == TermView::Focused;
-        let card = model.selected_card().map(|i| &model.cards[i]);
-        let project = model.selected_project().map_or("", |p| p.name.as_str());
-        let name = card.map_or(project, |c| c.name.as_str());
-        let title = if focused {
-            let leave = model.exit_chord.label();
-            format!("[4] terminal · {name} · {leave} to leave")
-        } else {
-            format!("[4] terminal · {name} · t hides · T closes")
-        };
-        output::draw_tool(frame, rect, &title, &shell.pty, focused, theme);
+    if let Some(rect) = layout.terminal {
+        draw_terminal(frame, rect, false, model, theme);
     } else if let (Some(rect), Some(_)) = (layout.output, model.shell()) {
         draw_hidden_terminal(frame, rect, theme);
     }
     draw_getah(frame, getah, model, theme);
     if model.popup.is_some() {
         output::draw_popup(frame, popup_rect(area), model, theme);
+    }
+    if model.terminal_popup() {
+        draw_terminal(frame, popup_rect(area), true, model, theme);
     }
     if let Some(editor) = &model.editor {
         let rect = popup_rect(area);
@@ -359,11 +376,15 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
         Some(Overlay::Move(dialog)) => dialogs::draw_move(frame, area, dialog, model, theme),
         Some(Overlay::StopOutside(ext)) => dialogs::draw_stop_outside(frame, area, ext, theme),
         Some(Overlay::NewProject(dialog)) => dialogs::draw_new_project(frame, area, dialog, theme),
+        Some(Overlay::Dashboard(selected)) => {
+            dialogs::draw_dashboard(frame, area, *selected, model, theme);
+        }
         Some(Overlay::Switcher(switcher)) => {
             dialogs::draw_switcher(frame, area, switcher, model, theme);
         }
         Some(Overlay::Finder(finder)) => dialogs::draw_finder(frame, area, finder, theme),
         Some(Overlay::Links(viewer)) => dialogs::draw_links(frame, area, viewer, theme),
+        Some(Overlay::Diff(viewer)) => diff::draw(frame, area, viewer, theme),
         Some(Overlay::CleanWorktrees(project)) => {
             dialogs::draw_clean_worktrees(frame, area, project, theme);
         }
@@ -1259,6 +1280,44 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn changes_popup_matches_golden() {
+        use crate::app::AppEvent;
+        use crate::app::diff::{File, Mark};
+
+        let mut model = sample(PROJECTS);
+        key(&mut model, KeyCode::Char('D'));
+        assert!(render(&mut model, 80, 24).contains("asking git"));
+        let folder = model.selected_project().unwrap().path.clone();
+        let file = |staged, unstaged, path: &str| File {
+            staged,
+            unstaged,
+            path: path.into(),
+        };
+        let files = vec![
+            file('M', ' ', "src/app.rs"),
+            file(' ', 'M', "src/components/checkout/summary.tsx"),
+            file('?', '?', "notes\u{1b}[31m.md"),
+        ];
+        let shown = files[1].clone();
+        model.update(AppEvent::Changes(folder.clone(), folder.clone(), files));
+        key(&mut model, KeyCode::Char('j'));
+        let lines = [
+            (Mark::Meta, "diff --git a/summary.tsx b/summary.tsx"),
+            (Mark::Hunk, "@@ -1,3 +1,3 @@"),
+            (Mark::Context, " export function Summary() {"),
+            (Mark::Removed, "-  return <p>total</p>;"),
+            (
+                Mark::Added,
+                "+  return <p>total, with a line longer than the pane is wide</p>;",
+            ),
+            (Mark::Context, " }"),
+        ];
+        let lines = lines.map(|(mark, text)| (mark, text.to_owned())).to_vec();
+        model.update(AppEvent::Diff(folder, shown, lines));
+        assert_golden("changes-80x24.txt", &render(&mut model, 80, 24));
+    }
+
+    #[test]
     fn sessions_and_interact_match_goldens() {
         use crate::app::model::tests::with_session;
         use crate::term::PtyEvent;
@@ -1396,6 +1455,25 @@ pub(crate) mod tests {
             key(&mut model, KeyCode::Char(ch));
         }
         assert_golden("picker-80x24.txt", &render(&mut model, 80, 24));
+    }
+
+    #[test]
+    fn dashboard_matches_goldens() {
+        let mut model = sample(PROJECTS);
+        let home = model.home.clone().unwrap();
+        model.workspaces = vec![
+            model.root().unwrap().to_path_buf(),
+            home.join("personal"),
+            home.join("code/oss"),
+        ];
+        let (_, _writes) = crate::app::model::tests::with_session(&mut model, "checkout");
+        model.overlay = Some(Overlay::Dashboard(1));
+        for (name, width, height) in [
+            ("dashboard-120x40.txt", 120, 40),
+            ("dashboard-80x24.txt", 80, 24),
+        ] {
+            assert_golden(name, &render(&mut model, width, height));
+        }
     }
 
     #[test]

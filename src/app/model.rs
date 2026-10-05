@@ -88,12 +88,16 @@ pub(crate) enum Overlay {
     StopOutside(External),
     /// The `a` new-project dialog.
     NewProject(crate::app::quick::NewProject),
+    /// The start dashboard, with its highlighted row.
+    Dashboard(usize),
     /// The `w` workspace switcher.
     Switcher(crate::app::workspaces::Switcher),
     /// The `fp` / `ff` / `fg` finder.
     Finder(crate::app::finder::Finder),
     /// The `i` issues and pull requests popup.
     Links(crate::app::links::Viewer),
+    /// The `D` changes popup.
+    Diff(crate::app::diff::Viewer),
     /// "Move these projects' folders to the Trash?"
     TrashProject(Vec<Project>),
     /// "Remove this project's unused worktrees?"
@@ -152,6 +156,9 @@ pub(crate) struct Rest {
 /// Something the host terminal should announce (DESIGN §9).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Alert {
+    /// A session finished its turn: the ding only, no bell or desktop
+    /// notification.
+    Finished,
     /// A session now needs the user.
     NeedsYou(String),
     /// A session failed.
@@ -195,6 +202,12 @@ pub(crate) enum Cmd {
     /// Read the text of this issue or pull request, in this folder, for
     /// the `i` popup's text view.
     ReadLink(PathBuf, crate::app::links::Link),
+    /// List the changed files of this folder's repository for the `D`
+    /// popup.
+    ListChanges(PathBuf),
+    /// Read the diff of this file, in the repository at this root, for
+    /// the `D` popup.
+    ReadDiff(PathBuf, crate::app::diff::File),
     /// Start the terminal pane's shell for this owner in this folder (`t`).
     OpenTerminal(crate::app::tools::Owner, PathBuf),
     /// Write the workspace's project groups to its `.bungkus-mc/config.json`.
@@ -248,6 +261,8 @@ pub(crate) struct Model {
     pub nerd_font: bool,
     /// The `icons` value in `config.json`, for the first-run wizard to keep.
     pub icons_saved: crate::ui::icons::IconChoice,
+    /// The `sound` value in `config.json`, for the first-run wizard to keep.
+    pub sound_saved: bool,
     /// `--icons`: the icon choice for this run, until the settings screen
     /// changes it. It is never saved.
     pub icons_flag: Option<crate::ui::icons::IconChoice>,
@@ -386,6 +401,9 @@ pub(crate) struct Model {
     pub shells: Vec<(crate::app::tools::Owner, Tool)>,
     /// How the terminal pane shows.
     pub term_view: TermView,
+    /// Where the terminal shows: a popup over the panes (`ctrl-t`)
+    /// or the pane below the output pane (`t`).
+    pub term_place: crate::app::tools::TermPlace,
     /// The `quick` row that leads the projects list while quick sessions
     /// exist; its path is the workspace root.
     pub quick_row: Project,
@@ -447,6 +465,7 @@ impl Model {
             host_light: None,
             nerd_font: false,
             icons_saved: crate::ui::icons::IconChoice::Auto,
+            sound_saved: true,
             icons_flag: None,
             home,
             settings: None,
@@ -508,6 +527,7 @@ impl Model {
             editor: None,
             shells: Vec::new(),
             term_view: TermView::Hidden,
+            term_place: crate::app::tools::TermPlace::Pane,
             debug_keys: false,
             want_project: None,
             quick_row: Project {
@@ -802,7 +822,7 @@ impl Model {
     }
 
     /// Returns whether anything on screen animates (a running card of the
-    /// selected project, or the empty-state mascot), so the 350 ms tick
+    /// selected project, or the empty-state or dashboard mascot), so the 350 ms tick
     /// must run.
     #[must_use]
     pub(crate) fn animating(&self) -> bool {
@@ -810,6 +830,7 @@ impl Model {
         self.theme.animated()
             && (empty_output
                 || self.poke.is_some()
+                || matches!(self.overlay, Some(Overlay::Dashboard(_)))
                 || self
                     .project_cards()
                     .iter()
@@ -877,6 +898,7 @@ impl Model {
             theme: ThemeChoice::Auto,
             default_agent: Kind::Claude,
             icons: self.icons_saved,
+            sound: self.sound_saved,
             editor: None,
         });
         let mut form = Form::new(
@@ -977,6 +999,10 @@ impl Model {
             AppEvent::Links(read) => self.set_links(read),
             AppEvent::LinkList(folder, list) => self.set_link_list(&folder, list),
             AppEvent::LinkBody(url, text) => self.set_link_body(&url, text.as_deref()),
+            AppEvent::Changes(folder, root, files) => {
+                return self.set_changes(&folder, root, files);
+            }
+            AppEvent::Diff(root, file, lines) => self.set_diff(&root, &file, lines),
             AppEvent::External(list) => {
                 self.external = list;
                 self.selected = self.selected.min(self.visible().len().saturating_sub(1));
@@ -1089,6 +1115,7 @@ impl Model {
             self.alerts.push(Alert::NeedsYou(text));
         } else if card.state == State::YourTurn && before == State::Working {
             self.notice = Some((now, format!("{} finished: {}", card.id.short(), card.name)));
+            self.alerts.push(Alert::Finished);
         }
         let first_bind = !bound && card.agent_session.is_some();
         let watch = card.kind == Kind::Codex && card.running() && card.rollout_stop.is_none();
@@ -1359,9 +1386,11 @@ impl Model {
                 None
             }
             Overlay::NewProject(dialog) => self.new_project_key(dialog, key),
+            Overlay::Dashboard(selected) => self.dashboard_key(selected, key),
             Overlay::Switcher(switcher) => self.switcher_key(switcher, key),
             Overlay::Finder(finder) => self.finder_key(finder, key),
             Overlay::Links(viewer) => self.viewer_key(viewer, key),
+            Overlay::Diff(viewer) => self.diff_key(viewer, key),
             Overlay::TrashProject(projects) => confirms(key)
                 .then(|| Cmd::TrashProject(projects.into_iter().map(|p| p.path).collect())),
             Overlay::CleanWorktrees(project) => {
@@ -1579,7 +1608,10 @@ impl Model {
                 self.focus = Focus::Sessions;
                 self.interact();
             }
-            _ => return self.focus_terminal(),
+            _ => {
+                self.term_place = crate::app::tools::TermPlace::Pane;
+                return self.focus_terminal();
+            }
         }
         None
     }
@@ -1827,7 +1859,9 @@ impl Model {
             Action::Editor => return self.open_editor(),
             Action::Folder => return self.open_folder(),
             Action::PullRequest | Action::Issue | Action::Links => return self.link_key(action),
+            Action::Diff => return self.open_diff(),
             Action::Terminal => return self.toggle_terminal(),
+            Action::TerminalPopup => return self.popup_terminal(),
             Action::CloseTerminal => self.close_terminal(),
             Action::Update => return self.start_update(),
             Action::MoveQuick => self.start_move(false),
@@ -1853,6 +1887,7 @@ impl Model {
             Action::Settings => self.open_form(FormKind::Settings, Field::Agent),
             Action::Help => self.overlay = Some(Overlay::Help),
             Action::Activity => return Some(self.open_activity()),
+            Action::Dashboard => self.overlay = Some(Overlay::Dashboard(0)),
             Action::Redraw => return Some(Cmd::Redraw),
             Action::Quit => return Some(self.request_quit()),
             Action::Jump
@@ -2003,8 +2038,13 @@ pub(crate) mod tests {
         let mut first_run = sample(&["a"]);
         first_run.settings = None;
         first_run.icons_saved = IconChoice::Unicode;
+        first_run.sound_saved = false;
         first_run.start_wizard("");
         assert_eq!(first_run.view_theme().icons, IconSet::Unicode);
+        let Some(Overlay::Form(form)) = &first_run.overlay else {
+            panic!("the wizard");
+        };
+        assert!(!form.sound, "a ding turned off by hand stays off");
     }
 
     /// A model with `names` as projects of `/Users/me/Works/OSBR`, as the
@@ -2031,6 +2071,7 @@ pub(crate) mod tests {
             theme: ThemeChoice::Dark,
             default_agent: Kind::Claude,
             icons: crate::ui::icons::IconChoice::Auto,
+            sound: true,
             editor: None,
         };
         model.apply(settings, Ok(projects), Path::new("/"));
@@ -2610,7 +2651,7 @@ pub(crate) mod tests {
             "{:?}",
             m.notice
         );
-        assert!(m.alerts.is_empty(), "the host terminal is not told");
+        assert_eq!(m.alerts, [Alert::Finished], "the ding, not the bell");
     }
 
     /// Returns a socket line for `id` carrying the status-line fixture.

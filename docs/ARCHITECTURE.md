@@ -270,7 +270,7 @@ for either (no tmux, no terminal app): both use its own PTY and emulator. Each i
 environment as an agent) held by the model next to the cards, not as one:
 no card, no hooks, no usage, nothing in `sessions.json`, not in the stop
 dialog. Its PTY events are told apart by id. While the terminal pane
-shows (the selected session has a shell and `t` did not hide it), the output pane and every session's PTY are a third shorter. A
+shows (the selected session has a shell and `t` did not hide it), the output pane and every session's PTY are a third shorter. `ctrl-t` shows the same shell as a popup instead (`TermPlace::Popup`): drawn only while it has the keys, the shells' PTYs at the popup's size, the output pane at its full height. A
 tool ends when its program exits, when mc does (the PTY closes, the
 kernel sends SIGHUP), or, for a shell, on `T` or when its session ends (mc sends SIGHUP
 to its process group and forgets it once it has exited). Any other editor is spawned once with an argument
@@ -321,6 +321,28 @@ background thread:
   Linux. macOS has no unprivileged source short of `IOKit` FFI
   (`unsafe`) or `sudo powermetrics`, so it shows `n/a`.
 - The figures never feed tracking or stopping; argv is never read.
+
+### 3.8 Changes popup (`src/app/diff.rs`, display only)
+
+`D` shows the changed files of the repository the selected session's
+folder is in and the diff of the highlighted one. Everything is read with
+`git` (fixed argv, no shell, null stdin, own process group,
+`--no-optional-locks`) on a background thread, and only while the popup
+is open:
+
+- The list: `git rev-parse --show-toplevel`, then `git status --porcelain
+  -z --untracked-files=all` (`AppEvent::Changes`). A renamed entry's old
+  name is skipped.
+- A diff, when a file is highlighted: `git --literal-pathspecs diff
+  --no-color --no-ext-diff HEAD -- <path>` at the repository's root, or
+  `git diff --no-index -- /dev/null <path>` for an untracked file
+  (`AppEvent::Diff`). An answer for a file that is no longer highlighted,
+  or for another repository,
+  is dropped. Tabs become four spaces, every line goes through
+  `sanitise()` (400 characters at most), and a diff is cut at 5000 lines.
+- The path `git status` printed goes back to `git` unchanged, after `--`;
+  it is sanitised only where it is drawn.
+- mc never writes to the repository: no staging, discarding or commit.
 
 ## 4. Data flow
 
@@ -813,6 +835,7 @@ command unchanged.
 |------|------|------|
 | config | `${XDG_CONFIG_HOME:-~/.config}/bungkus/mc/config.json` | 0600, dir 0700 |
 | state | `${XDG_STATE_HOME:-~/.local/state}/bungkus/mc/sessions.json` | 0600, dir 0700 |
+| the ding (written on first use, `sound`) | `${XDG_STATE_HOME:-~/.local/state}/bungkus/mc/ding.wav` | 0600 |
 | routing consent | `${XDG_STATE_HOME:-~/.local/state}/bungkus/mc/consent.json` (`{"routing": "2026-09-30T…"}`) | 0600 |
 | debug log (`--debug` only) | `${XDG_STATE_HOME:-~/.local/state}/bungkus/mc/mc.log` | 0600 |
 | socket | `clean(${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}})/bungkus-mc-<uid>/<pid>.sock` | dir 0700, sock 0600 |
@@ -863,6 +886,7 @@ the key). A hidden folder is never listed as a project.
   "icons": "auto",
   "mouse": true,
   "notify": "bell",
+  "sound": true,
   "interactExit": "ctrl-\\",
   "worktrees": true,
   "instructions": true,
@@ -1070,7 +1094,7 @@ Go code any more:
 | OSC 8 | not emitted by ratatui; header link written raw only where supported | stripped from agent output |
 | Nerd Font / glyphs | the terminal's font is undetectable; `icons: auto` looks for a file or folder named `*nerd*` in the font folders (`~/Library/Fonts`, `~/.local/share/fonts`, `~/.fonts`, `/Library/Fonts`, `/usr/local/share/fonts`, `/usr/share/fonts`, 3 levels deep), skipped on a non-UTF-8 locale and over SSH | `ascii`; the `icons` setting overrides; borders follow the locale |
 | light/dark | one OSC 11 query at start, reply awaited with `rustix::event::poll` on stdin (200 ms) before the input reader starts (§3.1) | `theme` setting |
-| notifications | OSC 9/99/777 raw writes by terminal, BEL fallback; title via OSC 2 with XTWINOPS push/pop | `notify` setting |
+| notifications | OSC 9/99/777 raw writes by terminal, BEL fallback; title via OSC 2 with XTWINOPS push/pop; the ding through `afplay` / `pw-play` / `paplay` / `aplay` (`app/ding.rs`), BEL when none is there or over SSH | `notify` and `sound` settings |
 | tmux / zellij | `TERM=tmux-256color`; OSC 8 ≥ 3.4 | test matrix |
 | Apple Terminal | 256 colours, no OSC 8, no kitty keys | must be fully usable — the floor |
 | resize storms | coalesce `Resize` events to one per frame | debounce PTY resize by one frame |

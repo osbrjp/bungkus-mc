@@ -25,7 +25,7 @@ One small Rust binary, no daemon. A sibling of
 [bungkus-cli](https://github.com/osbrjp/bungkus-cli): same release
 pipeline, same "Daun Pisang" design language.
 
-> **Status:** beta (`0.1.0-beta.9`). Milestones M1–M8 are built; model
+> **Status:** beta (`0.1.0-beta.10`). Milestones M1–M8 are built; model
 > routing (M9) is not.
 
 **Contents:** [Install](#install) · [First run](#first-run) ·
@@ -139,6 +139,7 @@ pane; press one to run it.
 | `ctrl-j` `ctrl-k` · `ctrl-n` `ctrl-p` | down · up in every dialog, list and the `/` search (same as `↓` `↑`) |
 | `z` | zoom the output pane |
 | `R` | redraw |
+| `ctrl-t` | open the terminal as a popup over the panes: the same shell as `t`, with the keys. `ctrl-\` or a click outside hides it and the shell runs on; `t` brings the pane back |
 | `t` | show / hide the terminal pane `[4]`: your `$SHELL` below the output pane, one shell per session, started in the folder the session works in (its worktree when it has one); with no session selected, one for the project. A card with a shell shows `>_`; the shell is closed when its session ends. The wheel scrolls it; while it is hidden a `[4] terminal` marker shows at the bottom of the output pane |
 | `T` | close the selected session's shell (`exit` or `ctrl-d` inside it does the same) |
 
@@ -154,6 +155,7 @@ pane; press one to run it.
 | `x` | stop a session (lists what it started too) |
 | `P` · `I` | open the pull request · the issue of the session's branch in the browser. mc finds them itself through the `gh` CLI: the pull request GitHub has for the branch, and the issue from a branch named `i{issue#}-…` (else the first issue the pull request closes). The card shows their numbers after the branch |
 | `i` | issues & pull requests popup: the session's own first (`●`), then the repository's open ones; `j` `k` move, `enter` reads one and its comments in the popup (a pull request's reviews and review comments on code too, with the code line quoted), Markdown rendered (`j` `k` `d` `u` scroll, `esc` back), `o` opens it in the browser |
+| `D` | changes popup, like lazygit's files panel: the changed files of the session's repository on the left, the highlighted file's diff on the right; `j` `k` pick a file, `d` `u` scroll the diff, `g` `G` its ends, `r` reload, `esc` close. Read-only |
 | `d` | forget a finished session |
 
 ### Projects and workspaces
@@ -340,6 +342,7 @@ key back with `kitten @ focus-window --match neighbor:…`.
   "motion": true,
   "mouse": true,
   "notify": "bell",
+  "sound": true,
   "interactExit": "ctrl-\\",
   "agents": {
     "claude": { "command": "claude", "args": [] },
@@ -359,6 +362,7 @@ key back with `kitten @ focus-window --match neighbor:…`.
 | `background` | `paint` · `terminal` keeps your terminal's own background (mc paints its green only on TrueColor terminals anyway) |
 | `icons` | `auto` (default: `nerd` when a Nerd Font is installed, else `ascii`) · `ascii` · `unicode` · `nerd` (also `--icons`, and the `icons` row of the settings screen, which shows the glyphs before you save). mc cannot see which font your terminal uses: if the glyphs show as boxes, choose `ascii`; if your terminal draws Nerd glyphs without an installed font (kitty does), choose `nerd`. In the `nerd` set the agent badge is the company's logo (Claude, OpenAI) instead of `C` / `X`; if it shows as a box see [Agent logos](#agent-logos) |
 | `notify` | `bell` (default) · `desktop` (plus OSC 9/99/777) · `off` |
+| `sound` | `true` (default) · `false`: a kitchen-timer ding when a session finishes its turn, needs you or fails (also the `sound` row of the settings screen). Played with `afplay` on macOS and `pw-play` / `paplay` / `aplay` on Linux; over SSH or without one of them the terminal bell rings instead |
 | `interactExit` | the chord that leaves INTERACT (default `ctrl-\`) |
 | `cleanup.keep` | process names the quit dialog starts as `[keep]` |
 | `worktrees` | `true` (default) · `false`; see [Worktrees](#worktrees) |

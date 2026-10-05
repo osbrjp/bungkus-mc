@@ -140,12 +140,26 @@ impl Model {
     /// select the project row or session under the pointer (or open and
     /// close the rest of the projects), the wheel scrolls the output or the
     /// terminal pane under the pointer, and events inside the output pane
-    /// go to an agent that asked for them.
+    /// go to an agent that asked for them. While the terminal popup shows,
+    /// the wheel over it scrolls it and a click outside it hides it.
     pub(super) fn mouse(&mut self, event: MouseEvent) -> Option<Cmd> {
         if self.overlay.is_some() || self.popup.is_some() || self.editor.is_some() {
             return None;
         }
         let at = Position::new(event.column, event.row);
+        if self.terminal_popup() {
+            let popup = ui::popup_rect(self.screen);
+            match event.kind {
+                MouseEventKind::ScrollUp | MouseEventKind::ScrollDown if popup.contains(at) => {
+                    self.wheel_terminal(event, popup);
+                }
+                MouseEventKind::Down(_) if !popup.contains(at) => {
+                    self.term_view = TermView::Shown;
+                }
+                _ => {}
+            }
+            return None;
+        }
         let panes = self.panes(self.screen);
         if matches!(event.kind, MouseEventKind::Down(MouseButton::Left))
             && panes

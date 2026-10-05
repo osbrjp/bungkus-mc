@@ -1,5 +1,6 @@
 //! The user's own tools next to the agents: the editor popup (`o`) and the
-//! terminal pane (`t`, one shell per session), each a program in its own
+//! terminal pane (`t`, one shell per session; `ctrl-t` shows it as a popup
+//! instead), each a program in its own
 //! PTY and mc's own emulator; no other program (tmux, a terminal app) is
 //! involved.
 //!
@@ -52,6 +53,16 @@ pub(crate) enum TermView {
     Shown,
     /// Drawn, and every key goes to the shell.
     Focused,
+}
+
+/// Where the terminal is drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum TermPlace {
+    /// The lower third of the output pane (`t`).
+    #[default]
+    Pane,
+    /// A popup over the panes, drawn only while it has the keys (`ctrl-t`).
+    Popup,
 }
 
 /// How `o` opens a project folder.
@@ -194,11 +205,34 @@ impl Model {
         }
     }
 
-    /// Returns whether the terminal pane is drawn: it is not hidden and
-    /// the selected session has a shell.
+    /// Returns whether the terminal pane is drawn: it is not hidden, not
+    /// a popup, and the selected session has a shell.
     #[must_use]
     pub(crate) fn terminal_shown(&self) -> bool {
-        self.term_view != TermView::Hidden && self.shell().is_some()
+        self.term_place == TermPlace::Pane
+            && self.term_view != TermView::Hidden
+            && self.shell().is_some()
+    }
+
+    /// Returns whether the terminal popup is drawn: the terminal is a
+    /// popup, the selected session has a shell and it has the keys (the
+    /// popup shows only then).
+    #[must_use]
+    pub(crate) fn terminal_popup(&self) -> bool {
+        self.term_place == TermPlace::Popup
+            && self.term_view == TermView::Focused
+            && self.shell().is_some()
+    }
+
+    /// Returns the size every shell's PTY has: the popup's inner size
+    /// while the terminal is a popup, else the terminal pane's.
+    #[must_use]
+    pub(crate) fn shell_size(&self) -> crate::term::session::Size {
+        if self.term_place == TermPlace::Popup {
+            crate::ui::popup_size(self.screen)
+        } else {
+            crate::ui::terminal_size(self.screen, self.zoom, self.widths)
+        }
     }
 
     /// Forgets the tool with PTY id `id` when it exited: the popup closes,
@@ -325,6 +359,20 @@ impl Model {
             self.term_view = TermView::Hidden;
             return None;
         }
+        self.term_place = TermPlace::Pane;
+        self.focus_terminal()
+    }
+
+    /// Opens the terminal as a popup over the panes (`ctrl-t`): the same
+    /// shell as the pane's, with the keys. The popup shows only while it
+    /// has them; leaving it keeps the shell running, as hiding the pane
+    /// does.
+    ///
+    /// # Returns
+    ///
+    /// The command that starts the shell when the project has none.
+    pub(super) fn popup_terminal(&mut self) -> Option<Cmd> {
+        self.term_place = TermPlace::Popup;
         self.focus_terminal()
     }
 
@@ -573,6 +621,58 @@ mod tests {
 
         m.update(AppEvent::Pty(PtyEvent::Exited(id, Some(0))));
         assert!(m.shells.is_empty() && !m.terminal_shown());
+    }
+
+    #[test]
+    fn ctrl_t_opens_the_same_shell_as_a_popup_that_shows_while_it_has_the_keys() {
+        let mut m = sample(&["a"]);
+        let path = m.selected_project().unwrap().path.clone();
+        let ctrl = |ch| {
+            AppEvent::Input(Event::Key(KeyEvent::new(
+                KeyCode::Char(ch),
+                KeyModifiers::CONTROL,
+            )))
+        };
+        let open = Cmd::OpenTerminal(Owner::Folder(path.clone()), path.clone());
+        assert_eq!(m.update(ctrl('t')), Some(open));
+        let (shell, writes) = tool(5);
+        m.shells.push((Owner::Folder(path), shell));
+        m.term_view = TermView::Focused;
+        assert!(m.terminal_popup() && !m.terminal_shown());
+        assert!(m.panes(m.screen).terminal.is_none(), "no pane under it");
+        assert_eq!(m.shell_size(), crate::ui::popup_size(m.screen));
+        let screen = crate::ui::tests::render(&mut m, 120, 40);
+        assert!(screen.contains(" terminal · a · ") && screen.contains(" TERMINAL "));
+
+        m.update(press(KeyCode::Char('x')));
+        assert_eq!(drain(&writes), b"x", "typing goes to the shell");
+        m.update(ctrl('\\'));
+        assert!(!m.terminal_popup(), "the exit chord hides it");
+        assert_eq!(m.shells.len(), 1, "the shell runs on");
+        assert_eq!(m.update(ctrl('t')), None, "the same shell comes back");
+        assert!(m.terminal_popup());
+
+        m.update(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 0,
+            row: 1,
+            modifiers: KeyModifiers::NONE,
+        })));
+        assert!(!m.terminal_popup(), "a click outside hides it");
+        assert_eq!(m.focus_pane(4), None);
+        assert!(m.terminal_shown(), "pane 4 is the pane, not the popup");
+        m.update(ctrl('\\'));
+        assert_eq!(m.update(ctrl('t')), None);
+        m.update(ctrl('\\'));
+        assert_eq!(m.update(press(KeyCode::Char('t'))), None);
+        assert!(
+            m.terminal_shown() && m.term_place == TermPlace::Pane,
+            "t brings the pane"
+        );
+        assert_eq!(
+            m.shell_size(),
+            crate::ui::terminal_size(m.screen, m.zoom, m.widths)
+        );
     }
 
     #[test]

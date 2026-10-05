@@ -642,7 +642,7 @@ pub(super) fn draw_new_project(
 
 /// Returns `text` cut to `max` characters from the front (`…/OSBR`), so
 /// the end of a long path, which tells workspaces apart, stays visible.
-fn keep_end(text: &str, max: usize) -> String {
+pub(super) fn keep_end(text: &str, max: usize) -> String {
     let n = text.chars().count();
     if n <= max {
         return text.to_owned();
@@ -983,6 +983,98 @@ fn draw_link_body(frame: &mut Frame, area: Rect, body: &crate::app::links::Body,
             muted,
         )
         .alignment(Alignment::Right),
+        hint,
+    );
+}
+
+/// Draws the start dashboard over the whole screen: the animated mascot
+/// (left out when the screen is too short), then its rows (last project,
+/// saved workspaces, add, find) and a hint.
+pub(super) fn draw_dashboard(
+    frame: &mut Frame,
+    area: Rect,
+    selected: usize,
+    model: &Model,
+    theme: Theme,
+) {
+    use crate::app::dashboard::DashRow;
+    use crate::ui::mascot::{self, Mascot, Mood};
+
+    let width: u16 = 64;
+    let room = usize::from(width).saturating_sub(8);
+    let mut number = 0;
+    let lines: Vec<Line> = model
+        .dashboard_rows()
+        .iter()
+        .enumerate()
+        .map(|(i, row)| {
+            let chosen = i == selected;
+            let style = bold_if(
+                theme.fg(if chosen { Token::Accent } else { Token::Fg }),
+                chosen,
+            );
+            let marker = if chosen { "> " } else { "  " };
+            let (key, text) = match row {
+                DashRow::Last(_, name, _) => (" ".to_owned(), format!("continue {name}")),
+                DashRow::Workspace(path) => {
+                    number += 1;
+                    let key = if number <= 9 {
+                        number.to_string()
+                    } else {
+                        " ".to_owned()
+                    };
+                    let label = crate::store::config::tilde(path, model.home.as_deref());
+                    (key, keep_end(&label, room))
+                }
+                DashRow::Add => ("a".to_owned(), "+ add a workspace…".to_owned()),
+                DashRow::Find => ("f".to_owned(), "find a project…".to_owned()),
+            };
+            Line::from(vec![
+                Span::styled(format!("  {marker}"), style),
+                Span::styled(format!("{key} "), theme.fg(Token::Ok)),
+                Span::styled(text, style),
+            ])
+        })
+        .collect();
+    let list_rows = u16::try_from(lines.len()).unwrap_or(u16::MAX);
+    frame.render_widget(Clear, area);
+    frame.render_widget(Paragraph::new("").style(theme.base()), area);
+    let with_mascot = area.height >= mascot::HEIGHT + list_rows + 6;
+    let top = if with_mascot { mascot::HEIGHT + 1 } else { 0 };
+    let rect = centred(area, width, top + list_rows + 4);
+    let [sprite, title, _, list, _, hint] = Layout::vertical([
+        Constraint::Length(top),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(list_rows),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .areas(rect);
+    if with_mascot {
+        let [cell] = Layout::horizontal([Constraint::Length(mascot::WIDTH)])
+            .flex(Flex::Center)
+            .areas(sprite);
+        frame.render_widget(
+            Mascot {
+                theme,
+                pose: Mood::Empty.pose(model.frame, theme.animated()),
+                mini: false,
+            },
+            cell,
+        );
+    }
+    frame.render_widget(
+        Line::styled("bungkus mc", bold_if(theme.fg(Token::Fg), true)).alignment(Alignment::Center),
+        title,
+    );
+    frame.render_widget(Paragraph::new(lines), list);
+    frame.render_widget(
+        Line::styled(
+            "j/k enter pick · 1-9 workspace · a add · f find · esc close",
+            theme.fg(Token::FgMuted),
+        )
+        .alignment(Alignment::Center),
         hint,
     );
 }

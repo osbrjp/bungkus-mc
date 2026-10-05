@@ -9,6 +9,9 @@
 
 pub(crate) mod activity;
 pub(crate) mod browser;
+pub(crate) mod dashboard;
+pub(crate) mod diff;
+mod ding;
 pub(crate) mod finder;
 pub(crate) mod form;
 pub(crate) mod groups;
@@ -103,6 +106,12 @@ pub(crate) enum AppEvent {
     /// this URL (see `links::body`), for
     /// the popup's text view; `None` when the read failed.
     LinkBody(String, Option<Vec<String>>),
+    /// The changed files `git` listed for the `D` popup opened on this
+    /// folder: the repository's root, then the files.
+    Changes(PathBuf, PathBuf, Vec<diff::File>),
+    /// The diff `git` read of this file, in the repository at this root,
+    /// for the `D` popup.
+    Diff(PathBuf, diff::File, Vec<diff::Line>),
     /// The host terminal went away (input closed).
     HostGone,
     /// A newer release exists (the hourly check).
@@ -255,8 +264,7 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<bool> {
             .map_or(0, |d| d.as_secs());
         resize_sessions(&mut model);
         terminal.draw(|frame| ui::draw(frame, &mut model))?;
-        let notify = model.overrides.notify.unwrap_or(env.config.notify);
-        announce(&mut model, notify, &mut title);
+        announce(&mut model, env, &mut title);
         if model.state_dirty {
             save_state(&mut model, env);
         }
@@ -476,6 +484,8 @@ fn run_cmd(
         Cmd::OpenUrl(url) => open_folder(model, PathBuf::from(url)),
         Cmd::ListLinks(folder) => list_links(gh_dir(model, env, &folder), folder, tx),
         Cmd::ReadLink(folder, link) => read_link(gh_dir(model, env, &folder), folder, link, tx),
+        Cmd::ListChanges(folder) => list_changes(folder, tx),
+        Cmd::ReadDiff(root, file) => read_diff(root, file, tx),
         Cmd::OpenTerminal(owner, dir) => open_terminal(model, &env.config, owner, &dir, tx),
         Cmd::SaveGroups(groups) => save_groups(model, &groups),
         Cmd::SaveWidths(widths) => {
@@ -485,13 +495,7 @@ fn run_cmd(
                 model.message = Some(format!("Pane widths not saved: {e}"));
             }
         }
-        Cmd::Scan => {
-            let tx = tx.clone();
-            thread::spawn(move || {
-                // reason: a closed loop just loses this snapshot.
-                let _ = tx.send(AppEvent::Procs(crate::proc::snapshot(uid)));
-            });
-        }
+        Cmd::Scan => scan_procs(uid, tx),
         Cmd::Sample => sample_activity(tx),
         Cmd::OpenStop(kind) => {
             let snapshot = crate::proc::snapshot(uid);
@@ -521,6 +525,16 @@ fn run_cmd(
         }
     }
     Next::Continue
+}
+
+/// Takes a process snapshot on a background thread and reports it as
+/// [`AppEvent::Procs`].
+fn scan_procs(uid: u32, tx: &SyncSender<AppEvent>) {
+    let tx = tx.clone();
+    thread::spawn(move || {
+        // reason: a closed loop just loses this snapshot.
+        let _ = tx.send(AppEvent::Procs(crate::proc::snapshot(uid)));
+    });
 }
 
 /// Takes a resource reading for the activity overlay on a background
@@ -586,6 +600,28 @@ fn read_link(gh: Option<PathBuf>, folder: PathBuf, link: links::Link, tx: &SyncS
         let text = links::body(&folder, gh.as_deref(), &link);
         // reason: mc may have quit meanwhile.
         let _ = tx.send(AppEvent::LinkBody(link.url, text));
+    });
+}
+
+/// Lists the changed files of the repository `folder` is in on a
+/// background thread, for the `D` popup ([`AppEvent::Changes`]).
+fn list_changes(folder: PathBuf, tx: &SyncSender<AppEvent>) {
+    let tx = tx.clone();
+    thread::spawn(move || {
+        let (root, files) = diff::list(&folder);
+        // reason: mc may have quit meanwhile.
+        let _ = tx.send(AppEvent::Changes(folder, root, files));
+    });
+}
+
+/// Reads the diff of `file` in the repository at `root` on a background
+/// thread, for the `D` popup ([`AppEvent::Diff`]).
+fn read_diff(root: PathBuf, file: diff::File, tx: &SyncSender<AppEvent>) {
+    let tx = tx.clone();
+    thread::spawn(move || {
+        let lines = diff::read(&root, &file);
+        // reason: mc may have quit meanwhile.
+        let _ = tx.send(AppEvent::Diff(root, file, lines));
     });
 }
 
@@ -1019,7 +1055,7 @@ fn open_terminal(
     tx: &SyncSender<AppEvent>,
 ) {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
-    let size = ui::terminal_size(model.screen, model.zoom, model.widths);
+    let size = model.shell_size();
     if let Some(tool) = spawn_tool(model, config, &[shell], dir, size, tx) {
         model.shells.push((owner, tool));
         model.term_view = TermView::Focused;
@@ -1367,17 +1403,28 @@ fn git(dir: &Path, args: &[&OsStr]) -> Option<String> {
 
 /// Runs `program` in `dir` with fixed arguments (no shell, no input, its
 /// own process group) and `env` added to mc's environment, and returns
-/// what it printed, or `None` when it failed or is missing.
-fn output(program: &str, dir: &Path, args: &[&OsStr], env: &[(&str, &OsStr)]) -> Option<String> {
+/// how it ended and what it printed, or `None` when it could not start.
+fn capture(
+    program: &str,
+    dir: &Path,
+    args: &[&OsStr],
+    env: &[(&str, &OsStr)],
+) -> Option<std::process::Output> {
     use std::os::unix::process::CommandExt;
-    let output = std::process::Command::new(program)
+    std::process::Command::new(program)
         .args(args)
         .envs(env.iter().copied())
         .current_dir(dir)
         .process_group(0)
         .stdin(std::process::Stdio::null())
         .output()
-        .ok()?;
+        .ok()
+}
+
+/// Runs `program` as [`capture`] does and returns what it printed, or `None`
+/// when it failed or is missing.
+fn output(program: &str, dir: &Path, args: &[&OsStr], env: &[(&str, &OsStr)]) -> Option<String> {
+    let output = capture(program, dir, args, env)?;
     output
         .status
         .success()
@@ -1478,21 +1525,38 @@ fn clean_worktrees(model: &mut Model, project: &Path, tx: &SyncSender<AppEvent>)
 /// Sends pending alerts and keeps the terminal title on the tally
 /// (DESIGN §9): BEL for `bell`, plus OSC 9 / 99 / 777 for `desktop`
 /// depending on the terminal; inside a multiplexer only the bell.
-fn announce(model: &mut Model, notify: Notify, title: &mut String) {
+///
+/// With the `sound` setting on, the alerts of one pass share one ding
+/// (kept as `ding.wav` next to `sessions.json`), which takes the place of
+/// the BEL; a session that only finished its turn gets the ding and
+/// nothing else.
+fn announce(model: &mut Model, env: &Env, title: &mut String) {
     let tally = ui::title(model);
     if *title != tally {
         write_host(format!("\x1b]2;{tally}\x07").as_bytes());
         *title = tally;
     }
+    if model.alerts.is_empty() {
+        return;
+    }
+    let notify = model.overrides.notify.unwrap_or(env.config.notify);
+    let sound = model
+        .settings
+        .as_ref()
+        .map_or(env.config.sound, |s| s.sound);
+    let ding = env.state_path.as_deref().filter(|_| sound);
+    let rang = ding.is_some_and(|state| ding::play(&state.with_file_name("ding.wav")));
+    let bell: &[u8] = if rang { b"" } else { b"\x07" };
     for alert in model.alerts.drain(..) {
         let text = match &alert {
+            Alert::Finished => continue,
             Alert::NeedsYou(t) | Alert::Failed(t) => sanitise(t, 120),
         };
         match notify {
             Notify::Off => {}
-            Notify::Bell => write_host(b"\x07"),
+            Notify::Bell => write_host(bell),
             Notify::Desktop => {
-                write_host(b"\x07");
+                write_host(bell);
                 write_host(desktop_notification(&text, |n| std::env::var(n).ok()).as_bytes());
             }
         }
@@ -1536,14 +1600,14 @@ fn watch_rollout(model: &mut Model, id: SessionId, path: &Path, tx: &SyncSender<
 
 /// Keeps every session's emulator and PTY at its pane's size: the output
 /// pane, or the popup for quick sessions; the editor has the popup's size
-/// and every shell the terminal pane's.
+/// and every shell the terminal pane's (the popup's while it is one).
 fn resize_sessions(model: &mut Model) {
     let size = model.output_size();
     let quick = ui::popup_size(model.screen);
     if let Some(editor) = model.editor.as_mut() {
         editor.pty.resize(quick);
     }
-    let pane = ui::terminal_size(model.screen, model.zoom, model.widths);
+    let pane = model.shell_size();
     for (_, shell) in &mut model.shells {
         shell.pty.resize(pane);
     }
