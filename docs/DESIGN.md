@@ -1132,7 +1132,7 @@ row saves.
 ```
 
 **Settings screen** — `,` in NORMAL (and `w`, which opens it on the
-workspace field). A dialog with all five fields; `tab`/`shift-tab` (and
+workspace field). A dialog with all six fields; `tab`/`shift-tab` (and
 `↑`/`↓` off the workspace field) move between them, `←`/`→` change a
 choice (on the editor row with `other` chosen, letters type its command
 on the line below, so `h`/`j`/`k`/`l` do not move there), and on the workspace field the same folder browser opens under it
@@ -1141,7 +1141,8 @@ and reverts the theme and icon preview. The `icons` row (`auto`, `ascii`,
 `unicode`, `nerd`; not a wizard step) applies the set to the whole screen
 while the dialog is open, and the line under the rows says what the choice
 means and shows its five state glyphs, so a set the terminal's font lacks
-shows as boxes before it is saved. On the agent row a line under the choices
+shows as boxes before it is saved. The `sound` row (`on`, `off`; not a
+wizard step) turns the ding off (§9). On the agent row a line under the choices
 says where the default agent is saved, `saved for: all workspaces` (the
 global `config.json`) or `saved for: this workspace only` (the workspace's
 `.bungkus-mc/config.json`), and `w` switches between the two; the screen
@@ -1290,7 +1291,7 @@ the same frame.
 | `fp` · `ff` · `fg`                                | the finder, a popup like telescope.nvim: `fp` the projects of every saved workspace (as `~/…` paths, the open workspace's first; `enter` on one elsewhere switches to its workspace and selects it), `ff` the open workspace's file names, `fg` its file contents (a regex, smart case). Typing searches at once; `↑`/`↓` (`ctrl-p`/`ctrl-n`, `ctrl-k`/`ctrl-j`) move, `ctrl-u` clears, `esc` closes. `enter` opens the project's sessions, or the file in the editor as `o` does (vim at the matching line for `fg`). `fp` and `ff` rank a file-name match first, then a path match, then a fuzzy one (the letters in order). `ff` and `fg` run ripgrep (`rg`, required on `PATH`) off the UI thread, so `.gitignore`d, hidden and binary files are skipped; `fg` shows the first 500 matching lines. For `ff` and `fg` the right half of the popup (when it is at least 70 columns inside) previews the highlighted row's file, read off the UI thread: its first 40 lines, or for `fg` the lines from 8 above the match, with the matching line in the accent colour; a file with a NUL byte shows `(binary file)` |
 | `1`–`9`                                           | jump to the project with that number (the numbers left of the names follow the searched list). The selection moves on every digit; a digit within 0.7 s of the previous one extends the number (`1` → 1, then `6` → 16), a number with no project leaves the last jump in place, and any other key ends the number (bungkus-cli's wizard rule) |
 | `w`                                               | settings, on the workspace field (§5.8) |
-| `,`                                               | settings: workspace, default agent, theme, icons, editor (§5.8) |
+| `,`                                               | settings: workspace, default agent, theme, icons, sound, editor (§5.8) |
 | `o`                                               | open the selected project in the user's editor (the `editor` setting, else `$VISUAL`, else `$EDITOR`): `vi`/`vim`/`nvim` run in a popup over the panes (mode word `EDITOR`, every key goes to it, it closes when the editor quits); any other editor is started on its own with the folder as its argument; with none of the three set, the first of `nvim` / `vim` / `vi` on `PATH` in the same popup, else the desktop's opener (`open` / `xdg-open`) |
 | `O`                                               | open the selected project's folder with the desktop's opener (`open` / `xdg-open`): Finder or the file manager |
 | `P` · `I`                                         | open the pull request (`P`) or the issue (`I`) of the selected session's branch in the browser, with the desktop's opener (`open` / `xdg-open`). With none linked (or no session selected) the hint line says so |
@@ -1396,7 +1397,19 @@ overlay; `--no-mouse` / `mouse: false` turns reporting off entirely.
 
 ## 9. Notifications
 
-Setting `notify: "bell" | "desktop" | "off"`, **default `bell`**.
+Setting `notify: "bell" | "desktop" | "off"`, **default `bell`**, and
+`sound: true | false`, **default `true`** (the `sound` row of the settings
+screen).
+
+- The ding (`sound`): a kitchen-timer bell, 0.8 s, on the transitions
+  **working → your turn** (the session finished), **→ needs you** and
+  **→ failed**; sessions that change in the same pass share one ding. mc
+  synthesises it (no audio file ships), keeps it as `ding.wav` next to
+  `sessions.json` and plays it with the system's own player: `afplay`
+  (macOS), else `pw-play`, `paplay` or `aplay`. Where it plays it takes
+  the place of the BEL below; over SSH or with no player it does not
+  play and the BEL rings as before. `sound` and `notify` are independent:
+  `notify: "off"` does not silence the ding.
 
 - On the transitions **→ needs you** and **→ failed**: `bell` sends BEL
   (terminals map it to a sound, a badge or a tab highlight); `desktop`

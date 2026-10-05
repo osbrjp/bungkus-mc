@@ -193,7 +193,7 @@ fn main() -> Result<()> {
         config.motion,
     );
     let mut model = Model::new(theme, home.clone(), found, fallback);
-    model.nerd_font = nerd_font;
+    (model.nerd_font, model.sound_saved) = (nerd_font, config.sound);
     (model.icons_saved, model.icons_flag) = (config.icons, args.icons);
     model.message = message;
     model.editors = app::tools::editors(app::user_editor().as_deref(), |name| {
@@ -382,6 +382,7 @@ fn apply(model: &mut Model, config: &Config, workspace: PathBuf, cwd: &Path) {
         theme: config.theme,
         default_agent: config.default_agent,
         icons: config.icons,
+        sound: config.sound,
         editor: config.editor.clone(),
     };
     model.remember_workspace(&settings.workspace);

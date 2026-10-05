@@ -40,6 +40,9 @@ pub(crate) struct Config {
     pub mouse: bool,
     /// How mc announces needs-you and failed sessions (DESIGN §9).
     pub notify: Notify,
+    /// Whether mc plays its ding when a session finishes its turn, needs
+    /// the user or fails (DESIGN §9).
+    pub sound: bool,
     /// Process cleanup settings.
     pub cleanup: Cleanup,
     /// State glyph set; `auto` picks by the installed fonts.
@@ -120,6 +123,7 @@ impl Default for Config {
             interact_exit: None,
             mouse: true,
             notify: Notify::default(),
+            sound: true,
             cleanup: Cleanup::default(),
             icons: crate::ui::icons::IconChoice::default(),
             motion: true,
@@ -174,6 +178,8 @@ pub(crate) struct Settings {
     pub default_agent: Kind,
     /// State glyph set.
     pub icons: crate::ui::icons::IconChoice,
+    /// Whether mc plays its ding.
+    pub sound: bool,
     /// The command `o` opens a project with; `None` leaves it to
     /// `$VISUAL`/`$EDITOR`.
     pub editor: Option<String>,
@@ -334,6 +340,7 @@ pub(crate) fn save(path: &Path, settings: &Settings) -> Result<(), ConfigError> 
             serde_json::to_value(settings.default_agent)?,
         );
         root.insert("icons".into(), serde_json::to_value(settings.icons)?);
+        root.insert("sound".into(), settings.sound.into());
         match &settings.editor {
             Some(editor) => root.insert("editor".into(), editor.as_str().into()),
             None => root.shift_remove("editor"),
@@ -513,6 +520,7 @@ mod tests {
             theme: ThemeChoice::Light,
             default_agent: Kind::Codex,
             icons: crate::ui::icons::IconChoice::Nerd,
+            sound: false,
             editor: Some("nvim".into()),
         };
         save(&path, &settings).unwrap();
@@ -531,6 +539,7 @@ mod tests {
                 "workspace",
                 "defaultAgent",
                 "icons",
+                "sound",
                 "editor"
             ]
         );
@@ -541,6 +550,8 @@ mod tests {
             (ThemeChoice::Light, Kind::Codex)
         );
         assert_eq!(config.icons, crate::ui::icons::IconChoice::Nerd);
+        assert!(!config.sound, "the ding stays off once turned off");
+        assert!(Config::default().sound, "and is on until then");
         assert_eq!(config.editor.as_deref(), Some("nvim"));
         assert!(
             text.contains(r#""command": "codex""#),
@@ -587,6 +598,7 @@ mod tests {
             theme: ThemeChoice::Auto,
             default_agent: Kind::Claude,
             icons: crate::ui::icons::IconChoice::Auto,
+            sound: true,
             editor: None,
         };
         assert!(save(&path, &settings).is_err());
