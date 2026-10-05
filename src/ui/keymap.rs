@@ -74,6 +74,9 @@ pub(crate) enum Action {
     /// List the session's and the repository's open issues and pull
     /// requests in a popup.
     Links,
+    /// Show the changed files of the session's repository and their diffs
+    /// in a popup.
+    Diff,
     /// Show or hide the terminal pane below the output pane.
     Terminal,
     /// Close the selected project's shell.
@@ -95,6 +98,8 @@ pub(crate) enum Action {
     Help,
     /// Show the activity monitor: mc's memory and CPU use.
     Activity,
+    /// Reopen the start dashboard.
+    Dashboard,
     /// Clear and redraw the whole screen.
     Redraw,
     /// Quit mc.
@@ -560,6 +565,14 @@ pub(crate) const BINDINGS: &[Binding] = &[
         scope: Scope::Global,
     },
     Binding {
+        keys: &[Key::Press(KeyCode::Char('D'), KeyModifiers::SHIFT), c('D')],
+        label: "D",
+        action: Action::Diff,
+        help: "changes (diff)",
+        hint: None,
+        scope: Scope::Global,
+    },
+    Binding {
         keys: &[c('t')],
         label: "t",
         action: Action::Terminal,
@@ -596,6 +609,14 @@ pub(crate) const BINDINGS: &[Binding] = &[
         label: "A",
         action: Action::Activity,
         help: "activity",
+        hint: None,
+        scope: Scope::Global,
+    },
+    Binding {
+        keys: &[Key::Press(KeyCode::Char('H'), KeyModifiers::SHIFT), c('H')],
+        label: "H",
+        action: Action::Dashboard,
+        help: "dashboard",
         hint: None,
         scope: Scope::Global,
     },
@@ -740,6 +761,7 @@ impl Action {
             | Self::Pane(_)
             | Self::NextNeedsYou
             | Self::Zoom
+            | Self::Dashboard
             | Self::OpenProject => Group::Navigate,
             Self::Interact
             | Self::NewSession
@@ -769,6 +791,7 @@ impl Action {
             | Self::Activity
             | Self::Redraw
             | Self::Update
+            | Self::Diff
             | Self::Terminal
             | Self::CloseTerminal
             | Self::Quit => Group::App,

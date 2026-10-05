@@ -9,6 +9,7 @@
 mod activity;
 mod cards;
 mod dialogs;
+mod diff;
 mod form;
 mod help;
 pub(crate) mod icons;
@@ -360,11 +361,15 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
         Some(Overlay::Mode(dialog)) => dialogs::draw_mode(frame, area, dialog, theme),
         Some(Overlay::StopOutside(ext)) => dialogs::draw_stop_outside(frame, area, ext, theme),
         Some(Overlay::NewProject(dialog)) => dialogs::draw_new_project(frame, area, dialog, theme),
+        Some(Overlay::Dashboard(selected)) => {
+            dialogs::draw_dashboard(frame, area, *selected, model, theme);
+        }
         Some(Overlay::Switcher(switcher)) => {
             dialogs::draw_switcher(frame, area, switcher, model, theme);
         }
         Some(Overlay::Finder(finder)) => dialogs::draw_finder(frame, area, finder, theme),
         Some(Overlay::Links(viewer)) => dialogs::draw_links(frame, area, viewer, theme),
+        Some(Overlay::Diff(viewer)) => diff::draw(frame, area, viewer, theme),
         Some(Overlay::CleanWorktrees(project)) => {
             dialogs::draw_clean_worktrees(frame, area, project, theme);
         }
@@ -1260,6 +1265,44 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn changes_popup_matches_golden() {
+        use crate::app::AppEvent;
+        use crate::app::diff::{File, Mark};
+
+        let mut model = sample(PROJECTS);
+        key(&mut model, KeyCode::Char('D'));
+        assert!(render(&mut model, 80, 24).contains("asking git"));
+        let folder = model.selected_project().unwrap().path.clone();
+        let file = |staged, unstaged, path: &str| File {
+            staged,
+            unstaged,
+            path: path.into(),
+        };
+        let files = vec![
+            file('M', ' ', "src/app.rs"),
+            file(' ', 'M', "src/components/checkout/summary.tsx"),
+            file('?', '?', "notes\u{1b}[31m.md"),
+        ];
+        let shown = files[1].clone();
+        model.update(AppEvent::Changes(folder.clone(), folder.clone(), files));
+        key(&mut model, KeyCode::Char('j'));
+        let lines = [
+            (Mark::Meta, "diff --git a/summary.tsx b/summary.tsx"),
+            (Mark::Hunk, "@@ -1,3 +1,3 @@"),
+            (Mark::Context, " export function Summary() {"),
+            (Mark::Removed, "-  return <p>total</p>;"),
+            (
+                Mark::Added,
+                "+  return <p>total, with a line longer than the pane is wide</p>;",
+            ),
+            (Mark::Context, " }"),
+        ];
+        let lines = lines.map(|(mark, text)| (mark, text.to_owned())).to_vec();
+        model.update(AppEvent::Diff(folder, shown, lines));
+        assert_golden("changes-80x24.txt", &render(&mut model, 80, 24));
+    }
+
+    #[test]
     fn sessions_and_interact_match_goldens() {
         use crate::app::model::tests::with_session;
         use crate::term::PtyEvent;
@@ -1397,6 +1440,25 @@ pub(crate) mod tests {
             key(&mut model, KeyCode::Char(ch));
         }
         assert_golden("picker-80x24.txt", &render(&mut model, 80, 24));
+    }
+
+    #[test]
+    fn dashboard_matches_goldens() {
+        let mut model = sample(PROJECTS);
+        let home = model.home.clone().unwrap();
+        model.workspaces = vec![
+            model.root().unwrap().to_path_buf(),
+            home.join("personal"),
+            home.join("code/oss"),
+        ];
+        let (_, _writes) = crate::app::model::tests::with_session(&mut model, "checkout");
+        model.overlay = Some(Overlay::Dashboard(1));
+        for (name, width, height) in [
+            ("dashboard-120x40.txt", 120, 40),
+            ("dashboard-80x24.txt", 80, 24),
+        ] {
+            assert_golden(name, &render(&mut model, width, height));
+        }
     }
 
     #[test]

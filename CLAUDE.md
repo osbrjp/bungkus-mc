@@ -35,7 +35,7 @@ behaviour.
 
 ```
 src/main.rs        # lexopt → subcommand (TUI, hook, statusline, update); anyhow only here; panic hook restores the terminal
-src/app/           # event loop + Model (Elm-style): mode/focus, sessions, dirty flag, ticks, AppEvent
+src/app/           # event loop + Model (Elm-style): mode/focus, sessions, dirty flag, ticks, AppEvent; diff.rs (the `D` changes popup)
 src/ui/            # panes, dialogs, first run, keymap.rs, theme.rs (token spec), mascot.rs, string sanitise
 src/term/          # session.rs (PTY + Term + reader/waiter threads), keys.rs (encoder), query replies
 src/agent/         # Event/Usage/Adapter, claude.rs, codex.rs, codex_usage.rs (the one transcript reader), mcp.rs (MCP server names from hook tool names); testdata/
@@ -54,6 +54,7 @@ src/workspace.rs   # project dir scan
 - Structure = agent hooks → `bungkus-mc hook` → unix socket. Usage = Claude status line → `bungkus-mc statusline` (forwards within 200 ms, then runs the user's own status line under `sh`). **Never parse agent transcripts — except `agent/codex_usage.rs`** (`token_count` records only, owner-approved).
 - MCP servers on a card = the ones in use: the `mcp__<server>__` tool names in hook events. Configured-but-unused servers are not shown; the agents' MCP config files are never read (`agent/mcp.rs`: names only). Nerd set: logo, or kind glyph / plug + name (tables in `ui/icons.rs`, code points from Nerd Fonts' `glyphnames.json`); other sets: names.
 - Issue / pull request links (`app/links.rs`, issue #188): read through the user's `gh` CLI (fixed argv, read-only, no token in mc) per session folder, on a branch change and every 60 s for running sessions; the issue comes from the `i{issue#}-…` branch name, else the PR's first closing issue. `P` / `I` open them in the browser, `i` lists the repository's open ones (`enter` reads one's description, comments, reviews and review comments on code in the popup, Markdown rendered by `app/markdown.rs`, no crate; `o` opens it); only plain `https://` URLs reach the opener.
+- Changes popup (`D`, `app/diff.rs`): the changed files of the session folder's repository (`git status`) and the highlighted file's diff against `HEAD` (`git diff`, fixed argv, `--no-optional-locks`, off the UI thread, only while open), like lazygit's files panel. Display only: mc never stages, discards or commits (ARCHITECTURE §3.8).
 - Activity overlay (`A`): RAM/CPU of mc, each session's process tree and mc's other children, sampled only while open (2 s, off the UI thread; `ps` on macOS, `/proc` on Linux); temperature on Linux only (macOS needs root or `unsafe` FFI → `n/a`). Display only (ARCHITECTURE §3.7).
 - Cloud mode (`app/cloud.rs`, Claude only): `C` on a session or the picker's `mode` row; a card is `local` or `cloud` and changes any time (stop, then start the other side in its place). To the cloud = `claude --cloud=<task>`, a **new** cloud session (Claude's CLI cannot send a local conversation there); to this machine = `claude --teleport [id]` with mc's hooks. The cloud id is read off the card's screen; mc calls no cloud API.
 - Render on a dirty flag or the 350 ms animation tick, never on a fixed timer.

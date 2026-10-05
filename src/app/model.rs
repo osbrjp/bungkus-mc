@@ -90,12 +90,16 @@ pub(crate) enum Overlay {
     StopOutside(External),
     /// The `a` new-project dialog.
     NewProject(crate::app::quick::NewProject),
+    /// The start dashboard, with its highlighted row.
+    Dashboard(usize),
     /// The `w` workspace switcher.
     Switcher(crate::app::workspaces::Switcher),
     /// The `fp` / `ff` / `fg` finder.
     Finder(crate::app::finder::Finder),
     /// The `i` issues and pull requests popup.
     Links(crate::app::links::Viewer),
+    /// The `D` changes popup.
+    Diff(crate::app::diff::Viewer),
     /// "Move these projects' folders to the Trash?"
     TrashProject(Vec<Project>),
     /// "Remove this project's unused worktrees?"
@@ -198,6 +202,12 @@ pub(crate) enum Cmd {
     /// Read the text of this issue or pull request, in this folder, for
     /// the `i` popup's text view.
     ReadLink(PathBuf, crate::app::links::Link),
+    /// List the changed files of this folder's repository for the `D`
+    /// popup.
+    ListChanges(PathBuf),
+    /// Read the diff of this file, in the repository at this root, for
+    /// the `D` popup.
+    ReadDiff(PathBuf, crate::app::diff::File),
     /// Start the terminal pane's shell for this owner in this folder (`t`).
     OpenTerminal(crate::app::tools::Owner, PathBuf),
     /// Write the workspace's project groups to its `.bungkus-mc/config.json`.
@@ -805,7 +815,7 @@ impl Model {
     }
 
     /// Returns whether anything on screen animates (a running card of the
-    /// selected project, or the empty-state mascot), so the 350 ms tick
+    /// selected project, or the empty-state or dashboard mascot), so the 350 ms tick
     /// must run.
     #[must_use]
     pub(crate) fn animating(&self) -> bool {
@@ -813,6 +823,7 @@ impl Model {
         self.theme.animated()
             && (empty_output
                 || self.poke.is_some()
+                || matches!(self.overlay, Some(Overlay::Dashboard(_)))
                 || self
                     .project_cards()
                     .iter()
@@ -980,6 +991,10 @@ impl Model {
             AppEvent::Links(read) => self.set_links(read),
             AppEvent::LinkList(folder, list) => self.set_link_list(&folder, list),
             AppEvent::LinkBody(url, text) => self.set_link_body(&url, text.as_deref()),
+            AppEvent::Changes(folder, root, files) => {
+                return self.set_changes(&folder, root, files);
+            }
+            AppEvent::Diff(root, file, lines) => self.set_diff(&root, &file, lines),
             AppEvent::External(list) => {
                 self.external = list;
                 self.selected = self.selected.min(self.visible().len().saturating_sub(1));
@@ -1366,9 +1381,11 @@ impl Model {
                 None
             }
             Overlay::NewProject(dialog) => self.new_project_key(dialog, key),
+            Overlay::Dashboard(selected) => self.dashboard_key(selected, key),
             Overlay::Switcher(switcher) => self.switcher_key(switcher, key),
             Overlay::Finder(finder) => self.finder_key(finder, key),
             Overlay::Links(viewer) => self.viewer_key(viewer, key),
+            Overlay::Diff(viewer) => self.diff_key(viewer, key),
             Overlay::TrashProject(projects) => confirms(key)
                 .then(|| Cmd::TrashProject(projects.into_iter().map(|p| p.path).collect())),
             Overlay::CleanWorktrees(project) => {
@@ -1844,6 +1861,7 @@ impl Model {
             Action::Editor => return self.open_editor(),
             Action::Folder => return self.open_folder(),
             Action::PullRequest | Action::Issue | Action::Links => return self.link_key(action),
+            Action::Diff => return self.open_diff(),
             Action::Terminal => return self.toggle_terminal(),
             Action::CloseTerminal => self.close_terminal(),
             Action::Update => return self.start_update(),
@@ -1871,6 +1889,7 @@ impl Model {
             Action::Settings => self.open_form(FormKind::Settings, Field::Agent),
             Action::Help => self.overlay = Some(Overlay::Help),
             Action::Activity => return Some(self.open_activity()),
+            Action::Dashboard => self.overlay = Some(Overlay::Dashboard(0)),
             Action::Redraw => return Some(Cmd::Redraw),
             Action::Quit => return Some(self.request_quit()),
             Action::Jump
