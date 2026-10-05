@@ -1019,7 +1019,7 @@ fn open_terminal(
     tx: &SyncSender<AppEvent>,
 ) {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
-    let size = ui::terminal_size(model.screen, model.zoom, model.widths);
+    let size = model.shell_size();
     if let Some(tool) = spawn_tool(model, config, &[shell], dir, size, tx) {
         model.shells.push((owner, tool));
         model.term_view = TermView::Focused;
@@ -1536,14 +1536,14 @@ fn watch_rollout(model: &mut Model, id: SessionId, path: &Path, tx: &SyncSender<
 
 /// Keeps every session's emulator and PTY at its pane's size: the output
 /// pane, or the popup for quick sessions; the editor has the popup's size
-/// and every shell the terminal pane's.
+/// and every shell the terminal pane's (the popup's while it is one).
 fn resize_sessions(model: &mut Model) {
     let size = model.output_size();
     let quick = ui::popup_size(model.screen);
     if let Some(editor) = model.editor.as_mut() {
         editor.pty.resize(quick);
     }
-    let pane = ui::terminal_size(model.screen, model.zoom, model.widths);
+    let pane = model.shell_size();
     for (_, shell) in &mut model.shells {
         shell.pty.resize(pane);
     }

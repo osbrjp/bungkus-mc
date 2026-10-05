@@ -76,6 +76,8 @@ pub(crate) enum Action {
     Links,
     /// Show or hide the terminal pane below the output pane.
     Terminal,
+    /// Open the terminal as a popup over the panes.
+    TerminalPopup,
     /// Close the selected project's shell.
     CloseTerminal,
     /// Start a quick session at the workspace root (a popup).
@@ -558,6 +560,14 @@ pub(crate) const BINDINGS: &[Binding] = &[
         scope: Scope::Global,
     },
     Binding {
+        keys: &[ctrl('t')],
+        label: "ctrl-t",
+        action: Action::TerminalPopup,
+        help: "terminal popup",
+        hint: None,
+        scope: Scope::Global,
+    },
+    Binding {
         keys: &[Key::Press(KeyCode::Char('T'), KeyModifiers::SHIFT), c('T')],
         label: "T",
         action: Action::CloseTerminal,
@@ -759,6 +769,7 @@ impl Action {
             | Self::Redraw
             | Self::Update
             | Self::Terminal
+            | Self::TerminalPopup
             | Self::CloseTerminal
             | Self::Quit => Group::App,
         }
