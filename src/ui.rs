@@ -269,6 +269,29 @@ pub(crate) fn output_size(area: Rect, zoom: bool, widths: Widths, terminal: bool
     }
 }
 
+/// Draws the selected session's shell in `rect`: the terminal pane below
+/// the output pane, or with `popup` the terminal popup over the panes
+/// (which always has the keys). The title names the session.
+fn draw_terminal(frame: &mut Frame, rect: Rect, popup: bool, model: &Model, theme: Theme) {
+    let Some(shell) = model.shell() else {
+        return;
+    };
+    let focused = model.term_view == TermView::Focused;
+    let card = model.selected_card().map(|i| &model.cards[i]);
+    let project = model.selected_project().map_or("", |p| p.name.as_str());
+    let name = card.map_or(project, |c| c.name.as_str());
+    let leave = model.exit_chord.label();
+    let title = if popup {
+        frame.render_widget(ratatui::widgets::Clear, rect);
+        format!("terminal · {name} · {leave} to hide")
+    } else if focused {
+        format!("[4] terminal · {name} · {leave} to leave")
+    } else {
+        format!("[4] terminal · {name} · t hides · T closes")
+    };
+    output::draw_tool(frame, rect, &title, &shell.pty, focused, theme);
+}
+
 /// Draws the whole screen.
 ///
 /// Below [`MIN_SIZE`] only a one-line notice is drawn. Before the first
@@ -317,24 +340,17 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
     if let Some(rect) = layout.output {
         output::draw(frame, rect, model, theme);
     }
-    if let (Some(rect), Some(shell)) = (layout.terminal, model.shell()) {
-        let focused = model.term_view == TermView::Focused;
-        let card = model.selected_card().map(|i| &model.cards[i]);
-        let project = model.selected_project().map_or("", |p| p.name.as_str());
-        let name = card.map_or(project, |c| c.name.as_str());
-        let title = if focused {
-            let leave = model.exit_chord.label();
-            format!("[4] terminal · {name} · {leave} to leave")
-        } else {
-            format!("[4] terminal · {name} · t hides · T closes")
-        };
-        output::draw_tool(frame, rect, &title, &shell.pty, focused, theme);
+    if let Some(rect) = layout.terminal {
+        draw_terminal(frame, rect, false, model, theme);
     } else if let (Some(rect), Some(_)) = (layout.output, model.shell()) {
         draw_hidden_terminal(frame, rect, theme);
     }
     draw_getah(frame, getah, model, theme);
     if model.popup.is_some() {
         output::draw_popup(frame, popup_rect(area), model, theme);
+    }
+    if model.terminal_popup() {
+        draw_terminal(frame, popup_rect(area), true, model, theme);
     }
     if let Some(editor) = &model.editor {
         let rect = popup_rect(area);

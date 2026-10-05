@@ -270,7 +270,7 @@ for either (no tmux, no terminal app): both use its own PTY and emulator. Each i
 environment as an agent) held by the model next to the cards, not as one:
 no card, no hooks, no usage, nothing in `sessions.json`, not in the stop
 dialog. Its PTY events are told apart by id. While the terminal pane
-shows (the selected session has a shell and `t` did not hide it), the output pane and every session's PTY are a third shorter. A
+shows (the selected session has a shell and `t` did not hide it), the output pane and every session's PTY are a third shorter. `ctrl-t` shows the same shell as a popup instead (`TermPlace::Popup`): drawn only while it has the keys, the shells' PTYs at the popup's size, the output pane at its full height. A
 tool ends when its program exits, when mc does (the PTY closes, the
 kernel sends SIGHUP), or, for a shell, on `T` or when its session ends (mc sends SIGHUP
 to its process group and forgets it once it has exited). Any other editor is spawned once with an argument

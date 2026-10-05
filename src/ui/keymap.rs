@@ -79,6 +79,8 @@ pub(crate) enum Action {
     Diff,
     /// Show or hide the terminal pane below the output pane.
     Terminal,
+    /// Open the terminal as a popup over the panes.
+    TerminalPopup,
     /// Close the selected project's shell.
     CloseTerminal,
     /// Start a quick session at the workspace root (a popup).
@@ -564,10 +566,18 @@ pub(crate) const BINDINGS: &[Binding] = &[
     },
     Binding {
         keys: &[c('t')],
-        label: "t",
+        label: "t · ctrl-t",
         action: Action::Terminal,
-        help: "terminal on/off",
+        help: "term · popup",
         hint: Some("t term"),
+        scope: Scope::Global,
+    },
+    Binding {
+        keys: &[ctrl('t')],
+        label: "ctrl-t",
+        action: Action::TerminalPopup,
+        help: "terminal popup",
+        hint: None,
         scope: Scope::Global,
     },
     Binding {
@@ -751,6 +761,7 @@ impl Action {
             | Self::Pane(_)
             | Self::NextNeedsYou
             | Self::Zoom
+            | Self::TerminalPopup
             | Self::Dashboard
             | Self::OpenProject => Group::Navigate,
             Self::Interact
@@ -790,6 +801,8 @@ impl Action {
 
 /// Returns the key menu for `scope`: per [`Group`], the `(label, help)`
 /// rows of that pane's and the global bindings, skipping empty groups.
+/// The terminal popup shares the terminal's row: the menu has no row to
+/// spare on a 40-row screen.
 #[must_use]
 pub(crate) fn help_groups(scope: Scope) -> Vec<(Group, Vec<(&'static str, &'static str)>)> {
     Group::ALL
@@ -798,7 +811,9 @@ pub(crate) fn help_groups(scope: Scope) -> Vec<(Group, Vec<(&'static str, &'stat
             let rows = BINDINGS
                 .iter()
                 .filter(|b| {
-                    (b.scope == scope || b.scope == Scope::Global) && b.action.group() == group
+                    (b.scope == scope || b.scope == Scope::Global)
+                        && b.action.group() == group
+                        && !matches!(b.action, Action::TerminalPopup)
                 })
                 .map(|b| (b.label, b.help))
                 .collect();

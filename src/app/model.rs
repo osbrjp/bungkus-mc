@@ -401,6 +401,9 @@ pub(crate) struct Model {
     pub shells: Vec<(crate::app::tools::Owner, Tool)>,
     /// How the terminal pane shows.
     pub term_view: TermView,
+    /// Where the terminal shows: a popup over the panes (`ctrl-t`)
+    /// or the pane below the output pane (`t`).
+    pub term_place: crate::app::tools::TermPlace,
     /// The `quick` row that leads the projects list while quick sessions
     /// exist; its path is the workspace root.
     pub quick_row: Project,
@@ -524,6 +527,7 @@ impl Model {
             editor: None,
             shells: Vec::new(),
             term_view: TermView::Hidden,
+            term_place: crate::app::tools::TermPlace::Pane,
             debug_keys: false,
             want_project: None,
             quick_row: Project {
@@ -1604,7 +1608,10 @@ impl Model {
                 self.focus = Focus::Sessions;
                 self.interact();
             }
-            _ => return self.focus_terminal(),
+            _ => {
+                self.term_place = crate::app::tools::TermPlace::Pane;
+                return self.focus_terminal();
+            }
         }
         None
     }
@@ -1854,6 +1861,7 @@ impl Model {
             Action::PullRequest | Action::Issue | Action::Links => return self.link_key(action),
             Action::Diff => return self.open_diff(),
             Action::Terminal => return self.toggle_terminal(),
+            Action::TerminalPopup => return self.popup_terminal(),
             Action::CloseTerminal => self.close_terminal(),
             Action::Update => return self.start_update(),
             Action::MoveQuick => self.start_move(false),
