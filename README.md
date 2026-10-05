@@ -154,6 +154,7 @@ pane; press one to run it.
 | `x` | stop a session (lists what it started too) |
 | `P` · `I` | open the pull request · the issue of the session's branch in the browser. mc finds them itself through the `gh` CLI: the pull request GitHub has for the branch, and the issue from a branch named `i{issue#}-…` (else the first issue the pull request closes). The card shows their numbers after the branch |
 | `i` | issues & pull requests popup: the session's own first (`●`), then the repository's open ones; `j` `k` move, `enter` reads one and its comments in the popup (a pull request's reviews and review comments on code too, with the code line quoted), Markdown rendered (`j` `k` `d` `u` scroll, `esc` back), `o` opens it in the browser |
+| `D` | changes popup, like lazygit's files panel: the changed files of the session's repository on the left, the highlighted file's diff on the right; `j` `k` pick a file, `d` `u` scroll the diff, `g` `G` its ends, `r` reload, `esc` close. Read-only |
 | `d` | forget a finished session |
 
 ### Projects and workspaces
