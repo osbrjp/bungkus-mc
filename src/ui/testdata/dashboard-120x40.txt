@@ -1,0 +1,41 @@
+
+
+
+
+
+
+
+
+
+
+
+                                                           ▄▄
+                                                         ▄████▄
+                                                        ████████
+                                                      ▄██████████▄
+                                                    ▄██████████████▄
+                                                          █  █
+                                                         ▀▀ ▀▀
+
+                                                       bungkus mc
+
+                                  continue kedai-web
+                              > 1 ~/Works/OSBR
+                                2 ~/personal
+                                3 ~/code/oss
+                                a + add a workspace…
+                                f find a project…
+
+                              j/k enter pick · 1-9 workspace · a add · f find · esc close
+
+
+
+
+
+
+
+
+
+
+
+cursor: hidden

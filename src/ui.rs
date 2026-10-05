@@ -1402,6 +1402,25 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn dashboard_matches_goldens() {
+        let mut model = sample(PROJECTS);
+        let home = model.home.clone().unwrap();
+        model.workspaces = vec![
+            model.root().unwrap().to_path_buf(),
+            home.join("personal"),
+            home.join("code/oss"),
+        ];
+        let (_, _writes) = crate::app::model::tests::with_session(&mut model, "checkout");
+        model.overlay = Some(Overlay::Dashboard(1));
+        for (name, width, height) in [
+            ("dashboard-120x40.txt", 120, 40),
+            ("dashboard-80x24.txt", 80, 24),
+        ] {
+            assert_golden(name, &render(&mut model, width, height));
+        }
+    }
+
+    #[test]
     fn filter_shows_in_title_and_mode_word() {
         let mut model = sample(PROJECTS);
         key(&mut model, KeyCode::Char('/'));
