@@ -1087,6 +1087,8 @@ impl Model {
     fn hook(&mut self, line: &[u8]) -> Option<Cmd> {
         let wire = serde_json::from_slice::<Wire>(line).ok()?;
         let now = self.now;
+        let selected = self.selected_card().map(|i| self.cards[i].id);
+        let watched = selected.filter(|_| self.focus == Focus::Output);
         let card = self
             .cards
             .iter_mut()
@@ -1115,7 +1117,10 @@ impl Model {
             self.alerts.push(Alert::NeedsYou(text));
         } else if card.state == State::YourTurn && before == State::Working {
             self.notice = Some((now, format!("{} finished: {}", card.id.short(), card.name)));
-            self.alerts.push(Alert::Finished);
+            // The user is in this session's output pane and sees it finish.
+            if watched != Some(card.id) {
+                self.alerts.push(Alert::Finished);
+            }
         }
         let first_bind = !bound && card.agent_session.is_some();
         let watch = card.kind == Kind::Codex && card.running() && card.rollout_stop.is_none();
@@ -2639,6 +2644,7 @@ pub(crate) mod tests {
         let mut m = sample(&["a"]);
         let (id, _w) = with_session(&mut m, "s");
         m.cards[0].expect_hooks();
+        m.focus = Focus::Sessions;
         m.update(hook_line(id, r#"{"hook_event_name":"SessionStart"}"#));
         assert!(m.notice.is_none(), "starting is not finishing");
         m.update(hook_line(id, r#"{"hook_event_name":"UserPromptSubmit"}"#));
@@ -2652,6 +2658,17 @@ pub(crate) mod tests {
             m.notice
         );
         assert_eq!(m.alerts, [Alert::Finished], "the ding, not the bell");
+        m.alerts.clear();
+        m.focus = Focus::Output;
+        m.update(hook_line(id, r#"{"hook_event_name":"UserPromptSubmit"}"#));
+        m.update(hook_line(id, r#"{"hook_event_name":"Stop"}"#));
+        assert_eq!(m.cards[0].state, State::YourTurn);
+        assert!(m.alerts.is_empty(), "no ding for the session in focus");
+        m.update(hook_line(
+            id,
+            r#"{"hook_event_name":"Notification","notification_type":"permission_prompt"}"#,
+        ));
+        assert_eq!(m.alerts.len(), 1, "needing you still rings there");
     }
 
     /// Returns a socket line for `id` carrying the status-line fixture.
