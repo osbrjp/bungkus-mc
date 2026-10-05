@@ -1404,7 +1404,9 @@ screen).
 
 - The ding (`sound`): a kitchen-timer bell, 0.8 s, on the transitions
   **working → your turn** (the session finished), **→ needs you** and
-  **→ failed**; sessions that change in the same pass share one ding. mc
+  **→ failed**; sessions that change in the same pass share one ding. A
+  finished turn of the session whose output pane has the focus (INTERACT)
+  is not announced: the user is looking at it. mc
   synthesises it (no audio file ships), keeps it as `ding.wav` next to
   `sessions.json` and plays it with the system's own player: `afplay`
   (macOS), else `pw-play`, `paplay` or `aplay`. Where it plays it takes
