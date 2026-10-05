@@ -11,6 +11,7 @@ pub(crate) mod activity;
 pub(crate) mod browser;
 pub(crate) mod dashboard;
 pub(crate) mod diff;
+mod ding;
 pub(crate) mod finder;
 pub(crate) mod form;
 pub(crate) mod groups;
@@ -263,8 +264,7 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<bool> {
             .map_or(0, |d| d.as_secs());
         resize_sessions(&mut model);
         terminal.draw(|frame| ui::draw(frame, &mut model))?;
-        let notify = model.overrides.notify.unwrap_or(env.config.notify);
-        announce(&mut model, notify, &mut title);
+        announce(&mut model, env, &mut title);
         if model.state_dirty {
             save_state(&mut model, env);
         }
@@ -1525,21 +1525,38 @@ fn clean_worktrees(model: &mut Model, project: &Path, tx: &SyncSender<AppEvent>)
 /// Sends pending alerts and keeps the terminal title on the tally
 /// (DESIGN §9): BEL for `bell`, plus OSC 9 / 99 / 777 for `desktop`
 /// depending on the terminal; inside a multiplexer only the bell.
-fn announce(model: &mut Model, notify: Notify, title: &mut String) {
+///
+/// With the `sound` setting on, the alerts of one pass share one ding
+/// (kept as `ding.wav` next to `sessions.json`), which takes the place of
+/// the BEL; a session that only finished its turn gets the ding and
+/// nothing else.
+fn announce(model: &mut Model, env: &Env, title: &mut String) {
     let tally = ui::title(model);
     if *title != tally {
         write_host(format!("\x1b]2;{tally}\x07").as_bytes());
         *title = tally;
     }
+    if model.alerts.is_empty() {
+        return;
+    }
+    let notify = model.overrides.notify.unwrap_or(env.config.notify);
+    let sound = model
+        .settings
+        .as_ref()
+        .map_or(env.config.sound, |s| s.sound);
+    let ding = env.state_path.as_deref().filter(|_| sound);
+    let rang = ding.is_some_and(|state| ding::play(&state.with_file_name("ding.wav")));
+    let bell: &[u8] = if rang { b"" } else { b"\x07" };
     for alert in model.alerts.drain(..) {
         let text = match &alert {
+            Alert::Finished => continue,
             Alert::NeedsYou(t) | Alert::Failed(t) => sanitise(t, 120),
         };
         match notify {
             Notify::Off => {}
-            Notify::Bell => write_host(b"\x07"),
+            Notify::Bell => write_host(bell),
             Notify::Desktop => {
-                write_host(b"\x07");
+                write_host(bell);
                 write_host(desktop_notification(&text, |n| std::env::var(n).ok()).as_bytes());
             }
         }
