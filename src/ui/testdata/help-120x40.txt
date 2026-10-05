@@ -9,7 +9,7 @@
 ┃                    ║  z                    zoom output     /                    search projects ║                    │
 ┃                    ║  1-9                  jump to project cmd/alt-1            projects pane   ║                    │
 ┃                    ║  cmd/alt-2            sessions pane   cmd/alt-3            output pane     ║                    │
-┃                    ║  cmd/alt-4            terminal pane   ctrl-t               terminal popup  ║                    │
+┃                    ║  cmd/alt-4            terminal pane   H                    dashboard       ║                    │
 ┃                    ║                                                                            ║                    │
 ┃                    ║  sessions                                                                  ║                    │
 ┃                    ║  n                    new session     r                    past sessions   ║                    │
@@ -26,7 +26,7 @@
 ┃                    ║                                                                            ║.                   │
 ┃                    ║  workspace & app                                                           ║n                   │
 ┃                    ║  U                    update+restart  D                    changes (diff)  ║                    │
-┃                    ║  t                    terminal on/off T                    close terminal  ║                    │
+┃                    ║  t · ctrl-t           term · popup    T                    close terminal  ║                    │
 ┃                    ║  w                    workspaces      ,                    settings        ║                    │
 ┃                    ║  A                    activity        R                    redraw          ║                    │
 ┃                    ║  ? space              this help       q ctrl-c             quit            ║                    │

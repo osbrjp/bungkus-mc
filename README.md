@@ -342,6 +342,7 @@ key back with `kitten @ focus-window --match neighbor:…`.
   "motion": true,
   "mouse": true,
   "notify": "bell",
+  "sound": true,
   "interactExit": "ctrl-\\",
   "agents": {
     "claude": { "command": "claude", "args": [] },
@@ -361,6 +362,7 @@ key back with `kitten @ focus-window --match neighbor:…`.
 | `background` | `paint` · `terminal` keeps your terminal's own background (mc paints its green only on TrueColor terminals anyway) |
 | `icons` | `auto` (default: `nerd` when a Nerd Font is installed, else `ascii`) · `ascii` · `unicode` · `nerd` (also `--icons`, and the `icons` row of the settings screen, which shows the glyphs before you save). mc cannot see which font your terminal uses: if the glyphs show as boxes, choose `ascii`; if your terminal draws Nerd glyphs without an installed font (kitty does), choose `nerd`. In the `nerd` set the agent badge is the company's logo (Claude, OpenAI) instead of `C` / `X`; if it shows as a box see [Agent logos](#agent-logos) |
 | `notify` | `bell` (default) · `desktop` (plus OSC 9/99/777) · `off` |
+| `sound` | `true` (default) · `false`: a kitchen-timer ding when a session finishes its turn, needs you or fails (also the `sound` row of the settings screen). Played with `afplay` on macOS and `pw-play` / `paplay` / `aplay` on Linux; over SSH or without one of them the terminal bell rings instead |
 | `interactExit` | the chord that leaves INTERACT (default `ctrl-\`) |
 | `cleanup.keep` | process names the quit dialog starts as `[keep]` |
 | `worktrees` | `true` (default) · `false`; see [Worktrees](#worktrees) |

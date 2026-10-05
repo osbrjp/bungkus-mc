@@ -17,15 +17,15 @@
 ┃                    ┃│║ > agent       > claude    codex (not on PATH)                          ║                      │
 ┃                    ┃│║   theme         auto  > dark    light                                  ║                      │
 ┃                    ┃│║   icons       > auto    ascii    unicode    nerd                       ║                      │
+┃                    ┃│║   sound       > on    off                                              ║                      │
 ┃                    ┃│║   editor      > other                                                  ║                      │
-┃                    ┃│║               + ~/.local/bin/claude   - codex not on PATH              ║                      │
-┃                    ┃│║               saved for: all workspaces · w switches                   ║▄                     │
+┃                    ┃│║               + ~/.local/bin/claude   - codex not on PATH              ║▄                     │
+┃                    ┃│║               saved for: all workspaces · w switches                   ║                      │
 ┃                    ┃│║                                                                        ║                      │
 ┃                    ┃│║                                                                        ║                      │
-┃                    ┃│║                                                                        ║                      │
-┃                    ┃│║                j/k ↑↓ field · h/l ← → change · enter save · esc cancel ║et.                   │
-┃                    ┃│╚════════════════════════════════════════════════════════════════════════╝ion                   │
-┃                    ┃│                                    ││                                                          │
+┃                    ┃│║                                                                        ║et.                   │
+┃                    ┃│║                j/k ↑↓ field · h/l ← → change · enter save · esc cancel ║ion                   │
+┃                    ┃│╚════════════════════════════════════════════════════════════════════════╝                      │
 ┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │
 ┃                    ┃│                                    ││                                                          │

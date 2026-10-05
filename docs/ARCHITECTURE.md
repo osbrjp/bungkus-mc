@@ -835,6 +835,7 @@ command unchanged.
 |------|------|------|
 | config | `${XDG_CONFIG_HOME:-~/.config}/bungkus/mc/config.json` | 0600, dir 0700 |
 | state | `${XDG_STATE_HOME:-~/.local/state}/bungkus/mc/sessions.json` | 0600, dir 0700 |
+| the ding (written on first use, `sound`) | `${XDG_STATE_HOME:-~/.local/state}/bungkus/mc/ding.wav` | 0600 |
 | routing consent | `${XDG_STATE_HOME:-~/.local/state}/bungkus/mc/consent.json` (`{"routing": "2026-09-30T…"}`) | 0600 |
 | debug log (`--debug` only) | `${XDG_STATE_HOME:-~/.local/state}/bungkus/mc/mc.log` | 0600 |
 | socket | `clean(${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}})/bungkus-mc-<uid>/<pid>.sock` | dir 0700, sock 0600 |
@@ -885,6 +886,7 @@ the key). A hidden folder is never listed as a project.
   "icons": "auto",
   "mouse": true,
   "notify": "bell",
+  "sound": true,
   "interactExit": "ctrl-\\",
   "worktrees": true,
   "instructions": true,
@@ -1092,7 +1094,7 @@ Go code any more:
 | OSC 8 | not emitted by ratatui; header link written raw only where supported | stripped from agent output |
 | Nerd Font / glyphs | the terminal's font is undetectable; `icons: auto` looks for a file or folder named `*nerd*` in the font folders (`~/Library/Fonts`, `~/.local/share/fonts`, `~/.fonts`, `/Library/Fonts`, `/usr/local/share/fonts`, `/usr/share/fonts`, 3 levels deep), skipped on a non-UTF-8 locale and over SSH | `ascii`; the `icons` setting overrides; borders follow the locale |
 | light/dark | one OSC 11 query at start, reply awaited with `rustix::event::poll` on stdin (200 ms) before the input reader starts (§3.1) | `theme` setting |
-| notifications | OSC 9/99/777 raw writes by terminal, BEL fallback; title via OSC 2 with XTWINOPS push/pop | `notify` setting |
+| notifications | OSC 9/99/777 raw writes by terminal, BEL fallback; title via OSC 2 with XTWINOPS push/pop; the ding through `afplay` / `pw-play` / `paplay` / `aplay` (`app/ding.rs`), BEL when none is there or over SSH | `notify` and `sound` settings |
 | tmux / zellij | `TERM=tmux-256color`; OSC 8 ≥ 3.4 | test matrix |
 | Apple Terminal | 256 colours, no OSC 8, no kitty keys | must be fully usable — the floor |
 | resize storms | coalesce `Resize` events to one per frame | debounce PTY resize by one frame |

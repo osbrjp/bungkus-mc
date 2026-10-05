@@ -193,7 +193,7 @@ fn main() -> Result<()> {
         config.motion,
     );
     let mut model = Model::new(theme, home.clone(), found, fallback);
-    model.nerd_font = nerd_font;
+    (model.nerd_font, model.sound_saved) = (nerd_font, config.sound);
     (model.icons_saved, model.icons_flag) = (config.icons, args.icons);
     model.message = message;
     model.editors = app::tools::editors(app::user_editor().as_deref(), |name| {
@@ -209,17 +209,11 @@ fn main() -> Result<()> {
     model.debug_keys = var("BUNGKUS_MC_DEBUG_KEYS").is_some();
     model.kitty = var("KITTY_WINDOW_ID").is_some();
     if let Some(text) = &config.interact_exit {
-        match term::keys::Chord::parse(text) {
-            Some(chord) => model.exit_chord = chord,
-            None => {
-                model.message = Some(format!(
-                    "interactExit {text:?} is not a ctrl chord; using ctrl-\\."
-                ));
-            }
-        }
+        set_exit_chord(&mut model, text);
     }
 
     model.want_project.clone_from(&args.project);
+    let dashboard = args.workspace.is_none() && args.project.is_none() && !args.quick;
     let workspace = args
         .workspace
         .map(|arg| app::absolute(&arg, &cwd, home.as_deref()))
@@ -250,6 +244,9 @@ fn main() -> Result<()> {
     }
     if let Some(path) = &state_path {
         restore_state(&mut model, path);
+    }
+    if dashboard && wizard_prefill.is_none() && model.overlay.is_none() {
+        model.overlay = Some(app::model::Overlay::Dashboard(0));
     }
     let env = app::Env {
         config_path,
@@ -332,6 +329,19 @@ fn restore_state(model: &mut app::model::Model, path: &std::path::Path) {
     model.known = model.cards.iter().map(|c| c.id).collect();
 }
 
+/// Sets the chord that leaves INTERACT from `interactExit`, or says why
+/// it keeps `ctrl-\\`.
+fn set_exit_chord(model: &mut app::model::Model, text: &str) {
+    match term::keys::Chord::parse(text) {
+        Some(chord) => model.exit_chord = chord,
+        None => {
+            model.message = Some(format!(
+                "interactExit {text:?} is not a ctrl chord; using ctrl-\\."
+            ));
+        }
+    }
+}
+
 /// Returns whether the locale is UTF-8 (DESIGN §3): the first set of
 /// `LC_ALL`, `LC_CTYPE`, `LANG` names UTF-8, and `TERM` is not `linux` or
 /// `dumb`.
@@ -372,6 +382,7 @@ fn apply(model: &mut Model, config: &Config, workspace: PathBuf, cwd: &Path) {
         theme: config.theme,
         default_agent: config.default_agent,
         icons: config.icons,
+        sound: config.sound,
         editor: config.editor.clone(),
     };
     model.remember_workspace(&settings.workspace);

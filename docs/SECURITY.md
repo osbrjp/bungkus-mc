@@ -206,6 +206,8 @@ Same policy as bungkus-cli (which uses `govulncheck`), with the Rust tools:
   `src/app/diff.rs` (`git status` / `git diff`, fixed argv, read-only,
   `--no-ext-diff`; a path from `git status` goes back only after `--`
   with `--literal-pathspecs`; diff lines sanitised);
+  `src/app/ding.rs` (the first of `afplay` / `pw-play` / `paplay` /
+  `aplay` on `PATH`, fixed argv plus mc's own `ding.wav`, null stdio);
   `src/ipc/statusline.rs` (user's status line via `sh -c`). All
   `std::process::Command`. Agents themselves run our `hook`/`statusline`
   commands via `sh -c`, hence the quoted executable path. Stage 2:

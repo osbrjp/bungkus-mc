@@ -376,6 +376,9 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
         Some(Overlay::Move(dialog)) => dialogs::draw_move(frame, area, dialog, model, theme),
         Some(Overlay::StopOutside(ext)) => dialogs::draw_stop_outside(frame, area, ext, theme),
         Some(Overlay::NewProject(dialog)) => dialogs::draw_new_project(frame, area, dialog, theme),
+        Some(Overlay::Dashboard(selected)) => {
+            dialogs::draw_dashboard(frame, area, *selected, model, theme);
+        }
         Some(Overlay::Switcher(switcher)) => {
             dialogs::draw_switcher(frame, area, switcher, model, theme);
         }
@@ -1452,6 +1455,25 @@ pub(crate) mod tests {
             key(&mut model, KeyCode::Char(ch));
         }
         assert_golden("picker-80x24.txt", &render(&mut model, 80, 24));
+    }
+
+    #[test]
+    fn dashboard_matches_goldens() {
+        let mut model = sample(PROJECTS);
+        let home = model.home.clone().unwrap();
+        model.workspaces = vec![
+            model.root().unwrap().to_path_buf(),
+            home.join("personal"),
+            home.join("code/oss"),
+        ];
+        let (_, _writes) = crate::app::model::tests::with_session(&mut model, "checkout");
+        model.overlay = Some(Overlay::Dashboard(1));
+        for (name, width, height) in [
+            ("dashboard-120x40.txt", 120, 40),
+            ("dashboard-80x24.txt", 80, 24),
+        ] {
+            assert_golden(name, &render(&mut model, width, height));
+        }
     }
 
     #[test]

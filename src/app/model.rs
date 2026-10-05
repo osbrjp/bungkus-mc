@@ -88,6 +88,8 @@ pub(crate) enum Overlay {
     StopOutside(External),
     /// The `a` new-project dialog.
     NewProject(crate::app::quick::NewProject),
+    /// The start dashboard, with its highlighted row.
+    Dashboard(usize),
     /// The `w` workspace switcher.
     Switcher(crate::app::workspaces::Switcher),
     /// The `fp` / `ff` / `fg` finder.
@@ -154,6 +156,9 @@ pub(crate) struct Rest {
 /// Something the host terminal should announce (DESIGN §9).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Alert {
+    /// A session finished its turn: the ding only, no bell or desktop
+    /// notification.
+    Finished,
     /// A session now needs the user.
     NeedsYou(String),
     /// A session failed.
@@ -256,6 +261,8 @@ pub(crate) struct Model {
     pub nerd_font: bool,
     /// The `icons` value in `config.json`, for the first-run wizard to keep.
     pub icons_saved: crate::ui::icons::IconChoice,
+    /// The `sound` value in `config.json`, for the first-run wizard to keep.
+    pub sound_saved: bool,
     /// `--icons`: the icon choice for this run, until the settings screen
     /// changes it. It is never saved.
     pub icons_flag: Option<crate::ui::icons::IconChoice>,
@@ -458,6 +465,7 @@ impl Model {
             host_light: None,
             nerd_font: false,
             icons_saved: crate::ui::icons::IconChoice::Auto,
+            sound_saved: true,
             icons_flag: None,
             home,
             settings: None,
@@ -814,7 +822,7 @@ impl Model {
     }
 
     /// Returns whether anything on screen animates (a running card of the
-    /// selected project, or the empty-state mascot), so the 350 ms tick
+    /// selected project, or the empty-state or dashboard mascot), so the 350 ms tick
     /// must run.
     #[must_use]
     pub(crate) fn animating(&self) -> bool {
@@ -822,6 +830,7 @@ impl Model {
         self.theme.animated()
             && (empty_output
                 || self.poke.is_some()
+                || matches!(self.overlay, Some(Overlay::Dashboard(_)))
                 || self
                     .project_cards()
                     .iter()
@@ -889,6 +898,7 @@ impl Model {
             theme: ThemeChoice::Auto,
             default_agent: Kind::Claude,
             icons: self.icons_saved,
+            sound: self.sound_saved,
             editor: None,
         });
         let mut form = Form::new(
@@ -1105,6 +1115,7 @@ impl Model {
             self.alerts.push(Alert::NeedsYou(text));
         } else if card.state == State::YourTurn && before == State::Working {
             self.notice = Some((now, format!("{} finished: {}", card.id.short(), card.name)));
+            self.alerts.push(Alert::Finished);
         }
         let first_bind = !bound && card.agent_session.is_some();
         let watch = card.kind == Kind::Codex && card.running() && card.rollout_stop.is_none();
@@ -1375,6 +1386,7 @@ impl Model {
                 None
             }
             Overlay::NewProject(dialog) => self.new_project_key(dialog, key),
+            Overlay::Dashboard(selected) => self.dashboard_key(selected, key),
             Overlay::Switcher(switcher) => self.switcher_key(switcher, key),
             Overlay::Finder(finder) => self.finder_key(finder, key),
             Overlay::Links(viewer) => self.viewer_key(viewer, key),
@@ -1875,6 +1887,7 @@ impl Model {
             Action::Settings => self.open_form(FormKind::Settings, Field::Agent),
             Action::Help => self.overlay = Some(Overlay::Help),
             Action::Activity => return Some(self.open_activity()),
+            Action::Dashboard => self.overlay = Some(Overlay::Dashboard(0)),
             Action::Redraw => return Some(Cmd::Redraw),
             Action::Quit => return Some(self.request_quit()),
             Action::Jump
@@ -2025,8 +2038,13 @@ pub(crate) mod tests {
         let mut first_run = sample(&["a"]);
         first_run.settings = None;
         first_run.icons_saved = IconChoice::Unicode;
+        first_run.sound_saved = false;
         first_run.start_wizard("");
         assert_eq!(first_run.view_theme().icons, IconSet::Unicode);
+        let Some(Overlay::Form(form)) = &first_run.overlay else {
+            panic!("the wizard");
+        };
+        assert!(!form.sound, "a ding turned off by hand stays off");
     }
 
     /// A model with `names` as projects of `/Users/me/Works/OSBR`, as the
@@ -2053,6 +2071,7 @@ pub(crate) mod tests {
             theme: ThemeChoice::Dark,
             default_agent: Kind::Claude,
             icons: crate::ui::icons::IconChoice::Auto,
+            sound: true,
             editor: None,
         };
         model.apply(settings, Ok(projects), Path::new("/"));
@@ -2632,7 +2651,7 @@ pub(crate) mod tests {
             "{:?}",
             m.notice
         );
-        assert!(m.alerts.is_empty(), "the host terminal is not told");
+        assert_eq!(m.alerts, [Alert::Finished], "the ding, not the bell");
     }
 
     /// Returns a socket line for `id` carrying the status-line fixture.
