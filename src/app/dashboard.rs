@@ -1,5 +1,5 @@
 //! The dashboard mc opens on when started without a workspace or project
-//! argument, and that `D` reopens: the mascot, the last active project, the saved workspaces, a
+//! argument, and that `H` reopens: the mascot, the last active project, the saved workspaces, a
 //! row to add one and a row that opens the project finder.
 //!
 //! Every row hands over to what already does the job: the switch of the
@@ -132,8 +132,8 @@ mod tests {
         );
 
         m.overlay = None;
-        m.update(press(KeyCode::Char('D')));
-        assert_eq!(m.overlay, Some(Overlay::Dashboard(0)), "D reopens it");
+        m.update(press(KeyCode::Char('H')));
+        assert_eq!(m.overlay, Some(Overlay::Dashboard(0)), "H reopens it");
         m.update(press(KeyCode::Esc));
         assert_eq!(m.overlay, None);
     }

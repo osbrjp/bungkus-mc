@@ -10,6 +10,7 @@
 pub(crate) mod activity;
 pub(crate) mod browser;
 pub(crate) mod dashboard;
+pub(crate) mod diff;
 pub(crate) mod finder;
 pub(crate) mod form;
 pub(crate) mod groups;
@@ -104,6 +105,12 @@ pub(crate) enum AppEvent {
     /// this URL (see `links::body`), for
     /// the popup's text view; `None` when the read failed.
     LinkBody(String, Option<Vec<String>>),
+    /// The changed files `git` listed for the `D` popup opened on this
+    /// folder: the repository's root, then the files.
+    Changes(PathBuf, PathBuf, Vec<diff::File>),
+    /// The diff `git` read of this file, in the repository at this root,
+    /// for the `D` popup.
+    Diff(PathBuf, diff::File, Vec<diff::Line>),
     /// The host terminal went away (input closed).
     HostGone,
     /// A newer release exists (the hourly check).
@@ -477,6 +484,8 @@ fn run_cmd(
         Cmd::OpenUrl(url) => open_folder(model, PathBuf::from(url)),
         Cmd::ListLinks(folder) => list_links(gh_dir(model, env, &folder), folder, tx),
         Cmd::ReadLink(folder, link) => read_link(gh_dir(model, env, &folder), folder, link, tx),
+        Cmd::ListChanges(folder) => list_changes(folder, tx),
+        Cmd::ReadDiff(root, file) => read_diff(root, file, tx),
         Cmd::OpenTerminal(owner, dir) => open_terminal(model, &env.config, owner, &dir, tx),
         Cmd::SaveGroups(groups) => save_groups(model, &groups),
         Cmd::SaveWidths(widths) => {
@@ -486,13 +495,7 @@ fn run_cmd(
                 model.message = Some(format!("Pane widths not saved: {e}"));
             }
         }
-        Cmd::Scan => {
-            let tx = tx.clone();
-            thread::spawn(move || {
-                // reason: a closed loop just loses this snapshot.
-                let _ = tx.send(AppEvent::Procs(crate::proc::snapshot(uid)));
-            });
-        }
+        Cmd::Scan => scan_procs(uid, tx),
         Cmd::Sample => sample_activity(tx),
         Cmd::OpenStop(kind) => {
             let snapshot = crate::proc::snapshot(uid);
@@ -522,6 +525,16 @@ fn run_cmd(
         }
     }
     Next::Continue
+}
+
+/// Takes a process snapshot on a background thread and reports it as
+/// [`AppEvent::Procs`].
+fn scan_procs(uid: u32, tx: &SyncSender<AppEvent>) {
+    let tx = tx.clone();
+    thread::spawn(move || {
+        // reason: a closed loop just loses this snapshot.
+        let _ = tx.send(AppEvent::Procs(crate::proc::snapshot(uid)));
+    });
 }
 
 /// Takes a resource reading for the activity overlay on a background
@@ -587,6 +600,28 @@ fn read_link(gh: Option<PathBuf>, folder: PathBuf, link: links::Link, tx: &SyncS
         let text = links::body(&folder, gh.as_deref(), &link);
         // reason: mc may have quit meanwhile.
         let _ = tx.send(AppEvent::LinkBody(link.url, text));
+    });
+}
+
+/// Lists the changed files of the repository `folder` is in on a
+/// background thread, for the `D` popup ([`AppEvent::Changes`]).
+fn list_changes(folder: PathBuf, tx: &SyncSender<AppEvent>) {
+    let tx = tx.clone();
+    thread::spawn(move || {
+        let (root, files) = diff::list(&folder);
+        // reason: mc may have quit meanwhile.
+        let _ = tx.send(AppEvent::Changes(folder, root, files));
+    });
+}
+
+/// Reads the diff of `file` in the repository at `root` on a background
+/// thread, for the `D` popup ([`AppEvent::Diff`]).
+fn read_diff(root: PathBuf, file: diff::File, tx: &SyncSender<AppEvent>) {
+    let tx = tx.clone();
+    thread::spawn(move || {
+        let lines = diff::read(&root, &file);
+        // reason: mc may have quit meanwhile.
+        let _ = tx.send(AppEvent::Diff(root, file, lines));
     });
 }
 
@@ -1368,17 +1403,28 @@ fn git(dir: &Path, args: &[&OsStr]) -> Option<String> {
 
 /// Runs `program` in `dir` with fixed arguments (no shell, no input, its
 /// own process group) and `env` added to mc's environment, and returns
-/// what it printed, or `None` when it failed or is missing.
-fn output(program: &str, dir: &Path, args: &[&OsStr], env: &[(&str, &OsStr)]) -> Option<String> {
+/// how it ended and what it printed, or `None` when it could not start.
+fn capture(
+    program: &str,
+    dir: &Path,
+    args: &[&OsStr],
+    env: &[(&str, &OsStr)],
+) -> Option<std::process::Output> {
     use std::os::unix::process::CommandExt;
-    let output = std::process::Command::new(program)
+    std::process::Command::new(program)
         .args(args)
         .envs(env.iter().copied())
         .current_dir(dir)
         .process_group(0)
         .stdin(std::process::Stdio::null())
         .output()
-        .ok()?;
+        .ok()
+}
+
+/// Runs `program` as [`capture`] does and returns what it printed, or `None`
+/// when it failed or is missing.
+fn output(program: &str, dir: &Path, args: &[&OsStr], env: &[(&str, &OsStr)]) -> Option<String> {
+    let output = capture(program, dir, args, env)?;
     output
         .status
         .success()

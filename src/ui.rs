@@ -9,6 +9,7 @@
 mod activity;
 mod cards;
 mod dialogs;
+mod diff;
 mod form;
 mod help;
 pub(crate) mod icons;
@@ -367,6 +368,7 @@ pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
         }
         Some(Overlay::Finder(finder)) => dialogs::draw_finder(frame, area, finder, theme),
         Some(Overlay::Links(viewer)) => dialogs::draw_links(frame, area, viewer, theme),
+        Some(Overlay::Diff(viewer)) => diff::draw(frame, area, viewer, theme),
         Some(Overlay::CleanWorktrees(project)) => {
             dialogs::draw_clean_worktrees(frame, area, project, theme);
         }
@@ -1259,6 +1261,44 @@ pub(crate) mod tests {
         assert_golden("activity-80x24.txt", &render(&mut model, 80, 24));
         key(&mut model, KeyCode::Esc);
         assert_eq!(model.overlay, None);
+    }
+
+    #[test]
+    fn changes_popup_matches_golden() {
+        use crate::app::AppEvent;
+        use crate::app::diff::{File, Mark};
+
+        let mut model = sample(PROJECTS);
+        key(&mut model, KeyCode::Char('D'));
+        assert!(render(&mut model, 80, 24).contains("asking git"));
+        let folder = model.selected_project().unwrap().path.clone();
+        let file = |staged, unstaged, path: &str| File {
+            staged,
+            unstaged,
+            path: path.into(),
+        };
+        let files = vec![
+            file('M', ' ', "src/app.rs"),
+            file(' ', 'M', "src/components/checkout/summary.tsx"),
+            file('?', '?', "notes\u{1b}[31m.md"),
+        ];
+        let shown = files[1].clone();
+        model.update(AppEvent::Changes(folder.clone(), folder.clone(), files));
+        key(&mut model, KeyCode::Char('j'));
+        let lines = [
+            (Mark::Meta, "diff --git a/summary.tsx b/summary.tsx"),
+            (Mark::Hunk, "@@ -1,3 +1,3 @@"),
+            (Mark::Context, " export function Summary() {"),
+            (Mark::Removed, "-  return <p>total</p>;"),
+            (
+                Mark::Added,
+                "+  return <p>total, with a line longer than the pane is wide</p>;",
+            ),
+            (Mark::Context, " }"),
+        ];
+        let lines = lines.map(|(mark, text)| (mark, text.to_owned())).to_vec();
+        model.update(AppEvent::Diff(folder, shown, lines));
+        assert_golden("changes-80x24.txt", &render(&mut model, 80, 24));
     }
 
     #[test]
