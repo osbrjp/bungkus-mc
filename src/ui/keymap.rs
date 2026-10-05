@@ -74,6 +74,9 @@ pub(crate) enum Action {
     /// List the session's and the repository's open issues and pull
     /// requests in a popup.
     Links,
+    /// Show the changed files of the session's repository and their diffs
+    /// in a popup.
+    Diff,
     /// Show or hide the terminal pane below the output pane.
     Terminal,
     /// Open the terminal as a popup over the panes.
@@ -552,6 +555,14 @@ pub(crate) const BINDINGS: &[Binding] = &[
         scope: Scope::Global,
     },
     Binding {
+        keys: &[Key::Press(KeyCode::Char('D'), KeyModifiers::SHIFT), c('D')],
+        label: "D",
+        action: Action::Diff,
+        help: "changes (diff)",
+        hint: None,
+        scope: Scope::Global,
+    },
+    Binding {
         keys: &[c('t')],
         label: "t",
         action: Action::Terminal,
@@ -740,6 +751,7 @@ impl Action {
             | Self::Pane(_)
             | Self::NextNeedsYou
             | Self::Zoom
+            | Self::TerminalPopup
             | Self::OpenProject => Group::Navigate,
             Self::Interact
             | Self::NewSession
@@ -768,8 +780,8 @@ impl Action {
             | Self::Activity
             | Self::Redraw
             | Self::Update
+            | Self::Diff
             | Self::Terminal
-            | Self::TerminalPopup
             | Self::CloseTerminal
             | Self::Quit => Group::App,
         }

@@ -322,6 +322,28 @@ background thread:
   (`unsafe`) or `sudo powermetrics`, so it shows `n/a`.
 - The figures never feed tracking or stopping; argv is never read.
 
+### 3.8 Changes popup (`src/app/diff.rs`, display only)
+
+`D` shows the changed files of the repository the selected session's
+folder is in and the diff of the highlighted one. Everything is read with
+`git` (fixed argv, no shell, null stdin, own process group,
+`--no-optional-locks`) on a background thread, and only while the popup
+is open:
+
+- The list: `git rev-parse --show-toplevel`, then `git status --porcelain
+  -z --untracked-files=all` (`AppEvent::Changes`). A renamed entry's old
+  name is skipped.
+- A diff, when a file is highlighted: `git --literal-pathspecs diff
+  --no-color --no-ext-diff HEAD -- <path>` at the repository's root, or
+  `git diff --no-index -- /dev/null <path>` for an untracked file
+  (`AppEvent::Diff`). An answer for a file that is no longer highlighted,
+  or for another repository,
+  is dropped. Tabs become four spaces, every line goes through
+  `sanitise()` (400 characters at most), and a diff is cut at 5000 lines.
+- The path `git status` printed goes back to `git` unchanged, after `--`;
+  it is sanitised only where it is drawn.
+- mc never writes to the repository: no staging, discarding or commit.
+
 ## 4. Data flow
 
 ### 4.1 Live output

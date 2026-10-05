@@ -9,7 +9,7 @@
 ┃                    ║  z                    zoom output     /                    search projects ║                    │
 ┃                    ║  1-9                  jump to project cmd/alt-1            projects pane   ║                    │
 ┃                    ║  cmd/alt-2            sessions pane   cmd/alt-3            output pane     ║                    │
-┃                    ║  cmd/alt-4            terminal pane                                        ║                    │
+┃                    ║  cmd/alt-4            terminal pane   ctrl-t               terminal popup  ║                    │
 ┃                    ║                                                                            ║                    │
 ┃                    ║  sessions                                                                  ║                    │
 ┃                    ║  n                    new session     r                    past sessions   ║                    │
@@ -25,8 +25,8 @@
 ┃                    ║  o                    open in editor  O                    open the folder ║                    │
 ┃                    ║                                                                            ║.                   │
 ┃                    ║  workspace & app                                                           ║n                   │
-┃                    ║  U                    update+restart  t                    terminal on/off ║                    │
-┃                    ║  ctrl-t               terminal popup  T                    close terminal  ║                    │
+┃                    ║  U                    update+restart  D                    changes (diff)  ║                    │
+┃                    ║  t                    terminal on/off T                    close terminal  ║                    │
 ┃                    ║  w                    workspaces      ,                    settings        ║                    │
 ┃                    ║  A                    activity        R                    redraw          ║                    │
 ┃                    ║  ? space              this help       q ctrl-c             quit            ║                    │
