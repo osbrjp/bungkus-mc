@@ -9,6 +9,7 @@
 
 pub(crate) mod activity;
 pub(crate) mod browser;
+pub(crate) mod dashboard;
 pub(crate) mod diff;
 pub(crate) mod finder;
 pub(crate) mod form;

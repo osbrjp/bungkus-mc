@@ -9,7 +9,7 @@
 ┃                    ║  z                    zoom output     /                    search projects ║                    │
 ┃                    ║  1-9                  jump to project cmd/alt-1            projects pane   ║                    │
 ┃                    ║  cmd/alt-2            sessions pane   cmd/alt-3            output pane     ║                    │
-┃                    ║  cmd/alt-4            terminal pane                                        ║                    │
+┃                    ║  cmd/alt-4            terminal pane   H                    dashboard       ║                    │
 ┃                    ║                                                                            ║                    │
 ┃                    ║  sessions                                                                  ║                    │
 ┃                    ║  n                    new session     r                    past sessions   ║                    │

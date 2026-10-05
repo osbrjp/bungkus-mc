@@ -88,6 +88,8 @@ pub(crate) enum Overlay {
     StopOutside(External),
     /// The `a` new-project dialog.
     NewProject(crate::app::quick::NewProject),
+    /// The start dashboard, with its highlighted row.
+    Dashboard(usize),
     /// The `w` workspace switcher.
     Switcher(crate::app::workspaces::Switcher),
     /// The `fp` / `ff` / `fg` finder.
@@ -810,7 +812,7 @@ impl Model {
     }
 
     /// Returns whether anything on screen animates (a running card of the
-    /// selected project, or the empty-state mascot), so the 350 ms tick
+    /// selected project, or the empty-state or dashboard mascot), so the 350 ms tick
     /// must run.
     #[must_use]
     pub(crate) fn animating(&self) -> bool {
@@ -818,6 +820,7 @@ impl Model {
         self.theme.animated()
             && (empty_output
                 || self.poke.is_some()
+                || matches!(self.overlay, Some(Overlay::Dashboard(_)))
                 || self
                     .project_cards()
                     .iter()
@@ -1371,6 +1374,7 @@ impl Model {
                 None
             }
             Overlay::NewProject(dialog) => self.new_project_key(dialog, key),
+            Overlay::Dashboard(selected) => self.dashboard_key(selected, key),
             Overlay::Switcher(switcher) => self.switcher_key(switcher, key),
             Overlay::Finder(finder) => self.finder_key(finder, key),
             Overlay::Links(viewer) => self.viewer_key(viewer, key),
@@ -1867,6 +1871,7 @@ impl Model {
             Action::Settings => self.open_form(FormKind::Settings, Field::Agent),
             Action::Help => self.overlay = Some(Overlay::Help),
             Action::Activity => return Some(self.open_activity()),
+            Action::Dashboard => self.overlay = Some(Overlay::Dashboard(0)),
             Action::Redraw => return Some(Cmd::Redraw),
             Action::Quit => return Some(self.request_quit()),
             Action::Jump

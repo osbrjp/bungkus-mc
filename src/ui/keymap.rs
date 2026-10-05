@@ -98,6 +98,8 @@ pub(crate) enum Action {
     Help,
     /// Show the activity monitor: mc's memory and CPU use.
     Activity,
+    /// Reopen the start dashboard.
+    Dashboard,
     /// Clear and redraw the whole screen.
     Redraw,
     /// Quit mc.
@@ -601,6 +603,14 @@ pub(crate) const BINDINGS: &[Binding] = &[
         scope: Scope::Global,
     },
     Binding {
+        keys: &[Key::Press(KeyCode::Char('H'), KeyModifiers::SHIFT), c('H')],
+        label: "H",
+        action: Action::Dashboard,
+        help: "dashboard",
+        hint: None,
+        scope: Scope::Global,
+    },
+    Binding {
         keys: &[Key::Press(KeyCode::Char('R'), KeyModifiers::SHIFT), c('R')],
         label: "R",
         action: Action::Redraw,
@@ -741,6 +751,7 @@ impl Action {
             | Self::Pane(_)
             | Self::NextNeedsYou
             | Self::Zoom
+            | Self::Dashboard
             | Self::OpenProject => Group::Navigate,
             Self::Interact
             | Self::NewSession
