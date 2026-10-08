@@ -130,6 +130,7 @@ fn resume_cmd(card: &Card) -> Option<Cmd> {
         resume: Some(card.resume_id()?),
         pick: false,
         fork: false,
+        teleport: false,
     };
     Some(Cmd::Launch(LaunchRequest {
         project: card.project.clone(),
@@ -1087,6 +1088,8 @@ impl Model {
     fn hook(&mut self, line: &[u8]) -> Option<Cmd> {
         let wire = serde_json::from_slice::<Wire>(line).ok()?;
         let now = self.now;
+        let selected = self.selected_card().map(|i| self.cards[i].id);
+        let watched = selected.filter(|_| self.focus == Focus::Output);
         let card = self
             .cards
             .iter_mut()
@@ -1115,7 +1118,10 @@ impl Model {
             self.alerts.push(Alert::NeedsYou(text));
         } else if card.state == State::YourTurn && before == State::Working {
             self.notice = Some((now, format!("{} finished: {}", card.id.short(), card.name)));
-            self.alerts.push(Alert::Finished);
+            // The user is in this session's output pane and sees it finish.
+            if watched != Some(card.id) {
+                self.alerts.push(Alert::Finished);
+            }
         }
         let first_bind = !bound && card.agent_session.is_some();
         let watch = card.kind == Kind::Codex && card.running() && card.rollout_stop.is_none();
@@ -1435,6 +1441,7 @@ impl Model {
             resume: None,
             pick: false,
             fork: false,
+            teleport: false,
         };
         Some(Cmd::Launch(LaunchRequest {
             project,
@@ -1658,6 +1665,46 @@ impl Model {
                 resume: None,
                 pick: true,
                 fork: false,
+                teleport: false,
+            },
+            replaces: None,
+        }))
+    }
+
+    /// Launches Claude's list of cloud sessions (`claude --teleport`) in the
+    /// selected project; the picked one continues there as an ordinary card.
+    ///
+    /// Refused outside a project, and while a session runs in the project
+    /// (one of mc's or an outside one): teleport checks out the cloud
+    /// session's branch in that folder.
+    fn teleport(&mut self) -> Option<Cmd> {
+        let project = self.selected_project()?.path.clone();
+        if project.as_os_str().is_empty() || self.root() == Some(project.as_path()) {
+            self.message = Some("Teleport needs a project.".into());
+            return None;
+        }
+        let busy = self
+            .cards
+            .iter()
+            .any(|c| c.running() && c.project == project);
+        if busy || !self.external_in(&project).is_empty() {
+            self.message = Some("A session runs here — teleport would switch its branch.".into());
+            return None;
+        }
+        Some(Cmd::Launch(LaunchRequest {
+            project,
+            kind: Kind::Claude,
+            launch: Launch {
+                id: SessionId::new(),
+                model: None,
+                name: Some("cloud session".into()),
+                prompt: None,
+                settings: None,
+                hook_args: Vec::new(),
+                resume: None,
+                pick: false,
+                fork: false,
+                teleport: true,
             },
             replaces: None,
         }))
@@ -1877,6 +1924,7 @@ impl Model {
                 }
                 return self.resume_pick();
             }
+            Action::Cloud => return self.teleport(),
             Action::Forget => {
                 if let Some(i) = self.selected_card().filter(|&i| !self.cards[i].running()) {
                     self.overlay = Some(Overlay::Forget(self.cards[i].id));
@@ -2256,6 +2304,45 @@ pub(crate) mod tests {
         m.update(ctrl('l'));
         assert_eq!(m.focus, Focus::Output, "back into INTERACT");
         assert!(writes.try_recv().is_err(), "nothing reached the agent");
+    }
+
+    #[test]
+    fn shift_c_teleports_a_cloud_session_into_a_free_project() {
+        let mut m = sample(&["a"]);
+        m.focus = Focus::Sessions;
+        let Some(Cmd::Launch(req)) = m.update(press(KeyCode::Char('C'))) else {
+            panic!("a project with no running session: launch at once");
+        };
+        assert!(req.launch.teleport && !req.launch.pick && req.launch.resume.is_none());
+        assert_eq!(req.kind, Kind::Claude);
+        assert_eq!(req.replaces, None);
+
+        let busy = Some("A session runs here — teleport would switch its branch.");
+        let outside = External {
+            kind: Kind::Claude,
+            pid: 4242,
+            cwd: req.project,
+            name: "outside".into(),
+            status: Some("idle".into()),
+            session_id: None,
+            started_ms: None,
+        };
+        m.update(AppEvent::External(vec![outside]));
+        assert!(m.update(press(KeyCode::Char('C'))).is_none());
+        assert_eq!(m.message.take().as_deref(), busy, "an outside session");
+        m.update(AppEvent::External(Vec::new()));
+
+        with_session(&mut m, "s");
+        m.focus = Focus::Sessions;
+        assert!(m.update(press(KeyCode::Char('C'))).is_none());
+        assert_eq!(m.message.as_deref(), busy, "one of mc's own");
+
+        let root = m.root().unwrap().to_path_buf();
+        m.cards[0].project.clone_from(&root);
+        assert!(m.select_project(&root), "the quick row");
+        m.focus = Focus::Sessions;
+        assert!(m.update(press(KeyCode::Char('C'))).is_none());
+        assert_eq!(m.message.as_deref(), Some("Teleport needs a project."));
     }
 
     #[test]
@@ -2639,6 +2726,7 @@ pub(crate) mod tests {
         let mut m = sample(&["a"]);
         let (id, _w) = with_session(&mut m, "s");
         m.cards[0].expect_hooks();
+        m.focus = Focus::Sessions;
         m.update(hook_line(id, r#"{"hook_event_name":"SessionStart"}"#));
         assert!(m.notice.is_none(), "starting is not finishing");
         m.update(hook_line(id, r#"{"hook_event_name":"UserPromptSubmit"}"#));
@@ -2652,6 +2740,17 @@ pub(crate) mod tests {
             m.notice
         );
         assert_eq!(m.alerts, [Alert::Finished], "the ding, not the bell");
+        m.alerts.clear();
+        m.focus = Focus::Output;
+        m.update(hook_line(id, r#"{"hook_event_name":"UserPromptSubmit"}"#));
+        m.update(hook_line(id, r#"{"hook_event_name":"Stop"}"#));
+        assert_eq!(m.cards[0].state, State::YourTurn);
+        assert!(m.alerts.is_empty(), "no ding for the session in focus");
+        m.update(hook_line(
+            id,
+            r#"{"hook_event_name":"Notification","notification_type":"permission_prompt"}"#,
+        ));
+        assert_eq!(m.alerts.len(), 1, "needing you still rings there");
     }
 
     /// Returns a socket line for `id` carrying the status-line fixture.

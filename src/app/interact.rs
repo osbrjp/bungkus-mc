@@ -15,7 +15,7 @@ use ratatui::crossterm::event::{
 };
 use ratatui::layout::{Position, Rect};
 
-use crate::app::model::{Cmd, Focus, Model};
+use crate::app::model::{Cmd, Focus, Model, Overlay};
 use crate::app::tools::TermView;
 use crate::term::keys;
 use crate::ui;
@@ -115,9 +115,14 @@ impl Model {
         None
     }
 
-    /// Sends pasted text to the tool that has the keys, else to the agent
-    /// while in INTERACT; a dialog over a tool takes nothing.
+    /// Sends pasted text to the `n` picker's text row when it is open, else
+    /// to the tool that has the keys, else to the agent while in INTERACT;
+    /// any other dialog over a tool takes nothing.
     pub(super) fn paste(&mut self, text: &str) {
+        if let Some(Overlay::Picker(p)) = &mut self.overlay {
+            p.paste(text);
+            return;
+        }
         if self.editor.is_some() || self.term_view == TermView::Focused {
             let free = self.overlay.is_none();
             if let (true, Some(pty)) = (free, self.keyed_tool()) {

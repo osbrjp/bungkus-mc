@@ -1292,6 +1292,7 @@ pub(crate) mod tests {
             staged,
             unstaged,
             path: path.into(),
+            committed: false,
         };
         let files = vec![
             file('M', ' ', "src/app.rs"),

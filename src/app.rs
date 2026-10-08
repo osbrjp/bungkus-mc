@@ -964,13 +964,14 @@ fn launch(
         model.cards.retain(|c| c.id != old);
     }
     crate::debug_log!(
-        "launch {} {} in {} (resume: {}, pick: {}, fork: {}, replaces: {})",
+        "launch {} {} in {} (resume: {}, pick: {}, fork: {}, teleport: {}, replaces: {})",
         kind.command(),
         launch.id.short(),
         project.display(),
         launch.resume.is_some(),
         launch.pick,
         launch.fork,
+        launch.teleport,
         replaces.map_or_else(String::new, SessionId::short),
     );
     let size = if model.root() == Some(project.as_path()) {
@@ -1282,8 +1283,9 @@ fn open_detached(model: &mut Model, command: &[String], dir: &Path, target: &Pat
 /// the project (`replaces` aside), so the two do not edit one checkout.
 ///
 /// A new one needs `worktrees` on in the config, a fresh session (not a
-/// resume, not the picker of past sessions), a project other than the
-/// workspace root, and a repository with a commit to branch from.
+/// resume, not the picker of past sessions, not a teleport), a project
+/// other than the workspace root, and a repository with a commit to branch
+/// from.
 fn worktree_for(
     model: &Model,
     env: &Env,
@@ -1307,7 +1309,7 @@ fn worktree_for(
             .cards
             .iter()
             .any(|c| c.running() && c.project == project && Some(c.id) != request.replaces);
-    let fresh = request.launch.resume.is_none() && !request.launch.pick;
+    let fresh = request.launch.resume.is_none() && !request.launch.pick && !request.launch.teleport;
     let worktrees = model.overrides.worktrees.unwrap_or(env.config.worktrees);
     (worktrees && shared && fresh && has_commit(project)).then(|| {
         let name = project.file_name().unwrap_or_default().to_string_lossy();
@@ -1922,6 +1924,7 @@ mod tests {
                 resume: resume.map(str::to_owned),
                 pick: false,
                 fork: false,
+                teleport: false,
             },
             replaces,
         };

@@ -613,20 +613,29 @@ Centred, double border (they take input like INTERACT), title in the top
 border, one blank line of padding, hint line last, right-aligned. `esc`
 always cancels; destructive confirms take `y` or `enter` (hinted as
 `y/enter`), anything else is "no" (hinted as `n/esc`).
-The `n` picker has four rows — agent, model, name, prompt:
+The `n` picker has agent, model and name rows, then a five-row prompt box:
 
 ```
-╔ new session · kedai-web ═══════════════════╗
-║                                            ║
-║  agent   > claude    codex                 ║
-║  model     auto · haiku · sonnet · opus    ║
-║  name    ┃flaky date test                ┃ ║
-║  prompt  ┃fix the flaky date test        ┃ ║
-║                                            ║
-║  auto = routed by Jev (routing: on)        ║
-║  enter start · tab next · esc cancel       ║
-╚════════════════════════════════════════════╝
+╔ new session · kedai-web ═══════════════════════════════════════════╗
+║                                                                    ║
+║  agent   > claude    codex                                         ║
+║  model     auto · haiku · sonnet · opus                            ║
+║  name    ┃flaky date test                                 ┃        ║
+║  prompt  ┃fix the flaky date test, then run the whole     ┃        ║
+║          ┃suite                                           ┃        ║
+║          ┃                                                ┃        ║
+║          ┃                                                ┃        ║
+║          ┃                                                ┃        ║
+║                                                                    ║
+║  auto = routed by Jev (routing: on)                                ║
+║  enter start · alt-enter new line · tab next · esc cancel          ║
+╚════════════════════════════════════════════════════════════════════╝
 ```
+
+The prompt wraps at the box's width; `alt-enter` (or `shift-enter`) starts
+a new line, and a prompt longer than five rows shows its last five. A
+paste goes into the focused text row: the prompt keeps its line breaks,
+the name turns them into spaces, other control characters become spaces.
 
 The picker preselects the default agent (§5.8), so `n` `enter` starts a session
 with no prompt; missing agents are listed greyed with "not on PATH". The
@@ -1296,7 +1305,7 @@ the same frame.
 | `O`                                               | open the selected project's folder with the desktop's opener (`open` / `xdg-open`): Finder or the file manager |
 | `P` · `I`                                         | open the pull request (`P`) or the issue (`I`) of the selected session's branch in the browser, with the desktop's opener (`open` / `xdg-open`). With none linked (or no session selected) the hint line says so |
 | `i`                                               | issues & pull requests popup (§5.5): the session's own issue and pull request first (marked `●`), then the repository's open pull requests and issues (30 each at most), each with number, title and state. `j`/`k` · `↓`/`↑` move, `enter` shows the row's description and its comments in the popup (each comment under a `---` rule and a line `@author · date`; for a pull request also its reviews, tagged `review: approved` or `review: changes requested`, and the review comments on its code, tagged with their `path:line` and with the code they are on quoted above their text (the last line of the comment's diff hunk, or its lines for a comment on several, 8 at most, with the diff's `+`/`-`), all in date order; the Markdown rendered by mc's own small reader, `app/markdown.rs`: headings in bold `accent` without their `#`, `**bold**`, `*italic*`, `code` and fenced code in `info`, list markers, `| ` quotes and `---` rules in `fg-muted`, links and images as their text only; tables, HTML and anything else as written; wrapped to 70 columns with a hanging indent in lists and quotes, wide characters counting two; title in the border, `first line/lines` before the hint; `j`/`k` scroll, `d`/`u` or `pgdn`/`pgup` by 10 lines, `g`/`G` to the ends, `esc`, `q` or `h` back to the list), `o` opens the row in the browser from either (the popup stays), `esc` or `q` closes. `asking gh…` shows until `gh` answered |
-| `D`                                               | changes popup (§5.5), like lazygit's files panel, over most of the screen: on the left the changed files of the repository the selected session works in (its worktree when it has one; the selected project without a session), each with the two status letters of `git status` (staged in `ok`, unstaged and `??` in `err`), a long path keeping its end; on the right, behind a rule, the highlighted file's diff against `HEAD` (staged and unstaged together; an untracked file whole, as added): header lines in bold `fg-muted`, `@@` hunk headers in `info`, `+` lines in `ok`, `-` lines in `err`, long lines cut at the pane's edge. `j`/`k` · `↓`/`↑` highlight another file, `d`/`u` or `pgdn`/`pgup` scroll the diff by 10 lines, `g`/`G` go to its ends, `r` reads the files again (the highlighted file and the scroll stay), `esc`, `q` or `D` closes. The border title counts the files (`changes · 3`); `first line/lines` shows before the hint; `asking git…` shows until `git` answered. Read-only: nothing is staged, discarded or committed from mc |
+| `D`                                               | changes popup (§5.5), like lazygit's files panel, over most of the screen: on the left the files changed in the repository the selected session works in (the worktree or outside folder it moved to, else the worktree mc started it in, else the project; the selected project without a session), each with the two status letters of `git status` (staged in `ok`, unstaged and `??` in `err`), then the files changed only in the branch's commits, each with its one letter in `fg-muted`, a long path keeping its end; on the right, behind a rule, the highlighted file's diff against the commit where the branch left the remote's default branch (committed, staged and unstaged together; against `HEAD` without an `origin/HEAD`; an untracked file whole, as added): header lines in bold `fg-muted`, `@@` hunk headers in `info`, `+` lines in `ok`, `-` lines in `err`, long lines cut at the pane's edge. `j`/`k` · `↓`/`↑` highlight another file, `d`/`u` or `pgdn`/`pgup` scroll the diff by 10 lines, `g`/`G` go to its ends, `r` reads the files again (the highlighted file and the scroll stay), `esc`, `q` or `D` closes. The border title counts the files (`changes · 3`); `first line/lines` shows before the hint; `asking git…` shows until `git` answered. Read-only: nothing is staged, discarded or committed from mc |
 | `t`                                               | show / hide the terminal pane: the user's `$SHELL` in the lower third of the output pane, in mc's own emulator (no tmux or other program). Every session has its own shell, started in the folder the session works in (its worktree when it has one) the first time `t` is pressed on it; the pane follows the selected session and is absent on one without a shell, and its title names the session. With no session of mc's selected (a project without sessions, an outside session) the shell belongs to the project folder, or to the workspace root on a row that is no folder. A session's shell does not outlive it: when the session ends (it exits, `x` stops it) or is forgotten, mc hangs up on its shell. A card whose session has a shell carries `>_` in `ok` before the right-hand word of its title line, shown or hidden. Showing it gives it the keys (mode word `TERMINAL`); `ctrl-\` gives them back to mc and leaves it showing; `ctrl-h` goes left to the sessions pane and `ctrl-k` up to the output pane (INTERACT), from where `ctrl-j` comes back down while the pane shows; `ctrl-j`/`ctrl-l` in the terminal stay the shell's (enter, clear screen), except in kitty, where they move to the kitty window below / to the right as from the other panes; `cmd`/`alt`/`ctrl` + `4` shows the pane and gives it the keys from any pane (starting the shell when there is none), and + `1`–`3` leave it for that pane; hiding keeps the shells running and leaves a `[4] terminal` marker on the output pane's bottom border; `exit` (or `ctrl-d`) closes one, and when it had the keys they go up to the output pane, as `ctrl-k` does |
 | `ctrl-t`                                          | open the terminal as a popup over the panes (the quick session's rectangle): the same shell `t` shows, started when there is none, with the keys (mode word `TERMINAL`). The popup shows only while it has the keys: `ctrl-\\`, `ctrl-h`, `ctrl-k`, `cmd`/`alt`/`ctrl` + `1`–`3` or a click outside it hide it and the shell runs on (the `[4] terminal` marker shows); the wheel over it scrolls it. While the terminal is a popup the output pane keeps its full height and every shell's PTY has the popup's size; `t` brings the pane back |
 | `T`                                               | close the selected session's shell, shown or hidden: mc hangs up on it (SIGHUP), as a terminal window that closes does; the pane goes when the shell has ended |
@@ -1333,6 +1342,7 @@ highlighted project with the default agent and no prompt.
 | `N`                      | quick session: the default agent at the workspace root, in a fixed popup over the panes (not draggable or resizable). Every key goes to it; `ctrl-\\` opens the popup menu (`h` hide · `m` move · `p` new project · any other key back), `ctrl-h` hides at once. A hidden one runs on under a `quick` row that leads the projects list (`enter` reopens it). `n` on the `quick` row starts another |
 | `m` · `p`                | on a quick session: the move dialog — mascot, one field, and under it the 3 most recently used projects (empty field) or the 3 best matches (exact, prefix, contains; shorter first) in a bordered field, with a fixed last row `+ enter to create <name>` unless one matches exactly — the dialog never changes height; `↑`/`↓` or `ctrl-j`/`ctrl-k` pick, `enter` moves or creates (`<workspace>/<name>` + `git init`). mc stops the session, then resumes it in the project — Claude `--resume <id> --fork-session`, Codex `resume <id>` — so the conversation comes along. The `quick` row leads the projects list as number `0`; `enter` on an ended quick session resumes it into the popup |
 | `r`                      | resume a stopped/wrapped/failed session; on a running or outside row (and `r` in the projects pane) open the agent's own past-session list instead: `claude --resume` / `codex resume` with no id, asking which agent when both are installed. mc never reads that list itself |
+| `C`                      | continue one of Claude's cloud sessions in the selected project: `claude --teleport` with no id, picked in Claude's own list in the output pane. Refused outside a project and while a session runs in it (teleport checks out the cloud session's branch there). Cloud sessions themselves are not shown: mc has no way to read their state |
 | `d`                      | forget a stopped/wrapped/failed session (confirm; list only)  |
 
 ### 8.4 Output pane
@@ -1404,7 +1414,9 @@ screen).
 
 - The ding (`sound`): a kitchen-timer bell, 0.8 s, on the transitions
   **working → your turn** (the session finished), **→ needs you** and
-  **→ failed**; sessions that change in the same pass share one ding. mc
+  **→ failed**; sessions that change in the same pass share one ding. A
+  finished turn of the session whose output pane has the focus (INTERACT)
+  is not announced: the user is looking at it. mc
   synthesises it (no audio file ships), keeps it as `ding.wav` next to
   `sessions.json` and plays it with the system's own player: `afplay`
   (macOS), else `pw-play`, `paplay` or `aplay`. Where it plays it takes
@@ -1477,6 +1489,8 @@ launches the agent with the mapped model. What the user sees:
 | structure unavailable          | cross-eyed strip mascot + `Live tree unavailable for this session — output still works.` |
 | Codex hooks not trusted        | `Codex hooks are not trusted yet: run codex, then /hooks to approve. Output still works.` |
 | Codex resume without hooks     | `not resumable — hooks off`                                                |
+| `C` outside a project          | `Teleport needs a project.`                                                |
+| `C` while a session runs there | `A session runs here — teleport would switch its branch.`                  |
 | routing first use              | dialog (§10)                                                               |
 | routing fell back              | getah bar 5 s: `Routing unavailable — using claude's default model.`      |
 | terminal too small             | `bungkus-mc needs at least 80×24 (now 72×20).`                            |
