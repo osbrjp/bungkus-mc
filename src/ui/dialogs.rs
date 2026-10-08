@@ -15,14 +15,18 @@ use crate::ui::theme::{Theme, Token};
 use crate::ui::{bold_if, centred, dialog as dialog_block};
 
 /// Inner width of the picker's text fields.
-const FIELD: usize = 32;
+const FIELD: usize = 48;
+
+/// Rows of the picker's prompt box; a longer prompt shows its last rows.
+const PROMPT_ROWS: usize = 5;
 
 /// Most sessions a confirm dialog lists before `… and N more`.
 const CONFIRM_ROWS: usize = 8;
 
-/// Draws the `n` picker: agent, model, name and prompt rows.
+/// Draws the `n` picker: agent, model and name rows, then the prompt box,
+/// which wraps and keeps the end of the prompt in view.
 pub(super) fn draw_picker(frame: &mut Frame, area: Rect, p: &Picker, theme: Theme) {
-    let rect = centred(area, 54, 11);
+    let rect = centred(area, 70, 15);
     frame.render_widget(Clear, rect);
     let block = dialog_block(&format!("new session · {}", p.project), theme);
     let inner = block.inner(rect);
@@ -59,18 +63,13 @@ pub(super) fn draw_picker(frame: &mut Frame, area: Rect, p: &Picker, theme: Them
     for (i, model) in p.agent.models().iter().enumerate() {
         models.push(choice(model, p.model == i, false));
     }
-    let field = |row: Row, text: &str| {
-        let shown = tail(text, FIELD - 1);
+    let field = |row: Row, name: &str, shown: String| {
         let bar = theme.fg(if p.row == row {
             Token::Ok
         } else {
             Token::Border
         });
         let pad = FIELD.saturating_sub(shown.chars().count());
-        let name = match row {
-            Row::Name => "name",
-            Row::Prompt | Row::Agent | Row::Model => "prompt",
-        };
         Line::from(vec![
             label(row, name),
             Span::styled("┃", bar),
@@ -79,28 +78,57 @@ pub(super) fn draw_picker(frame: &mut Frame, area: Rect, p: &Picker, theme: Them
             Span::styled("┃", bar),
         ])
     };
-    let lines = vec![
+    let wrapped = wrap(&p.prompt, FIELD - 1);
+    let prompt = &wrapped[wrapped.len().saturating_sub(PROMPT_ROWS)..];
+    let mut lines = vec![
         Line::from(""),
         Line::from(agents),
         Line::from(models),
-        field(Row::Name, &p.name),
-        field(Row::Prompt, &p.prompt),
+        field(Row::Name, "name", tail(&p.name, FIELD - 1)),
+    ];
+    for i in 0..PROMPT_ROWS {
+        let name = if i == 0 { "prompt" } else { "" };
+        let shown = prompt.get(i).cloned().unwrap_or_default();
+        lines.push(field(Row::Prompt, name, shown));
+    }
+    lines.extend([
         Line::from(""),
         Line::styled("  prompt and name are optional", theme.fg(Token::FgMuted)),
         Line::styled(
-            "enter start · j/k tab next · h/l change · esc  ",
+            "enter start · alt-enter new line · tab next · h/l change · esc  ",
             theme.fg(Token::FgMuted),
         )
         .alignment(Alignment::Right),
-    ];
+    ]);
     frame.render_widget(Paragraph::new(lines), inner);
     let (row_y, text) = match p.row {
-        Row::Name => (3, &p.name),
-        Row::Prompt => (4, &p.prompt),
+        Row::Name => (3, tail(&p.name, FIELD - 1)),
+        Row::Prompt => (3 + prompt.len(), prompt.last().cloned().unwrap_or_default()),
         Row::Agent | Row::Model => return,
     };
-    let len = u16::try_from(tail(text, FIELD - 1).chars().count()).unwrap_or(0);
+    let len = u16::try_from(text.chars().count()).unwrap_or(0);
+    let row_y = u16::try_from(row_y).unwrap_or(0);
     frame.set_cursor_position(Position::new(inner.x + 11 + len, inner.y + row_y));
+}
+
+/// Breaks `text` into lines of at most `width` characters, and at every
+/// line break; the result always has at least one line.
+fn wrap(text: &str, width: usize) -> Vec<String> {
+    let mut lines = vec![String::new()];
+    let mut len = 0;
+    for c in text.chars() {
+        if c == '\n' || len == width {
+            lines.push(String::new());
+            len = 0;
+        }
+        if c != '\n' {
+            if let Some(line) = lines.last_mut() {
+                line.push(c);
+            }
+            len += 1;
+        }
+    }
+    lines
 }
 
 /// Returns the last `max` characters of `text`.

@@ -78,12 +78,21 @@ impl Picker {
 
     /// Handles one key press: `tab`/`↓` and `shift-tab`/`↑` move between
     /// rows, `←`/`→` change agent and model, typing edits name and prompt,
-    /// `enter` starts, `esc` cancels. On the agent and model rows, where
+    /// `enter` starts, `esc` cancels. On the prompt row `alt-enter` or
+    /// `shift-enter` starts a new line. On the agent and model rows, where
     /// nothing is typed, `j`/`k` move between rows and `h`/`l` change.
     pub(crate) fn key(&mut self, key: KeyEvent) -> Outcome {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         match key.code {
             KeyCode::Esc => return Outcome::Cancel,
+            KeyCode::Enter
+                if self.row == Row::Prompt
+                    && key
+                        .modifiers
+                        .intersects(KeyModifiers::ALT | KeyModifiers::SHIFT) =>
+            {
+                self.prompt.push('\n');
+            }
             KeyCode::Enter => return Outcome::Start,
             KeyCode::Tab | KeyCode::Down => self.row = self.step(true),
             KeyCode::BackTab | KeyCode::Up => self.row = self.step(false),
@@ -139,6 +148,25 @@ impl Picker {
         }
     }
 
+    /// Appends pasted text to the focused text row.
+    ///
+    /// The prompt keeps its line breaks; in the name they become spaces.
+    /// Every other control character becomes a space, so pasted escape
+    /// sequences never reach the screen or the agent's arguments.
+    pub(crate) fn paste(&mut self, text: &str) {
+        let multiline = self.row == Row::Prompt;
+        let clean: String = text
+            .replace("\r\n", "\n")
+            .chars()
+            .map(|c| match c {
+                '\r' | '\n' if multiline => '\n',
+                c if c.is_control() => ' ',
+                c => c,
+            })
+            .collect();
+        self.edit(|s| s.push_str(&clean));
+    }
+
     /// Applies a text edit to the focused text row.
     fn edit(&mut self, f: impl FnOnce(&mut String)) {
         match self.row {
@@ -175,6 +203,20 @@ mod tests {
         typed(&mut p, " more");
         assert_eq!((p.name.as_str(), p.prompt.len()), ("dates", 28));
         assert_eq!(press(&mut p, KeyCode::Enter), Outcome::Start);
+    }
+
+    #[test]
+    fn the_prompt_takes_new_lines_and_the_name_does_not() {
+        let mut p = Picker::new(Kind::Claude, [true, true], String::new());
+        typed(&mut p, "a");
+        let alt_enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::ALT);
+        assert_eq!(p.key(alt_enter), Outcome::Continue);
+        p.paste("b\r\nc\x1b[31m\td");
+        assert_eq!(p.prompt, "a\nb\nc [31m d");
+        p.row = Row::Name;
+        assert_eq!(p.key(alt_enter), Outcome::Start, "the name is one line");
+        p.paste("x\ny");
+        assert_eq!(p.name, "x y");
     }
 
     #[test]
