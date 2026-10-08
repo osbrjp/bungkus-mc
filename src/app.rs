@@ -964,13 +964,14 @@ fn launch(
         model.cards.retain(|c| c.id != old);
     }
     crate::debug_log!(
-        "launch {} {} in {} (resume: {}, pick: {}, fork: {}, replaces: {})",
+        "launch {} {} in {} (resume: {}, pick: {}, fork: {}, teleport: {}, replaces: {})",
         kind.command(),
         launch.id.short(),
         project.display(),
         launch.resume.is_some(),
         launch.pick,
         launch.fork,
+        launch.teleport,
         replaces.map_or_else(String::new, SessionId::short),
     );
     let size = if model.root() == Some(project.as_path()) {

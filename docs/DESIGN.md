@@ -1,6 +1,3 @@
-| `C` outside a project          | `Teleport needs a project.`                                                |
-| `C` while a session runs there | `A session runs here — teleport would switch its branch.`                  |
-| `C`                      | continue one of Claude's cloud sessions in the selected project: `claude --teleport` with no id, picked in Claude's own list in the output pane. Refused outside a project and while a session runs in it (teleport checks out the cloud session's branch there). Cloud sessions themselves are not shown: mc has no way to read their state |
 # bungkus-mc — Design Language ("Daun Pisang")
 
 Status: proposal (product-owner decisions of 2026-09-30 applied, including
@@ -1345,6 +1342,7 @@ highlighted project with the default agent and no prompt.
 | `N`                      | quick session: the default agent at the workspace root, in a fixed popup over the panes (not draggable or resizable). Every key goes to it; `ctrl-\\` opens the popup menu (`h` hide · `m` move · `p` new project · any other key back), `ctrl-h` hides at once. A hidden one runs on under a `quick` row that leads the projects list (`enter` reopens it). `n` on the `quick` row starts another |
 | `m` · `p`                | on a quick session: the move dialog — mascot, one field, and under it the 3 most recently used projects (empty field) or the 3 best matches (exact, prefix, contains; shorter first) in a bordered field, with a fixed last row `+ enter to create <name>` unless one matches exactly — the dialog never changes height; `↑`/`↓` or `ctrl-j`/`ctrl-k` pick, `enter` moves or creates (`<workspace>/<name>` + `git init`). mc stops the session, then resumes it in the project — Claude `--resume <id> --fork-session`, Codex `resume <id>` — so the conversation comes along. The `quick` row leads the projects list as number `0`; `enter` on an ended quick session resumes it into the popup |
 | `r`                      | resume a stopped/wrapped/failed session; on a running or outside row (and `r` in the projects pane) open the agent's own past-session list instead: `claude --resume` / `codex resume` with no id, asking which agent when both are installed. mc never reads that list itself |
+| `C`                      | continue one of Claude's cloud sessions in the selected project: `claude --teleport` with no id, picked in Claude's own list in the output pane. Refused outside a project and while a session runs in it (teleport checks out the cloud session's branch there). Cloud sessions themselves are not shown: mc has no way to read their state |
 | `d`                      | forget a stopped/wrapped/failed session (confirm; list only)  |
 
 ### 8.4 Output pane
@@ -1491,6 +1489,8 @@ launches the agent with the mapped model. What the user sees:
 | structure unavailable          | cross-eyed strip mascot + `Live tree unavailable for this session — output still works.` |
 | Codex hooks not trusted        | `Codex hooks are not trusted yet: run codex, then /hooks to approve. Output still works.` |
 | Codex resume without hooks     | `not resumable — hooks off`                                                |
+| `C` outside a project          | `Teleport needs a project.`                                                |
+| `C` while a session runs there | `A session runs here — teleport would switch its branch.`                  |
 | routing first use              | dialog (§10)                                                               |
 | routing fell back              | getah bar 5 s: `Routing unavailable — using claude's default model.`      |
 | terminal too small             | `bungkus-mc needs at least 80×24 (now 72×20).`                            |

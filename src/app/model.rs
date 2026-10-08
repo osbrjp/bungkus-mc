@@ -1674,19 +1674,20 @@ impl Model {
     /// Launches Claude's list of cloud sessions (`claude --teleport`) in the
     /// selected project; the picked one continues there as an ordinary card.
     ///
-    /// Refused outside a project, and while a session runs in the project:
-    /// teleport checks out the cloud session's branch in that folder.
+    /// Refused outside a project, and while a session runs in the project
+    /// (one of mc's or an outside one): teleport checks out the cloud
+    /// session's branch in that folder.
     fn teleport(&mut self) -> Option<Cmd> {
         let project = self.selected_project()?.path.clone();
         if project.as_os_str().is_empty() || self.root() == Some(project.as_path()) {
             self.message = Some("Teleport needs a project.".into());
             return None;
         }
-        if self
+        let busy = self
             .cards
             .iter()
-            .any(|c| c.running() && c.project == project)
-        {
+            .any(|c| c.running() && c.project == project);
+        if busy || !self.external_in(&project).is_empty() {
             self.message = Some("A session runs here — teleport would switch its branch.".into());
             return None;
         }
@@ -2316,13 +2317,25 @@ pub(crate) mod tests {
         assert_eq!(req.kind, Kind::Claude);
         assert_eq!(req.replaces, None);
 
+        let busy = Some("A session runs here — teleport would switch its branch.");
+        let outside = External {
+            kind: Kind::Claude,
+            pid: 4242,
+            cwd: req.project,
+            name: "outside".into(),
+            status: Some("idle".into()),
+            session_id: None,
+            started_ms: None,
+        };
+        m.update(AppEvent::External(vec![outside]));
+        assert!(m.update(press(KeyCode::Char('C'))).is_none());
+        assert_eq!(m.message.take().as_deref(), busy, "an outside session");
+        m.update(AppEvent::External(Vec::new()));
+
         with_session(&mut m, "s");
         m.focus = Focus::Sessions;
         assert!(m.update(press(KeyCode::Char('C'))).is_none());
-        assert_eq!(
-            m.message.as_deref(),
-            Some("A session runs here — teleport would switch its branch.")
-        );
+        assert_eq!(m.message.as_deref(), busy, "one of mc's own");
 
         let root = m.root().unwrap().to_path_buf();
         m.cards[0].project.clone_from(&root);
