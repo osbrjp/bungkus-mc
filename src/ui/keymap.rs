@@ -120,6 +120,8 @@ pub(crate) enum Action {
     NextNeedsYou,
     /// Resume the selected finished session.
     Resume,
+    /// Continue one of Claude's cloud sessions in the selected project.
+    Cloud,
     /// Forget the selected finished session (with a confirm).
     Forget,
 }
@@ -313,6 +315,14 @@ pub(crate) const BINDINGS: &[Binding] = &[
         help: "past sessions",
         hint: None,
         scope: Scope::Projects,
+    },
+    Binding {
+        keys: &[Key::Press(KeyCode::Char('C'), KeyModifiers::SHIFT), c('C')],
+        label: "C",
+        action: Action::Cloud,
+        help: "cloud session",
+        hint: None,
+        scope: Scope::Sessions,
     },
     Binding {
         keys: &[c('d')],
@@ -768,6 +778,7 @@ impl Action {
             | Self::NewSession
             | Self::Stop
             | Self::Resume
+            | Self::Cloud
             | Self::Forget
             | Self::QuickSession
             | Self::PullRequest
