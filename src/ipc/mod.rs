@@ -72,6 +72,8 @@ pub(crate) struct HookEvent {
     pub background_tasks: Option<Vec<BackgroundTask>>,
     /// `transcript_path`, kept opaque (read only by the Codex usage reader).
     pub transcript: Option<String>,
+    /// `cwd`, the folder the agent works in now.
+    pub cwd: Option<String>,
 }
 
 /// One line on the socket: mc's session id and either a trimmed hook
@@ -132,6 +134,7 @@ pub(crate) fn trim(raw: &Value) -> HookEvent {
         session_title: text(raw, "session_title", TITLE_MAX),
         background_tasks: tasks,
         transcript: text(raw, "transcript_path", 4096),
+        cwd: text(raw, "cwd", 4096),
     }
 }
 
@@ -174,8 +177,10 @@ mod tests {
             "notification_type": 7,
             "last_assistant_message": "x".repeat(500),
             "background_tasks": [{"id": "a", "type": "subagent", "status": "running", "extra": 1}],
+            "cwd": "/work/app",
         });
         let event = trim(&raw);
+        assert_eq!(event.cwd.as_deref(), Some("/work/app"));
         assert_eq!(event.tool_desc.as_deref(), Some("say hi"));
         assert_eq!(event.notify, None, "wrong type is absent, not an error");
         assert_eq!(event.last_message.unwrap().chars().count(), TEXT_MAX);
