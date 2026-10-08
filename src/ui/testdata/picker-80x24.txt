@@ -3,23 +3,23 @@
 ┃ / search           ┃│ No sessions in kedai-web. n to start one.              │
 ┃>  1 kedai-web      ┃│                                                        │
 ┃   2 pasar-mobile   ┃│                                                        │
-┃   3 roti-docs      ┃│                                                        │
-┃   4 teh-cli        ┃│                                                        │
-┃   5 warung-╔ new session · kedai-web ═══════════════════════════╗────────────┘
-┃            ║                                                    ║────────────┐
-┃            ║  agent   > claude    codex (not on PATH)           ║     ▄██▄   │
-┃            ║  model   > default    haiku    sonnet    opus      ║   ▄██████▄ │
-┃            ║  name    ┃                                ┃        ║     ▀  ▀   │
-┃            ║  prompt  ┃fix the flaky date test         ┃        ║            │
-┃            ║                                                    ║            │
-┃            ║  prompt and name are optional                      ║            │
-┃            ║     enter start · j/k tab next · h/l change · esc  ║            │
-┃            ║                                                    ║            │
-┃            ╚════════════════════════════════════════════════════╝            │
-┃                    ┃│                         ▀▀ ▀▀                          │
-┃                    ┃│                                                        │
+┃   3╔ new session · kedai-web ═══════════════════════════════════════════╗    │
+┃   4║                                                                    ║    │
+┃   5║  agent   > claude    codex (not on PATH)                           ║────┘
+┃    ║  model   > default    haiku    sonnet    opus                      ║────┐
+┃    ║  name    ┃                                                ┃        ║▄   │
+┃    ║  prompt  ┃fix the flaky date test                         ┃        ║██▄ │
+┃    ║          ┃                                                ┃        ║▀   │
+┃    ║          ┃                                                ┃        ║    │
+┃    ║          ┃                                                ┃        ║    │
+┃    ║          ┃                                                ┃        ║    │
+┃    ║                                                                    ║    │
+┃    ║  prompt and name are optional                                      ║    │
+┃    ║    enter start · alt-enter new line · tab next · h/l change · esc  ║    │
+┃    ║                                                                    ║    │
+┃    ╚════════════════════════════════════════════════════════════════════╝    │
 ┃                    ┃│                  Nothing wrapped yet.                  │
 ┃                    ┃│                  n to start a session                  │
 ┗━━━━━━━━━━━━━━━━━━━━┛└────────────────────────────────────────────────────────┘
  NORMAL  enter → sessions · n new · c clean · e more · o edit · t term · ? keys
-cursor: 48,12
+cursor: 40,10

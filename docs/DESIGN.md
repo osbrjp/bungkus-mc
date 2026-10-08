@@ -613,20 +613,29 @@ Centred, double border (they take input like INTERACT), title in the top
 border, one blank line of padding, hint line last, right-aligned. `esc`
 always cancels; destructive confirms take `y` or `enter` (hinted as
 `y/enter`), anything else is "no" (hinted as `n/esc`).
-The `n` picker has four rows — agent, model, name, prompt:
+The `n` picker has agent, model and name rows, then a five-row prompt box:
 
 ```
-╔ new session · kedai-web ═══════════════════╗
-║                                            ║
-║  agent   > claude    codex                 ║
-║  model     auto · haiku · sonnet · opus    ║
-║  name    ┃flaky date test                ┃ ║
-║  prompt  ┃fix the flaky date test        ┃ ║
-║                                            ║
-║  auto = routed by Jev (routing: on)        ║
-║  enter start · tab next · esc cancel       ║
-╚════════════════════════════════════════════╝
+╔ new session · kedai-web ═══════════════════════════════════════════╗
+║                                                                    ║
+║  agent   > claude    codex                                         ║
+║  model     auto · haiku · sonnet · opus                            ║
+║  name    ┃flaky date test                                 ┃        ║
+║  prompt  ┃fix the flaky date test, then run the whole     ┃        ║
+║          ┃suite                                           ┃        ║
+║          ┃                                                ┃        ║
+║          ┃                                                ┃        ║
+║          ┃                                                ┃        ║
+║                                                                    ║
+║  auto = routed by Jev (routing: on)                                ║
+║  enter start · alt-enter new line · tab next · esc cancel          ║
+╚════════════════════════════════════════════════════════════════════╝
 ```
+
+The prompt wraps at the box's width; `alt-enter` (or `shift-enter`) starts
+a new line, and a prompt longer than five rows shows its last five. A
+paste goes into the focused text row: the prompt keeps its line breaks,
+the name turns them into spaces, other control characters become spaces.
 
 The picker preselects the default agent (§5.8), so `n` `enter` starts a session
 with no prompt; missing agents are listed greyed with "not on PATH". The
