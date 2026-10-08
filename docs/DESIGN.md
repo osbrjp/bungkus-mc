@@ -1,3 +1,6 @@
+| `C` outside a project          | `Teleport needs a project.`                                                |
+| `C` while a session runs there | `A session runs here — teleport would switch its branch.`                  |
+| `C`                      | continue one of Claude's cloud sessions in the selected project: `claude --teleport` with no id, picked in Claude's own list in the output pane. Refused outside a project and while a session runs in it (teleport checks out the cloud session's branch there). Cloud sessions themselves are not shown: mc has no way to read their state |
 # bungkus-mc — Design Language ("Daun Pisang")
 
 Status: proposal (product-owner decisions of 2026-09-30 applied, including

@@ -54,6 +54,9 @@ adoption of the shared Daun Pisang palette.
   vendor's UI.
 - Persisting sessions across mc restarts (stop + resume instead).
 - Windows. Remote/SSH-hosted agents. Multiple workspaces at once.
+- Cloud sessions as cards. Their state cannot be read without a token, and
+  the CLI cannot push a running session to the cloud; `C` only brings one
+  back (`claude --teleport`, issue #228).
 - Parsing transcripts, except the approved Codex `token_count` reader.
 - Per-subagent token counts. Nested subagent trees (flat list).
 - Agents other than Claude Code and Codex.

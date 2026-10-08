@@ -93,6 +93,9 @@ pub(crate) struct Launch {
     /// With `resume`, continues as a new Claude session saved under the
     /// launch folder (`--fork-session`), leaving the original untouched.
     pub fork: bool,
+    /// Opens Claude's list of cloud sessions (`claude --teleport` without an
+    /// id) and continues the picked one here; Codex has no such list.
+    pub teleport: bool,
 }
 
 /// Builds the argument vector for a new session (ARCHITECTURE §5.1, §5.2).
@@ -128,6 +131,7 @@ pub(crate) fn argv(kind: Kind, program: &Path, args: &[String], launch: &Launch)
                     }
                 }
                 None if launch.pick => out.push("--resume".into()),
+                None if launch.teleport => out.push("--teleport".into()),
                 None => flag(
                     &mut out,
                     "--session-id",
@@ -140,7 +144,9 @@ pub(crate) fn argv(kind: Kind, program: &Path, args: &[String], launch: &Launch)
             if let Some(model) = &launch.model {
                 flag(&mut out, "--model", model);
             }
-            if let (Some(name), None, false) = (&launch.name, resume, launch.pick) {
+            if let (Some(name), None, false) =
+                (&launch.name, resume, launch.pick || launch.teleport)
+            {
                 flag(&mut out, "--name", name);
             }
         }
@@ -355,6 +361,7 @@ mod tests {
             resume: None,
             pick: false,
             fork: false,
+            teleport: false,
         };
         let bare = Launch {
             id,
@@ -366,6 +373,7 @@ mod tests {
             resume: None,
             pick: false,
             fork: false,
+            teleport: false,
         };
         let s = |v: Vec<OsString>| {
             v.into_iter()
@@ -424,6 +432,7 @@ mod tests {
             resume: None,
             pick: true,
             fork: false,
+            teleport: false,
         };
         let s = |v: Vec<OsString>| {
             v.into_iter()
@@ -438,6 +447,16 @@ mod tests {
         assert_eq!(
             s(argv(Kind::Codex, Path::new("/bin/codex"), &[], &pick)),
             ["/bin/codex", "-c", "hooks.Stop=[]", "resume"]
+        );
+        let teleport = Launch {
+            pick: false,
+            teleport: true,
+            ..pick
+        };
+        assert_eq!(
+            s(argv(Kind::Claude, Path::new("/bin/claude"), &[], &teleport)),
+            ["/bin/claude", "--teleport", "--settings", "{}"],
+            "no session id, no name"
         );
     }
 
@@ -454,6 +473,7 @@ mod tests {
             resume: Some("5f1c0000-0000-0000-0000-000000000000".into()),
             pick: false,
             fork: false,
+            teleport: false,
         };
         let s = |v: Vec<OsString>| {
             v.into_iter()

@@ -1,4 +1,4 @@
-# Security
+anything else would be read by Codex as a session *name* and by Claude as a picker request). `--teleport` (`C`) is passed without a value: the cloud session is picked in Claude's own list, and mc refuses it while a session runs in the project because it changes the checked-out branch |# Security
 
 bungkus-mc is a local, single-user terminal application. It runs with the
 invoking user's own OS privileges, spawns AI coding agents (`claude`,

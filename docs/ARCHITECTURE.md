@@ -660,6 +660,14 @@ No capability flags, no registry.
   when the session continues as a new one under the launch folder.
 - **Past sessions:** `claude --resume --settings <json>` (no id, no
   `--session-id`, no `--name`) opens Claude's own list.
+- **Cloud sessions:** `claude --teleport --settings <json>` (no id, no
+  `--session-id`, no `--name`) opens Claude's list of cloud sessions; the
+  picked one continues as an ordinary local card (VERIFIED, 2.1.294: hooks
+  fire before and after the pick, with one session id throughout).
+  Teleport checks out the cloud session's branch in the folder, so it never
+  gets a worktree and is refused while a session runs in the project. mc
+  cannot push a session to the cloud (the CLI has no such command) and
+  shows no cloud session: nothing reports their state without a token.
 - `<json>` is built with `serde_json`, passed as one argv element;
   contains only `hooks` (synchronous) and `statusLine` (§6.2). Hook
   command = `'<std::env::current_exe() → canonicalize, POSIX single-quoted>' hook`

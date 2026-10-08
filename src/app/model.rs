@@ -130,6 +130,7 @@ fn resume_cmd(card: &Card) -> Option<Cmd> {
         resume: Some(card.resume_id()?),
         pick: false,
         fork: false,
+        teleport: false,
     };
     Some(Cmd::Launch(LaunchRequest {
         project: card.project.clone(),
@@ -1440,6 +1441,7 @@ impl Model {
             resume: None,
             pick: false,
             fork: false,
+            teleport: false,
         };
         Some(Cmd::Launch(LaunchRequest {
             project,
@@ -1663,6 +1665,45 @@ impl Model {
                 resume: None,
                 pick: true,
                 fork: false,
+                teleport: false,
+            },
+            replaces: None,
+        }))
+    }
+
+    /// Launches Claude's list of cloud sessions (`claude --teleport`) in the
+    /// selected project; the picked one continues there as an ordinary card.
+    ///
+    /// Refused outside a project, and while a session runs in the project:
+    /// teleport checks out the cloud session's branch in that folder.
+    fn teleport(&mut self) -> Option<Cmd> {
+        let project = self.selected_project()?.path.clone();
+        if project.as_os_str().is_empty() || self.root() == Some(project.as_path()) {
+            self.message = Some("Teleport needs a project.".into());
+            return None;
+        }
+        if self
+            .cards
+            .iter()
+            .any(|c| c.running() && c.project == project)
+        {
+            self.message = Some("A session runs here — teleport would switch its branch.".into());
+            return None;
+        }
+        Some(Cmd::Launch(LaunchRequest {
+            project,
+            kind: Kind::Claude,
+            launch: Launch {
+                id: SessionId::new(),
+                model: None,
+                name: Some("cloud session".into()),
+                prompt: None,
+                settings: None,
+                hook_args: Vec::new(),
+                resume: None,
+                pick: false,
+                fork: false,
+                teleport: true,
             },
             replaces: None,
         }))
@@ -1882,6 +1923,7 @@ impl Model {
                 }
                 return self.resume_pick();
             }
+            Action::Cloud => return self.teleport(),
             Action::Forget => {
                 if let Some(i) = self.selected_card().filter(|&i| !self.cards[i].running()) {
                     self.overlay = Some(Overlay::Forget(self.cards[i].id));
@@ -2261,6 +2303,33 @@ pub(crate) mod tests {
         m.update(ctrl('l'));
         assert_eq!(m.focus, Focus::Output, "back into INTERACT");
         assert!(writes.try_recv().is_err(), "nothing reached the agent");
+    }
+
+    #[test]
+    fn shift_c_teleports_a_cloud_session_into_a_free_project() {
+        let mut m = sample(&["a"]);
+        m.focus = Focus::Sessions;
+        let Some(Cmd::Launch(req)) = m.update(press(KeyCode::Char('C'))) else {
+            panic!("a project with no running session: launch at once");
+        };
+        assert!(req.launch.teleport && !req.launch.pick && req.launch.resume.is_none());
+        assert_eq!(req.kind, Kind::Claude);
+        assert_eq!(req.replaces, None);
+
+        with_session(&mut m, "s");
+        m.focus = Focus::Sessions;
+        assert!(m.update(press(KeyCode::Char('C'))).is_none());
+        assert_eq!(
+            m.message.as_deref(),
+            Some("A session runs here — teleport would switch its branch.")
+        );
+
+        let root = m.root().unwrap().to_path_buf();
+        m.cards[0].project.clone_from(&root);
+        assert!(m.select_project(&root), "the quick row");
+        m.focus = Focus::Sessions;
+        assert!(m.update(press(KeyCode::Char('C'))).is_none());
+        assert_eq!(m.message.as_deref(), Some("Teleport needs a project."));
     }
 
     #[test]
