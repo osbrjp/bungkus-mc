@@ -8,7 +8,7 @@
 
 use std::cmp::Reverse;
 use std::collections::VecDeque;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::agent::Kind;
@@ -23,6 +23,10 @@ use crate::ui::sanitise::sanitise;
 
 /// Longest session name shown, in characters (DESIGN §5.2, ARCHITECTURE §5.3).
 const NAME_MAX: usize = 80;
+
+/// Where a project's worktrees are, from its folder (`claude --worktree`
+/// and the workspace's instructions).
+const WORKTREES: &str = ".claude/worktrees";
 
 /// Grace between SIGTERM and SIGKILL when stopping (ARCHITECTURE §3.2).
 pub(crate) const STOP_GRACE: Duration = Duration::from_secs(3);
@@ -159,6 +163,10 @@ pub(crate) struct Card {
     /// The git worktree it runs in (`claude --worktree <name>`, under the
     /// project's `.claude/worktrees/`); a resume goes back into it.
     pub worktree: Option<String>,
+    /// The folder it moved to by itself, as its last hook event named it:
+    /// a worktree it made under the project's `.claude/worktrees/`, or a
+    /// folder outside the project. `None` while it is in the project.
+    pub moved: Option<PathBuf>,
     /// Names of the MCP servers its tool calls named
     /// ([`crate::agent::mcp::used`]), sorted.
     pub mcp: Vec<String>,
@@ -167,14 +175,42 @@ pub(crate) struct Card {
 }
 
 impl Card {
-    /// Returns the folder the session works in: its worktree under the
-    /// project's `.claude/worktrees/` when it has one, else the project.
+    /// Returns the folder the session works in: the one it moved to by
+    /// itself ([`Self::moved`]), else its worktree under the project's
+    /// `.claude/worktrees/` when it has one, else the project.
     #[must_use]
     pub(crate) fn folder(&self) -> PathBuf {
+        if let Some(moved) = &self.moved {
+            return moved.clone();
+        }
         self.worktree.as_ref().map_or_else(
             || self.project.clone(),
-            |name| self.project.join(".claude/worktrees").join(name),
+            |name| self.project.join(WORKTREES).join(name),
         )
+    }
+
+    /// Returns the folder a session of this project moved to when its hook
+    /// event names `cwd`: the root of a worktree under the project's
+    /// `.claude/worktrees/`, or `cwd` itself outside the project. `None`
+    /// anywhere else in the project (a `cd` into a subfolder moves nothing)
+    /// and for a path that is not absolute. The project counts under the
+    /// path mc has for it and under its resolved one, since the agent
+    /// names `cwd` with symlinks resolved.
+    fn moved_to(&self, cwd: &Path) -> Option<PathBuf> {
+        let resolved = self.project.canonicalize().ok();
+        for project in [Some(&self.project), resolved.as_ref()]
+            .into_iter()
+            .flatten()
+        {
+            let worktrees = project.join(WORKTREES);
+            if let Ok(below) = cwd.strip_prefix(&worktrees) {
+                return below.components().next().map(|name| worktrees.join(name));
+            }
+            if cwd.starts_with(project) {
+                return None;
+            }
+        }
+        cwd.is_absolute().then(|| cwd.to_path_buf())
     }
 
     /// Creates a card for a new session.
@@ -229,6 +265,7 @@ impl Card {
             move_to: None,
             prompted: false,
             worktree: None,
+            moved: None,
             mcp: Vec::new(),
             auto_resume: false,
         }
@@ -278,6 +315,7 @@ impl Card {
                 + self.restored_subagents,
             usage,
             worktree: self.worktree.clone(),
+            moved: self.moved.clone(),
             resume: self.auto_resume,
         }
     }
@@ -311,6 +349,8 @@ impl Card {
         card.usage.clone_from(&record.usage);
         card.prompted = true;
         card.worktree.clone_from(&record.worktree);
+        // A folder removed since (a merged worktree) gives way to the project.
+        card.moved = record.moved.clone().filter(|folder| folder.is_dir());
         card.auto_resume = record.resume;
         Some(card)
     }
@@ -433,6 +473,10 @@ impl Card {
             self.name = sanitise(title.trim(), NAME_MAX);
         }
         let main = event.agent_id.is_none();
+        // A subagent may run in a worktree of its own.
+        if let (true, Some(cwd)) = (main, &event.cwd) {
+            self.moved = self.moved_to(Path::new(cwd));
+        }
         match event.name.as_str() {
             "SessionStart" => self.state = State::YourTurn,
             "UserPromptSubmit" => {
@@ -573,6 +617,51 @@ mod tests {
 
     fn event(line: &str) -> HookEvent {
         crate::ipc::trim(&serde_json::from_str(line).unwrap())
+    }
+
+    #[test]
+    fn the_folder_follows_the_main_agent_into_a_worktree_or_out_of_the_project() {
+        let cases = [
+            (r#""cwd":"/p""#, "/p"),
+            (r#""cwd":"/p/src""#, "/p"),
+            (
+                r#""cwd":"/p/.claude/worktrees/p-12bc/src""#,
+                "/p/.claude/worktrees/p-12bc",
+            ),
+            (r#""cwd":"/elsewhere/p-wt""#, "/elsewhere/p-wt"),
+            (r#""cwd":"relative""#, "/p"),
+            (r#""cwd":"/elsewhere","agent_id":"a1""#, "/p"),
+        ];
+        for (fields, want) in cases {
+            let mut c = card(Some("s"), None);
+            let line = format!(r#"{{"hook_event_name":"PreToolUse",{fields}}}"#);
+            c.reduce(&event(&line), Instant::now());
+            assert_eq!(c.folder(), PathBuf::from(want), "{fields}");
+        }
+        let mut c = card(Some("s"), None);
+        c.worktree = Some("wt".into());
+        assert_eq!(c.folder(), PathBuf::from("/p/.claude/worktrees/wt"));
+        let restored = |c: &Card| {
+            let back = Card::from_record(&c.to_record(Instant::now(), 0), Instant::now(), 0);
+            back.unwrap().folder()
+        };
+        c.moved = Some(std::env::temp_dir());
+        assert_eq!(restored(&c), std::env::temp_dir());
+        c.moved = Some("/elsewhere/gone".into());
+        assert_eq!(restored(&c), PathBuf::from("/p/.claude/worktrees/wt"));
+
+        // The agent names `cwd` resolved; mc may have the project by a symlink.
+        let real = std::env::temp_dir().join(format!("mc-moved-{}", std::process::id()));
+        let link = real.with_extension("link");
+        std::fs::create_dir_all(real.join("src")).unwrap();
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let mut c = card(Some("s"), None);
+        c.project.clone_from(&link);
+        let sub = real.canonicalize().unwrap().join("src");
+        assert_eq!(c.moved_to(&sub), None);
+        std::fs::remove_file(&link).unwrap();
+        std::fs::remove_dir_all(&real).unwrap();
     }
 
     #[test]

@@ -104,10 +104,10 @@ fn draw_files(frame: &mut Frame, area: Rect, viewer: &Viewer, theme: Theme) {
             theme.fg(Token::Fg)
         };
         // An untracked file's `??` is all unstaged.
-        let staged = if file.staged == '?' {
-            Token::Err
-        } else {
-            Token::Ok
+        let staged = match file.staged {
+            _ if file.committed => Token::FgMuted,
+            '?' => Token::Err,
+            _ => Token::Ok,
         };
         let path = keep_end(&sanitise(&file.path, PATH_MAX), room);
         Line::from(vec![

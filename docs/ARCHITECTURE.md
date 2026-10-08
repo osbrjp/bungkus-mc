@@ -324,17 +324,26 @@ background thread:
 
 ### 3.8 Changes popup (`src/app/diff.rs`, display only)
 
-`D` shows the changed files of the repository the selected session's
-folder is in and the diff of the highlighted one. Everything is read with
+`D` shows the files the selected session changed in the repository its
+folder is in, committed on its branch or not, and the diff of the
+highlighted one. The folder is the one the session's last hook event
+named in `cwd` when that is a worktree under the project's
+`.claude/worktrees/` or a folder outside the project (`Card::moved`, kept
+in `sessions.json`; main agent only, since a subagent may have a worktree
+of its own), else the worktree mc started it in, else the project. Everything is read with
 `git` (fixed argv, no shell, null stdin, own process group,
 `--no-optional-locks`) on a background thread, and only while the popup
 is open:
 
 - The list: `git rev-parse --show-toplevel`, then `git status --porcelain
   -z --untracked-files=all` (`AppEvent::Changes`). A renamed entry's old
-  name is skipped.
+  name is skipped. After those, the files changed only in the branch's
+  commits: `git diff --name-status -z --no-renames <base> HEAD`, where
+  `<base>` is `git merge-base HEAD origin/HEAD` (`HEAD` when there is no
+  `origin/HEAD`, which leaves the uncommitted changes only).
 - A diff, when a file is highlighted: `git --literal-pathspecs diff
-  --no-color --no-ext-diff HEAD -- <path>` at the repository's root, or
+  --no-color --no-ext-diff <base> -- <path>` at the repository's root
+  (committed, staged and unstaged changes together), or
   `git diff --no-index -- /dev/null <path>` for an untracked file
   (`AppEvent::Diff`). An answer for a file that is no longer highlighted,
   or for another repository,
@@ -582,6 +591,7 @@ pub(crate) struct HookEvent {
     session_title: Option<String>,    // claude, ≤ 80 chars
     background_tasks: Option<Vec<BackgroundTask>>, // ≤ 64 of {id, kind, agent_type, status, description(≤200)}; None when absent
     transcript: Option<String>,       // stored opaque; read only by the Codex usage reader
+    cwd: Option<String>,              // the folder the agent works in now (§3.8)
 }
 
 /// One line on the socket.

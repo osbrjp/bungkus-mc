@@ -43,6 +43,9 @@ pub(crate) struct Record {
     pub usage: Option<Usage>,
     /// The git worktree it ran in (`claude --worktree <name>`), if any.
     pub worktree: Option<String>,
+    /// The folder it moved to by itself ([`crate::app::sessions::Card::moved`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub moved: Option<PathBuf>,
     /// Whether quitting mc stopped it, so the next start resumes it.
     pub resume: bool,
 }

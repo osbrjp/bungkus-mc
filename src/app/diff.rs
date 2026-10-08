@@ -1,6 +1,6 @@
-//! The changes popup (`D`): the files changed in the repository a session
-//! works in and the diff of the highlighted one, as lazygit's files panel
-//! shows them.
+//! The changes popup (`D`): the files a session changed in the repository
+//! it works in, committed on its branch or not, and the diff of the
+//! highlighted one, as lazygit's files panel shows them.
 //!
 //! Read with `git` (fixed argv, no shell, `--no-optional-locks`) on a
 //! background thread. This module never writes to a repository: nothing is
@@ -37,6 +37,10 @@ pub(crate) struct File {
     /// The path from the repository's root as `git` printed it; not
     /// sanitised, because it goes back to `git`.
     pub path: String,
+    /// Whether the working tree has it as the branch's last commit does:
+    /// its change is in the branch's commits only, and `staged` is its
+    /// letter there.
+    pub committed: bool,
 }
 
 impl File {
@@ -83,13 +87,44 @@ fn parse_status(output: &str) -> Vec<File> {
             staged,
             unstaged,
             path: chars.as_str().to_owned(),
+            committed: false,
         });
     }
     files
 }
 
-/// Lists the changed files of the repository `dir` is in, untracked ones
-/// file by file.
+/// Parses `git diff --name-status -z --no-renames` output (`X`, NUL,
+/// `path`, NUL, …) into files changed in commits.
+fn parse_committed(output: &str) -> Vec<File> {
+    let mut fields = output.split('\0');
+    let mut files = Vec::new();
+    while let (Some(status), Some(path)) = (fields.next(), fields.next()) {
+        if let Some(staged) = status.chars().next() {
+            files.push(File {
+                staged,
+                unstaged: ' ',
+                path: path.to_owned(),
+                committed: true,
+            });
+        }
+    }
+    files
+}
+
+/// Returns the commit the branch checked out in `dir` started from: where
+/// it left the remote's default branch (`origin/HEAD`), else `HEAD`, which
+/// leaves the uncommitted changes only.
+// ponytail: `origin/HEAD` only. A repository without that ref (no remote,
+// or one added after `git init`) shows uncommitted changes only; ask for
+// the base branch when that is reported.
+fn base(dir: &Path) -> String {
+    let args = ["merge-base", "HEAD", "origin/HEAD"].map(OsStr::new);
+    super::git(dir, &args).map_or_else(|| "HEAD".to_owned(), |sha| sha.trim().to_owned())
+}
+
+/// Lists the changed files of the repository `dir` is in: what `git
+/// status` names (untracked ones file by file), then the files changed
+/// only in the commits since [`base`].
 ///
 /// # Returns
 ///
@@ -108,7 +143,17 @@ pub(crate) fn list(dir: &Path) -> (PathBuf, Vec<File>) {
     .map(OsStr::new);
     let read = || {
         let root = super::git(dir, &root)?;
-        let files = parse_status(&super::git(dir, &status)?);
+        let mut files = parse_status(&super::git(dir, &status)?);
+        let base = base(dir);
+        let commits =
+            ["diff", "--name-status", "-z", "--no-renames", &base, "HEAD"].map(OsStr::new);
+        let committed = parse_committed(&super::git(dir, &commits).unwrap_or_default());
+        let dirty = files.len();
+        for file in committed {
+            if !files[..dirty].iter().any(|f| f.path == file.path) {
+                files.push(file);
+            }
+        }
         Some((PathBuf::from(root.trim_end_matches('\n')), files))
     };
     read().unwrap_or_else(|| (dir.to_path_buf(), Vec::new()))
@@ -137,12 +182,13 @@ fn lines(diff: &str) -> Vec<Line> {
     out
 }
 
-/// Reads the diff of `file` in the repository at `root`: its staged and
-/// unstaged changes against `HEAD` together, or the whole file as added
-/// when `git` does not track it. Empty when `git` failed.
-// ponytail: against `HEAD` only. A staged file in a repository without a
-// commit shows no diff, and a renamed file shows as a new one. Diff the
-// index and the working tree apart when that is reported.
+/// Reads the diff of `file` in the repository at `root`: its committed,
+/// staged and unstaged changes against [`base`] together, or the whole
+/// file as added when `git` does not track it. Empty when `git` failed.
+// ponytail: one diff against the base. A staged file in a repository
+// without a commit shows no diff, and a renamed file shows as a new one.
+// Diff the commits, the index and the working tree apart when that is
+// reported.
 // ponytail: the whole diff is read before it is cut at LINES_MAX, and a
 // read is not cancelled when another file is highlighted, so holding `j`
 // over slow diffs runs several `git` at once. Stream it and keep one read
@@ -158,10 +204,11 @@ pub(crate) fn read(root: &Path, file: &File) -> Vec<Line> {
         "--no-color",
         "--no-ext-diff",
     ];
+    let base = base(root);
     let tail: &[&str] = if file.untracked() {
         &["--no-index", "--", "/dev/null", &file.path]
     } else {
-        &["HEAD", "--", &file.path]
+        &[&base, "--", &file.path]
     };
     let args: Vec<&OsStr> = fixed.iter().chain(tail).map(OsStr::new).collect();
     // `--no-index` exits with 1 when the two differ, which they always do.
@@ -314,6 +361,7 @@ mod tests {
             staged: letters.next().unwrap(),
             unstaged: letters.next().unwrap(),
             path: path.into(),
+            committed: false,
         }
     }
 
@@ -390,6 +438,19 @@ mod tests {
             "-m",
             "init",
         ]);
+        run(&["update-ref", "refs/remotes/origin/HEAD", "HEAD"]);
+        std::fs::write(repo.join("done.txt"), "shipped\n").unwrap();
+        run(&["add", "."]);
+        run(&[
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "-q",
+            "-m",
+            "work",
+        ]);
         std::fs::write(repo.join("sub/[id]/a.txt"), "two\n").unwrap();
         std::fs::write(repo.join("sub/i/a.txt"), "dos\n").unwrap();
         std::fs::write(repo.join("sub/new.txt"), "fresh\n").unwrap();
@@ -402,6 +463,10 @@ mod tests {
                 file(" M", "sub/[id]/a.txt"),
                 file(" M", "sub/i/a.txt"),
                 file("??", "sub/new.txt"),
+                File {
+                    committed: true,
+                    ..file("A ", "done.txt")
+                },
             ]
         );
         let texts = |file: &File| -> Vec<String> {
@@ -413,6 +478,7 @@ mod tests {
         };
         assert_eq!(texts(&files[0]), ["-one", "+two"]);
         assert_eq!(texts(&files[2]), ["+fresh"]);
+        assert_eq!(texts(&files[3]), ["+shipped"]);
         assert_eq!(list(Path::new("/")), (PathBuf::from("/"), Vec::new()));
         std::fs::remove_dir_all(&repo).unwrap();
     }
