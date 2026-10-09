@@ -613,13 +613,17 @@ Centred, double border (they take input like INTERACT), title in the top
 border, one blank line of padding, hint line last, right-aligned. `esc`
 always cancels; destructive confirms take `y` or `enter` (hinted as
 `y/enter`), anything else is "no" (hinted as `n/esc`).
-The `n` picker has agent, model and name rows, then a five-row prompt box:
+The `n` picker has agent, model, mode and name rows, then a five-row prompt
+box. Mode `cloud` (Claude only) starts the session on claude.ai/code; the
+line under the box then reads `cloud: a new session on claude.ai/code · the
+prompt is its task`, and `enter` waits for a prompt:
 
 ```
 ╔ new session · kedai-web ═══════════════════════════════════════════╗
 ║                                                                    ║
 ║  agent   > claude    codex                                         ║
 ║  model     auto · haiku · sonnet · opus                            ║
+║  mode    > local    cloud                                          ║
 ║  name    ┃flaky date test                                 ┃        ║
 ║  prompt  ┃fix the flaky date test, then run the whole     ┃        ║
 ║          ┃suite                                           ┃        ║
@@ -1490,6 +1494,7 @@ launches the agent with the mapped model. What the user sees:
 | Codex hooks not trusted        | `Codex hooks are not trusted yet: run codex, then /hooks to approve. Output still works.` |
 | Codex resume without hooks     | `not resumable — hooks off`                                                |
 | `C` outside a project          | `Teleport needs a project.`                                                |
+| `m` / `p` on a cloud card      | `A cloud card cannot move — r continues it in a project.`                  |
 | `C` while a session runs there | `A session runs here — teleport would switch its branch.`                  |
 | cloud card, id read            | `cloud · session_…`                                                        |
 | cloud card, id not on screen   | `cloud · r lists cloud sessions`                                           |

@@ -874,6 +874,27 @@ mod tests {
             back.auto_resume,
             "a session quit stopped resumes next start"
         );
+        let mut cloud = card(None, None);
+        cloud.cloud = true;
+        cloud.auto_resume = true;
+        cloud.cloud_session = Some("session_01FgvjhhX85h".into());
+        let stored = cloud.to_record(now, 1);
+        assert!(!stored.resume, "a cloud card is never resumed at start-up");
+        let json = serde_json::to_string(&stored).unwrap();
+        assert!(json.contains(r#""cloud":true,"cloudSessionId":"session_01FgvjhhX85h""#));
+        let plain = serde_json::to_string(&running.to_record(now, 1)).unwrap();
+        assert!(!plain.contains("cloud"), "written for cloud cards only");
+        let back = Card::from_record(&stored, now, 1).unwrap();
+        assert_eq!(
+            (back.cloud, back.cloud_session.as_deref()),
+            (true, Some("session_01FgvjhhX85h"))
+        );
+        let forged = crate::store::state::Record {
+            cloud_session_id: Some("--evil".into()),
+            ..stored
+        };
+        let back = Card::from_record(&forged, now, 1).unwrap();
+        assert_eq!(back.cloud_session, None, "only an id comes back");
         let bad = crate::store::state::Record {
             id: "not-a-uuid".into(),
             ..record

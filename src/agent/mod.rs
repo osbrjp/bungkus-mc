@@ -112,23 +112,31 @@ pub(crate) enum Cloud {
 /// Fewest characters after the prefix of a cloud session id.
 const CLOUD_ID_MIN: usize = 8;
 
-/// Returns the first cloud session id in `text`: `session_` or `cse_`,
+/// Returns the last cloud session id in `text`: `session_` or `cse_`,
 /// then ASCII letters and digits (at least [`CLOUD_ID_MIN`]). A
 /// `claude.ai/code/<id>` address yields its id.
+///
+/// The last one, because `claude --cloud` ends its output with the new
+/// session's id, after a title that may quote another from the prompt.
 ///
 /// An id is therefore never a flag or a path (SECURITY.md "Spawning
 /// agents").
 #[must_use]
 pub(crate) fn cloud_id(text: &str) -> Option<String> {
-    ["session_", "cse_"].iter().find_map(|prefix| {
-        text.match_indices(prefix).find_map(|(at, _)| {
+    let last = |prefix: &'static str| {
+        text.rmatch_indices(prefix).find_map(|(at, _)| {
             let rest = &text[at + prefix.len()..];
             let len = rest
                 .find(|c: char| !c.is_ascii_alphanumeric())
                 .unwrap_or(rest.len());
-            (len >= CLOUD_ID_MIN).then(|| format!("{prefix}{}", &rest[..len]))
+            (len >= CLOUD_ID_MIN).then(|| (at, format!("{prefix}{}", &rest[..len])))
         })
-    })
+    };
+    [last("session_"), last("cse_")]
+        .into_iter()
+        .flatten()
+        .max_by_key(|(at, _)| *at)
+        .map(|(_, id)| id)
 }
 
 /// Builds the argument vector for a new session (ARCHITECTURE §5.1, §5.2).
@@ -555,6 +563,19 @@ mod tests {
                 Some("session_01FgvjhhX85h"),
             ),
             ("claude --teleport cse_abcdefgh12", Some("cse_abcdefgh12")),
+            (
+                "Created cloud session: fix session_01FgvjhhX85h View: \
+                 https://claude.ai/code/session_02newnewnew?from=cli",
+                Some("session_02newnewnew"),
+            ),
+            (
+                "cse_abcdefgh12 then session_01FgvjhhX85h",
+                Some("session_01FgvjhhX85h"),
+            ),
+            (
+                "session_01FgvjhhX85h then cse_abcdefgh12",
+                Some("cse_abcdefgh12"),
+            ),
             ("session_short", None),
             ("the session_ table", None),
             ("", None),

@@ -23,7 +23,7 @@ const PROMPT_ROWS: usize = 5;
 /// Most sessions a confirm dialog lists before `… and N more`.
 const CONFIRM_ROWS: usize = 8;
 
-/// Draws the `n` picker: agent, model and name rows, then the prompt box,
+/// Draws the `n` picker: agent, model, mode and name rows, then the prompt box,
 /// which wraps and keeps the end of the prompt in view.
 pub(super) fn draw_picker(frame: &mut Frame, area: Rect, p: &Picker, theme: Theme) {
     let rect = centred(area, 70, 16);

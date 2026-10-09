@@ -1,4 +1,4 @@
-//! The `n` picker: agent, model, name and prompt for a new session
+//! The `n` picker: agent, model, mode, name and prompt for a new session
 //! (DESIGN §5.5).
 //!
 //! The agent starts on the default agent from settings. The name stays
