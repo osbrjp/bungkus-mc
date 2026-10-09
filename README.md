@@ -147,11 +147,11 @@ pane; press one to run it.
 
 | Keys | What |
 |------|------|
-| `n` | new session in the selected project (agent, model, name, optional prompt) |
+| `n` | new session in the selected project (agent, model, mode, name, optional prompt). Mode `cloud` (Claude only, needs a prompt) starts the session on claude.ai/code instead: the card shows `cloud · session_…`, mc cannot show its progress, and `r` on that card brings the session to this machine |
 | `N` | quick session at the workspace root, in a popup (see [Quick session](#quick-session-n)) |
 | `enter` · `l` · `→` · `tab` | talk to the selected session (**INTERACT**: every key goes to the agent) |
 | `ctrl-\` | leave INTERACT |
-| `r` | on a finished session: resume it. Anywhere else: open the agent's own list of this project's past sessions (`claude --resume` / `codex resume`) to pick any of them |
+| `r` | on a finished session: resume it. On a `cloud` card: bring its cloud session to this machine as a new card (`claude --teleport <id>`). Anywhere else: open the agent's own list of this project's past sessions (`claude --resume` / `codex resume`) to pick any of them |
 | `C` | continue one of Claude's cloud sessions in this project (`claude --teleport`, picked in Claude's own list). Not available outside a project or while a session runs in it, because it switches the folder's branch |
 | `x` | stop a session (lists what it started too) |
 | `P` · `I` | open the pull request · the issue of the session's branch in the browser. mc finds them itself through the `gh` CLI: the pull request GitHub has for the branch, and the issue from a branch named `i{issue#}-…` (else the first issue the pull request closes). The card shows their numbers after the branch |

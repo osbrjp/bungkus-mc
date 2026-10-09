@@ -106,7 +106,7 @@ fn resume(ext: &External, project: std::path::PathBuf) -> Cmd {
             resume: ext.session_id.clone(),
             pick: false,
             fork: false,
-            teleport: false,
+            cloud: None,
         },
         replaces: None,
     })
