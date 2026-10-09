@@ -414,13 +414,35 @@ pub(crate) fn strip_mascot(output: Rect) -> Rect {
     )
 }
 
+/// Returns the strip mascot's speech bubble and what it says: the quote of
+/// a click, else the notification, cut to the room between column `left`
+/// and the mascot at `spot`; `None` with nothing to say or no room.
+#[must_use]
+pub(crate) fn strip_bubble(left: u16, spot: Rect, model: &Model) -> Option<(Rect, String)> {
+    let room = spot.x.saturating_sub(left + STRIP_GAP + 1);
+    let text = match (model.poke, &model.notice) {
+        (Some((_, quote)), _) => mascot::QUOTES[quote % mascot::QUOTES.len()].to_owned(),
+        (None, Some((_, _, notice))) => {
+            sanitise::sanitise(notice, usize::from(room.saturating_sub(4)))
+        }
+        (None, None) => return None,
+    };
+    let width = u16::try_from(text.chars().count() + 4).unwrap_or(u16::MAX);
+    if width > room || text.is_empty() {
+        return None;
+    }
+    let bubble = Rect::new(spot.x - width - STRIP_GAP - 1, spot.y, width, spot.height);
+    Some((bubble, text))
+}
+
 /// Draws the strip mascot at `spot` in `mood` and, after a click or a
 /// notification, its speech bubble to the left (within `strip`).
 ///
 /// A click plays [`mascot::poke_pose`] and shows a quote for
 /// [`mascot::POKE`]. A notification (a session finished, needs you or failed, see
 /// [`Model::notice`]) is said for [`mascot::NOTICE`], cut to the room the
-/// strip has; a quote from a click goes first.
+/// strip has; a quote from a click goes first. A click on a notification
+/// goes to its session (see [`Model::mouse`]).
 pub(super) fn draw_strip(
     frame: &mut Frame,
     strip: Rect,
@@ -443,19 +465,9 @@ pub(super) fn draw_strip(
         },
         spot,
     );
-    let room = spot.x.saturating_sub(strip.x + STRIP_GAP + 1);
-    let text = match (clicked, &model.notice) {
-        (Some((_, quote)), _) => mascot::QUOTES[quote % mascot::QUOTES.len()].to_owned(),
-        (None, Some((_, notice))) => {
-            sanitise::sanitise(notice, usize::from(room.saturating_sub(4)))
-        }
-        (None, None) => return,
-    };
-    let width = u16::try_from(text.chars().count() + 4).unwrap_or(u16::MAX);
-    if width > room || text.is_empty() {
+    let Some((bubble, text)) = strip_bubble(strip.x, spot, model) else {
         return;
-    }
-    let bubble = Rect::new(spot.x - width - STRIP_GAP - 1, strip.y, width, strip.height);
+    };
     frame.render_widget(Clear, bubble);
     let block = bordered(Weight::Light, theme).border_style(theme.fg(Token::Ok));
     let inner = block.inner(bubble);
@@ -1728,8 +1740,8 @@ pub(crate) mod tests {
         use crate::app::model::tests::with_session;
 
         let mut model = sample(PROJECTS);
-        let (_id, _w) = with_session(&mut model, "s");
-        model.notice = Some((model.now, "#a3f1 needs you: \x1b[31mdeploy".into()));
+        let (id, _w) = with_session(&mut model, "s");
+        model.notice = Some((model.now, id, "#a3f1 needs you: \x1b[31mdeploy".into()));
         let screen = render(&mut model, 120, 40);
         assert!(screen.contains("#a3f1 needs you: deploy"), "{screen}");
         model.now += mascot::NOTICE;
@@ -1738,10 +1750,49 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn a_click_on_a_notification_goes_to_its_session() {
+        use ratatui::crossterm::event::{
+            Event, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+        };
+
+        use crate::app::model::{Focus, tests::with_session};
+
+        let mut model = sample(PROJECTS);
+        let (first, _w1) = with_session(&mut model, "first");
+        let (_second, _w2) = with_session(&mut model, "second");
+        model.focus = Focus::Sessions;
+        assert_ne!(
+            model.selected_card().map(|i| model.cards[i].id),
+            Some(first)
+        );
+        model.notice = Some((model.now, first, "#a3f1 needs you: first".into()));
+        let output = panes(model.screen, model.zoom, model.widths)
+            .output
+            .unwrap();
+        let (bubble, _) = strip_bubble(output.x + 1, strip_mascot(output), &model).unwrap();
+        model.update(crate::app::AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: bubble.x + 1,
+            row: bubble.y + 1,
+            modifiers: KeyModifiers::NONE,
+        })));
+        assert_eq!(
+            model.selected_card().map(|i| model.cards[i].id),
+            Some(first)
+        );
+        assert_eq!(model.focus, Focus::Output);
+        assert!(model.notice.is_none(), "the bubble goes");
+    }
+
+    #[test]
     fn a_notification_shows_on_a_small_screen_and_with_no_session() {
         let mut model = sample(PROJECTS);
         model.screen = Rect::new(0, 0, 80, 24);
-        model.notice = Some((model.now, "#a3f1 finished: deploy".into()));
+        model.notice = Some((
+            model.now,
+            crate::term::SessionId::new(),
+            "#a3f1 finished: deploy".into(),
+        ));
         let screen = render(&mut model, 80, 24);
         assert!(screen.contains("#a3f1 finished: deploy"), "{screen}");
         assert!(
