@@ -928,20 +928,16 @@ fn launch(
         .command
         .clone()
         .unwrap_or_else(|| kind.command().to_owned());
-    let path = std::env::var_os("PATH").unwrap_or_default();
-    let program = if command.contains('/') {
-        Some(PathBuf::from(&command))
-    } else {
-        find_on_path(&command, &path)
-    };
-    let Some(program) = program else {
+    let Some(program) = program_for(&command) else {
         model.message = Some(format!(
             "{command} not found on PATH. Install {}, then n again.",
             kind.product()
         ));
         return;
     };
-    let extra_args = extra_args(model, &env.config, (kind, &project), worktree.as_deref());
+    card.cloud = kind == Kind::Claude && launch.cloud == Some(agent::Cloud::New);
+    let place = (kind, project.as_path(), card.cloud);
+    let extra_args = extra_args(model, &env.config, place, worktree.as_deref());
     card.worktree = worktree;
     let argv = agent::argv(kind, &program, &extra_args, &launch);
     let id = launch.id.0.hyphenated().to_string();
@@ -964,14 +960,14 @@ fn launch(
         model.cards.retain(|c| c.id != old);
     }
     crate::debug_log!(
-        "launch {} {} in {} (resume: {}, pick: {}, fork: {}, teleport: {}, replaces: {})",
+        "launch {} {} in {} (resume: {}, pick: {}, fork: {}, cloud: {}, replaces: {})",
         kind.command(),
         launch.id.short(),
         project.display(),
         launch.resume.is_some(),
         launch.pick,
         launch.fork,
-        launch.teleport,
+        launch.cloud.is_some(),
         replaces.map_or_else(String::new, SessionId::short),
     );
     let size = if model.root() == Some(project.as_path()) {
@@ -1278,12 +1274,21 @@ fn open_detached(model: &mut Model, command: &[String], dir: &Path, target: &Pat
     }
 }
 
+/// Returns the executable for an agent's `command`: a path as it is, a
+/// bare name looked up on `PATH`.
+fn program_for(command: &str) -> Option<PathBuf> {
+    if command.contains('/') {
+        return Some(PathBuf::from(command));
+    }
+    find_on_path(command, &std::env::var_os("PATH").unwrap_or_default())
+}
+
 /// Returns the git worktree a Claude session runs in, if any: the one of
 /// the card it resumes, or a new one when another session already runs in
 /// the project (`replaces` aside), so the two do not edit one checkout.
 ///
 /// A new one needs `worktrees` on in the config, a fresh session (not a
-/// resume, not the picker of past sessions, not a teleport), a project
+/// resume, not the picker of past sessions, not a cloud launch), a project
 /// other than the workspace root, and a repository with a commit to branch
 /// from.
 fn worktree_for(
@@ -1309,7 +1314,8 @@ fn worktree_for(
             .cards
             .iter()
             .any(|c| c.running() && c.project == project && Some(c.id) != request.replaces);
-    let fresh = request.launch.resume.is_none() && !request.launch.pick && !request.launch.teleport;
+    let fresh =
+        request.launch.resume.is_none() && !request.launch.pick && request.launch.cloud.is_none();
     let worktrees = model.overrides.worktrees.unwrap_or(env.config.worktrees);
     (worktrees && shared && fresh && has_commit(project)).then(|| {
         let name = project.file_name().unwrap_or_default().to_string_lossy();
@@ -1324,12 +1330,18 @@ fn worktree_for(
 /// built-in rules unless `instructions` is off in the config, the related
 /// folders, then the open workspace's `.bungkus-mc/CLAUDE.md` /
 /// `AGENTS.md`; see [`agent::instruction_args`]).
+///
+/// A new cloud session (`cloud`) gets the configured `args` only: its
+/// machine has neither the related folders nor a use for mc's rules.
 fn extra_args(
     model: &Model,
     config: &config::Config,
-    (kind, project): (Kind, &Path),
+    (kind, project, cloud): (Kind, &Path, bool),
     worktree: Option<&str>,
 ) -> Vec<String> {
+    if cloud {
+        return config.agents.get(kind).args.clone();
+    }
     let dir = model.root().map(|root| root.join(config::WORKSPACE_DIR));
     let related = model.group_of(project);
     let shared = related
@@ -1844,14 +1856,18 @@ mod tests {
         let path = |i: usize| model.projects[i].path.clone();
         let (api, web, docs) = (path(0), path(1), path(2));
         for kind in Kind::ALL {
-            assert!(extra_args(&model, &config, (kind, &api), None).is_empty());
+            assert!(extra_args(&model, &config, (kind, &api, false), None).is_empty());
         }
         model.overrides.groups = vec![vec!["web".into(), "api".into()]];
         for kind in Kind::ALL {
-            let args = extra_args(&model, &config, (kind, &api), None);
+            let args = extra_args(&model, &config, (kind, &api, false), None);
             assert_eq!(args[..2], ["--add-dir", web.to_str().unwrap()], "{kind:?}");
             assert!(args[3].contains("Related folders") && args[3].contains(web.to_str().unwrap()));
-            assert!(extra_args(&model, &config, (kind, &docs), None).is_empty());
+            assert!(extra_args(&model, &config, (kind, &docs, false), None).is_empty());
+            assert!(
+                extra_args(&model, &config, (kind, &api, true), None).is_empty(),
+                "a new cloud session gets the configured args only"
+            );
         }
     }
 
@@ -1924,7 +1940,7 @@ mod tests {
                 resume: resume.map(str::to_owned),
                 pick: false,
                 fork: false,
-                teleport: false,
+                cloud: None,
             },
             replaces,
         };

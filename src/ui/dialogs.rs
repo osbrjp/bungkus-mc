@@ -23,10 +23,10 @@ const PROMPT_ROWS: usize = 5;
 /// Most sessions a confirm dialog lists before `… and N more`.
 const CONFIRM_ROWS: usize = 8;
 
-/// Draws the `n` picker: agent, model and name rows, then the prompt box,
+/// Draws the `n` picker: agent, model, mode and name rows, then the prompt box,
 /// which wraps and keeps the end of the prompt in view.
 pub(super) fn draw_picker(frame: &mut Frame, area: Rect, p: &Picker, theme: Theme) {
-    let rect = centred(area, 70, 15);
+    let rect = centred(area, 70, 16);
     frame.render_widget(Clear, rect);
     let block = dialog_block(&format!("new session · {}", p.project), theme);
     let inner = block.inner(rect);
@@ -63,6 +63,11 @@ pub(super) fn draw_picker(frame: &mut Frame, area: Rect, p: &Picker, theme: Them
     for (i, model) in p.agent.models().iter().enumerate() {
         models.push(choice(model, p.model == i, false));
     }
+    let mode_row = vec![
+        label(Row::Mode, "mode"),
+        choice("local", !p.cloud(), false),
+        choice("cloud", p.cloud(), false),
+    ];
     let field = |row: Row, name: &str, shown: String| {
         let bar = theme.fg(if p.row == row {
             Token::Ok
@@ -84,6 +89,7 @@ pub(super) fn draw_picker(frame: &mut Frame, area: Rect, p: &Picker, theme: Them
         Line::from(""),
         Line::from(agents),
         Line::from(models),
+        Line::from(mode_row),
         field(Row::Name, "name", tail(&p.name, FIELD - 1)),
     ];
     for i in 0..PROMPT_ROWS {
@@ -93,7 +99,14 @@ pub(super) fn draw_picker(frame: &mut Frame, area: Rect, p: &Picker, theme: Them
     }
     lines.extend([
         Line::from(""),
-        Line::styled("  prompt and name are optional", theme.fg(Token::FgMuted)),
+        Line::styled(
+            if p.cloud() {
+                "  cloud: a new session on claude.ai/code · the prompt is its task"
+            } else {
+                "  prompt and name are optional"
+            },
+            theme.fg(Token::FgMuted),
+        ),
         Line::styled(
             "enter start · alt-enter new line · tab next · h/l change · esc  ",
             theme.fg(Token::FgMuted),
@@ -102,9 +115,9 @@ pub(super) fn draw_picker(frame: &mut Frame, area: Rect, p: &Picker, theme: Them
     ]);
     frame.render_widget(Paragraph::new(lines), inner);
     let (row_y, text) = match p.row {
-        Row::Name => (3, tail(&p.name, FIELD - 1)),
-        Row::Prompt => (3 + prompt.len(), prompt.last().cloned().unwrap_or_default()),
-        Row::Agent | Row::Model => return,
+        Row::Name => (4, tail(&p.name, FIELD - 1)),
+        Row::Prompt => (4 + prompt.len(), prompt.last().cloned().unwrap_or_default()),
+        Row::Agent | Row::Model | Row::Mode => return,
     };
     let len = u16::try_from(text.chars().count()).unwrap_or(0);
     let row_y = u16::try_from(row_y).unwrap_or(0);

@@ -11,9 +11,9 @@ use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use crate::agent::Kind;
 use crate::agent::mcp;
 use crate::agent::usage::Usage;
+use crate::agent::{self, Kind};
 use crate::ipc::HookEvent;
 use crate::proc::{Descendants, Proc};
 use crate::store::state::Record;
@@ -100,7 +100,7 @@ pub(crate) struct Subagent {
 #[derive(Debug)]
 #[expect(
     clippy::struct_excessive_bools,
-    reason = "independent facts about one session (killed, hooked, prompted, turn done)"
+    reason = "independent facts about one session (killed, hooked, prompted, turn done, cloud)"
 )]
 pub(crate) struct Card {
     /// mc's id (Claude's `--session-id`).
@@ -163,6 +163,12 @@ pub(crate) struct Card {
     /// The git worktree it runs in (`claude --worktree <name>`, under the
     /// project's `.claude/worktrees/`); a resume goes back into it.
     pub worktree: Option<String>,
+    /// Whether it started a session in Claude's cloud (`claude --cloud`):
+    /// the process only prints that session's address and exits.
+    pub cloud: bool,
+    /// The cloud session's id, read off the screen when the process exits
+    /// ([`agent::cloud_id`]); `r` continues that session here.
+    pub cloud_session: Option<String>,
     /// The folder it moved to by itself, as its last hook event named it:
     /// a worktree it made under the project's `.claude/worktrees/`, or a
     /// folder outside the project. `None` while it is in the project.
@@ -265,6 +271,8 @@ impl Card {
             move_to: None,
             prompted: false,
             worktree: None,
+            cloud: false,
+            cloud_session: None,
             moved: None,
             mcp: Vec::new(),
             auto_resume: false,
@@ -316,7 +324,9 @@ impl Card {
             usage,
             worktree: self.worktree.clone(),
             moved: self.moved.clone(),
-            resume: self.auto_resume,
+            resume: self.auto_resume && !self.cloud,
+            cloud: self.cloud,
+            cloud_session_id: self.cloud_session.clone(),
         }
     }
 
@@ -352,6 +362,8 @@ impl Card {
         // A folder removed since (a merged worktree) gives way to the project.
         card.moved = record.moved.clone().filter(|folder| folder.is_dir());
         card.auto_resume = record.resume;
+        card.cloud = record.cloud;
+        card.cloud_session = record.cloud_session_id.as_deref().and_then(agent::cloud_id);
         Some(card)
     }
 
@@ -407,6 +419,12 @@ impl Card {
     pub(crate) fn exited(&mut self, code: Option<u32>, now: Instant) {
         self.ended = Some(now);
         self.rollout_stop = None;
+        if self.cloud {
+            // A narrow pane breaks the address across rows: read them as one.
+            let screen = self.pty.as_ref().map(|pty| pty.lines().concat());
+            let read = screen.as_deref().and_then(agent::cloud_id);
+            self.cloud_session = read.or_else(|| self.cloud_session.take());
+        }
         for sub in self.subagents.iter_mut().filter(|s| s.ended.is_none()) {
             sub.ended = Some(now);
         }
@@ -856,6 +874,27 @@ mod tests {
             back.auto_resume,
             "a session quit stopped resumes next start"
         );
+        let mut cloud = card(None, None);
+        cloud.cloud = true;
+        cloud.auto_resume = true;
+        cloud.cloud_session = Some("session_01FgvjhhX85h".into());
+        let stored = cloud.to_record(now, 1);
+        assert!(!stored.resume, "a cloud card is never resumed at start-up");
+        let json = serde_json::to_string(&stored).unwrap();
+        assert!(json.contains(r#""cloud":true,"cloudSessionId":"session_01FgvjhhX85h""#));
+        let plain = serde_json::to_string(&running.to_record(now, 1)).unwrap();
+        assert!(!plain.contains("cloud"), "written for cloud cards only");
+        let back = Card::from_record(&stored, now, 1).unwrap();
+        assert_eq!(
+            (back.cloud, back.cloud_session.as_deref()),
+            (true, Some("session_01FgvjhhX85h"))
+        );
+        let forged = crate::store::state::Record {
+            cloud_session_id: Some("--evil".into()),
+            ..stored
+        };
+        let back = Card::from_record(&forged, now, 1).unwrap();
+        assert_eq!(back.cloud_session, None, "only an id comes back");
         let bad = crate::store::state::Record {
             id: "not-a-uuid".into(),
             ..record

@@ -48,6 +48,12 @@ pub(crate) struct Record {
     pub moved: Option<PathBuf>,
     /// Whether quitting mc stopped it, so the next start resumes it.
     pub resume: bool,
+    /// Whether it started a session in Claude's cloud (`claude --cloud`).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub cloud: bool,
+    /// That cloud session's id, when the card read it off the screen.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cloud_session_id: Option<String>,
 }
 
 /// Returns `$XDG_STATE_HOME/bungkus/mc/sessions.json`, or the same under

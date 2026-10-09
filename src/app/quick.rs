@@ -97,7 +97,7 @@ impl Model {
                 resume: None,
                 pick: false,
                 fork: false,
-                teleport: false,
+                cloud: None,
             },
             replaces: None,
         }))
@@ -386,10 +386,15 @@ impl Model {
 
     /// Moves quick session `id` into `dest`: when it runs, it is stopped
     /// first and resumed once it has exited ([`Model::moved_after_exit`]);
-    /// otherwise it is resumed at once.
+    /// otherwise it is resumed at once. A cloud card is refused: it has no
+    /// local conversation to resume.
     pub(crate) fn move_quick(&mut self, id: SessionId, dest: PathBuf) -> Option<Cmd> {
         let now = self.now;
         let card = self.cards.iter_mut().find(|c| c.id == id)?;
+        if card.cloud {
+            self.message = Some("A cloud card cannot move — r continues it in a project.".into());
+            return None;
+        }
         if card.resume_id().is_none() && card.prompted {
             self.message = Some("This session cannot be resumed (hooks were off).".into());
             return None;
@@ -446,7 +451,7 @@ impl Model {
                 settings: None,
                 hook_args: Vec::new(),
                 fork: resume.is_some() && card.kind == Kind::Claude,
-                teleport: false,
+                cloud: None,
                 resume,
                 pick: false,
             },
@@ -617,6 +622,23 @@ mod tests {
         };
         assert_eq!(req.launch.resume, None, "nothing saved to resume");
         assert!(!req.launch.fork);
+    }
+
+    #[test]
+    fn a_cloud_card_at_the_root_does_not_move() {
+        let mut m = sample(&["app"]);
+        let root = m.root().unwrap().to_path_buf();
+        let (id, _w) = with_session(&mut m, "quick");
+        m.cards[0].project.clone_from(&root);
+        m.cards[0].cloud = true;
+        m.update(AppEvent::Pty(PtyEvent::Exited(id, Some(0))));
+        let dest = m.projects[0].path.clone();
+        assert!(m.move_quick(id, dest).is_none());
+        assert_eq!(m.cards.len(), 1, "the card and its cloud session stay");
+        assert_eq!(
+            m.message.as_deref(),
+            Some("A cloud card cannot move — r continues it in a project.")
+        );
     }
 
     #[test]

@@ -613,13 +613,17 @@ Centred, double border (they take input like INTERACT), title in the top
 border, one blank line of padding, hint line last, right-aligned. `esc`
 always cancels; destructive confirms take `y` or `enter` (hinted as
 `y/enter`), anything else is "no" (hinted as `n/esc`).
-The `n` picker has agent, model and name rows, then a five-row prompt box:
+The `n` picker has agent, model, mode and name rows, then a five-row prompt
+box. Mode `cloud` (Claude only) starts the session on claude.ai/code; the
+line under the box then reads `cloud: a new session on claude.ai/code · the
+prompt is its task`, and `enter` waits for a prompt:
 
 ```
 ╔ new session · kedai-web ═══════════════════════════════════════════╗
 ║                                                                    ║
 ║  agent   > claude    codex                                         ║
 ║  model     auto · haiku · sonnet · opus                            ║
+║  mode    > local    cloud                                          ║
 ║  name    ┃flaky date test                                 ┃        ║
 ║  prompt  ┃fix the flaky date test, then run the whole     ┃        ║
 ║          ┃suite                                           ┃        ║
@@ -1337,11 +1341,11 @@ highlighted project with the default agent and no prompt.
 | Keys                     | Action                                                        |
 |--------------------------|---------------------------------------------------------------|
 | `enter` · `l` `→` `tab`  | focus the output pane on this session = **INTERACT** (hint: `ctrl-\ back`) |
-| `n`                      | new session in this project (picker: agent, model, name, prompt) |
+| `n`                      | new session in this project (picker: agent, model, mode, name, prompt) |
 | `x`                      | stop (confirm; lists the session's tracked descendants too)   |
 | `N`                      | quick session: the default agent at the workspace root, in a fixed popup over the panes (not draggable or resizable). Every key goes to it; `ctrl-\\` opens the popup menu (`h` hide · `m` move · `p` new project · any other key back), `ctrl-h` hides at once. A hidden one runs on under a `quick` row that leads the projects list (`enter` reopens it). `n` on the `quick` row starts another |
 | `m` · `p`                | on a quick session: the move dialog — mascot, one field, and under it the 3 most recently used projects (empty field) or the 3 best matches (exact, prefix, contains; shorter first) in a bordered field, with a fixed last row `+ enter to create <name>` unless one matches exactly — the dialog never changes height; `↑`/`↓` or `ctrl-j`/`ctrl-k` pick, `enter` moves or creates (`<workspace>/<name>` + `git init`). mc stops the session, then resumes it in the project — Claude `--resume <id> --fork-session`, Codex `resume <id>` — so the conversation comes along. The `quick` row leads the projects list as number `0`; `enter` on an ended quick session resumes it into the popup |
-| `r`                      | resume a stopped/wrapped/failed session; on a running or outside row (and `r` in the projects pane) open the agent's own past-session list instead: `claude --resume` / `codex resume` with no id, asking which agent when both are installed. mc never reads that list itself |
+| `r`                      | resume a stopped/wrapped/failed session; on a `cloud` card, continue its cloud session here as a new card (`claude --teleport <id>`, same refusals as `C`); on a running or outside row (and `r` in the projects pane) open the agent's own past-session list instead: `claude --resume` / `codex resume` with no id, asking which agent when both are installed. mc never reads that list itself |
 | `C`                      | continue one of Claude's cloud sessions in the selected project: `claude --teleport` with no id, picked in Claude's own list in the output pane. Refused outside a project and while a session runs in it (teleport checks out the cloud session's branch there). Cloud sessions themselves are not shown: mc has no way to read their state |
 | `d`                      | forget a stopped/wrapped/failed session (confirm; list only)  |
 
@@ -1491,6 +1495,10 @@ launches the agent with the mapped model. What the user sees:
 | Codex resume without hooks     | `not resumable — hooks off`                                                |
 | `C` outside a project          | `Teleport needs a project.`                                                |
 | `C` while a session runs there | `A session runs here — teleport would switch its branch.`                  |
+| cloud card, id read            | `cloud · session_…`                                                        |
+| cloud card, id not on screen   | `cloud · r lists cloud sessions`                                           |
+| `m` / `p` on a cloud card      | `A cloud card cannot move — r continues it in a project.`                  |
+| picker, mode `cloud`           | `cloud: a new session on claude.ai/code · the prompt is its task`          |
 | routing first use              | dialog (§10)                                                               |
 | routing fell back              | getah bar 5 s: `Routing unavailable — using claude's default model.`      |
 | terminal too small             | `bungkus-mc needs at least 80×24 (now 72×20).`                            |

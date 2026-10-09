@@ -565,6 +565,13 @@ fn expanded_usage(card: &Card, width: usize, text: Style, theme: Theme) -> Vec<V
 
 /// Returns the state line: state word and detail (DESIGN §5.2).
 fn detail(card: &Card, now: Instant) -> String {
+    if card.cloud && !matches!(card.state, State::Failed(_)) {
+        return match &card.cloud_session {
+            _ if card.running() => "cloud · starting".to_owned(),
+            Some(id) => format!("cloud · {id}"),
+            None => "cloud · r lists cloud sessions".to_owned(),
+        };
+    }
     if card.output_only(now) {
         return if card.hooked && card.kind == Kind::Codex {
             "hooks not trusted · /hooks in codex".to_owned()

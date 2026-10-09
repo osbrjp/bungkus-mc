@@ -1,4 +1,4 @@
- bungkus-mc  ~/Works/OSBR › kedai-web                            v0.1.0-beta.11
+ bungkus-mc  ~/Works/OSBR › kedai-web                            v0.1.0-beta.12
 ┏ ╔ changes · 3 ═════════════════════════════════════════════════════════════╗─┐
 ┃ ║   M  src/app.rs        │ diff --git a/summary.tsx b/summary.tsx          ║ │
 ┃>║ >  M …ckout/summary.tsx│ @@ -1,3 +1,3 @@                                 ║ │
