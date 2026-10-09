@@ -145,7 +145,8 @@ impl Model {
     /// select the project row or session under the pointer (or open and
     /// close the rest of the projects), the wheel scrolls the output or the
     /// terminal pane under the pointer, and events inside the output pane
-    /// go to an agent that asked for them. While the terminal popup shows,
+    /// go to an agent that asked for them. A click on the strip mascot's
+    /// notification goes to the session it is about. While the terminal popup shows,
     /// the wheel over it scrolls it and a click outside it hides it.
     pub(super) fn mouse(&mut self, event: MouseEvent) -> Option<Cmd> {
         if self.overlay.is_some() || self.popup.is_some() || self.editor.is_some() {
@@ -172,6 +173,17 @@ impl Model {
                 .is_some_and(|o| ui::strip_mascot(o).contains(at))
         {
             self.poke();
+            return None;
+        }
+        if matches!(event.kind, MouseEventKind::Down(MouseButton::Left))
+            && self.poke.is_none()
+            && panes
+                .output
+                .and_then(|o| ui::strip_bubble(o.x + 1, ui::strip_mascot(o), self))
+                .is_some_and(|(bubble, _)| bubble.contains(at))
+            && let Some((_, id, _)) = self.notice.take()
+        {
+            self.select_session(id);
             return None;
         }
         if let ControlFlow::Break(cmd) = self.drag_border(event, &panes) {
