@@ -422,9 +422,18 @@ impl Session {
     /// shown for a failed session.
     #[must_use]
     pub(crate) fn last_line(&self) -> String {
+        self.lines()
+            .into_iter()
+            .rev()
+            .find(|text| !text.is_empty())
+            .unwrap_or_default()
+    }
+
+    /// Returns the screen's lines, top first, each trimmed.
+    #[must_use]
+    pub(crate) fn lines(&self) -> Vec<String> {
         let grid = self.term.grid();
         (0..grid.screen_lines())
-            .rev()
             .map(|y| {
                 let line = Line(i32::try_from(y).unwrap_or(i32::MAX));
                 (0..grid.columns())
@@ -433,8 +442,7 @@ impl Session {
                     .trim()
                     .to_owned()
             })
-            .find(|text| !text.is_empty())
-            .unwrap_or_default()
+            .collect()
     }
 }
 

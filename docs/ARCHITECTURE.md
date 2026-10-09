@@ -660,14 +660,28 @@ No capability flags, no registry.
   when the session continues as a new one under the launch folder.
 - **Past sessions:** `claude --resume --settings <json>` (no id, no
   `--session-id`, no `--name`) opens Claude's own list.
-- **Cloud sessions:** `claude --teleport --settings <json>` (no id, no
-  `--session-id`, no `--name`) opens Claude's list of cloud sessions; the
-  picked one continues as an ordinary local card (VERIFIED, 2.1.294: hooks
-  fire before and after the pick, with one session id throughout).
-  Teleport checks out the cloud session's branch in the folder, so it never
-  gets a worktree and is refused while a session runs in the project. mc
-  cannot push a session to the cloud (the CLI has no such command) and
-  shows no cloud session: nothing reports their state without a token.
+- **Cloud sessions, to this machine:** `claude --teleport [<id>] --settings
+  <json>` (no `--session-id`, no `--name`) continues a cloud session as an
+  ordinary local card: the one with `<id>`, or one picked in Claude's own
+  list (VERIFIED, 2.1.294: hooks fire before and after the pick, with one
+  session id throughout). Teleport checks out the cloud session's branch
+  in the folder, so it never gets a worktree and is refused while a
+  session runs in the project.
+- **Cloud sessions, new:** the picker's `mode` row set to `cloud` runs
+  `claude [args] --cloud=<prompt> --settings <json>`: the prompt is part of
+  that one argument, and there is no `--session-id`, `--model`, `--name`,
+  `--add-dir` or instructions (the cloud machine has none of them). The
+  picker refuses an empty prompt and one that is only a session id or
+  address, which Claude would attach to. The command prints the session's
+  address and exits (VERIFIED, 2.1.295), so the card wraps within seconds;
+  it is marked `cloud`, and on exit mc reads the `session_…` / `cse_…` id
+  off its screen (`agent::cloud_id`, the rows joined because a narrow pane
+  breaks the address). `r` on that card teleports that id as a new card;
+  the cloud card stays and is never resumed at start-up. `sessions.json`
+  keeps `cloud` and `cloudSessionId`.
+- mc cannot push a running session to the cloud (the CLI has no such
+  command) and shows no state for a cloud session: nothing reports it
+  without a token.
 - `<json>` is built with `serde_json`, passed as one argv element;
   contains only `hooks` (synchronous) and `statusLine` (§6.2). Hook
   command = `'<std::env::current_exe() → canonicalize, POSIX single-quoted>' hook`

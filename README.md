@@ -147,7 +147,7 @@ pane; press one to run it.
 
 | Keys | What |
 |------|------|
-| `n` | new session in the selected project (agent, model, name, optional prompt) |
+| `n` | new session in the selected project (agent, model, mode, name, optional prompt). Mode `cloud` (Claude only, needs a prompt) starts the session on claude.ai/code instead: the card shows `cloud · session_…`, mc cannot show its progress, and `r` on that card brings the session to this machine |
 | `N` | quick session at the workspace root, in a popup (see [Quick session](#quick-session-n)) |
 | `enter` · `l` · `→` · `tab` | talk to the selected session (**INTERACT**: every key goes to the agent) |
 | `ctrl-\` | leave INTERACT |

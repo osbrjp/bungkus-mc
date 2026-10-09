@@ -13,7 +13,7 @@ use ratatui::layout::Rect;
 use rustix::process::Signal;
 
 use crate::agent::usage::{Usage, Window};
-use crate::agent::{Kind, Launch};
+use crate::agent::{Cloud, Kind, Launch};
 use crate::app::AppEvent;
 use crate::app::form::{Field, Form, FormKind, Outcome};
 use crate::app::picker::{self, Picker};
@@ -118,8 +118,12 @@ pub(crate) struct LaunchRequest {
 }
 
 /// Returns the launch that resumes finished `card` in its folder and
-/// replaces it, or `None` when it has no id to resume.
+/// replaces it, or `None` when it has no id to resume (a cloud card never
+/// has: its process only started a session elsewhere).
 fn resume_cmd(card: &Card) -> Option<Cmd> {
+    if card.cloud {
+        return None;
+    }
     let launch = Launch {
         id: SessionId::new(),
         model: None,
@@ -130,7 +134,7 @@ fn resume_cmd(card: &Card) -> Option<Cmd> {
         resume: Some(card.resume_id()?),
         pick: false,
         fork: false,
-        teleport: false,
+        cloud: None,
     };
     Some(Cmd::Launch(LaunchRequest {
         project: card.project.clone(),
@@ -1441,7 +1445,7 @@ impl Model {
             resume: None,
             pick: false,
             fork: false,
-            teleport: false,
+            cloud: p.cloud().then_some(Cloud::New),
         };
         Some(Cmd::Launch(LaunchRequest {
             project,
@@ -1453,11 +1457,16 @@ impl Model {
 
     /// Resumes the selected finished session in its folder (ARCHITECTURE
     /// §5); a Codex session that never reported through hooks has no id to
-    /// resume.
+    /// resume. A cloud card has nothing local to resume: its cloud session
+    /// continues here as a new card ([`Model::teleport`]).
     fn resume(&mut self) -> Option<Cmd> {
         let card = &self.cards[self.selected_card()?];
         if card.running() {
             return None;
+        }
+        if card.cloud {
+            let (project, id) = (card.project.clone(), card.cloud_session.clone());
+            return self.teleport(project, id);
         }
         let cmd = resume_cmd(card);
         if cmd.is_none() {
@@ -1665,20 +1674,20 @@ impl Model {
                 resume: None,
                 pick: true,
                 fork: false,
-                teleport: false,
+                cloud: None,
             },
             replaces: None,
         }))
     }
 
-    /// Launches Claude's list of cloud sessions (`claude --teleport`) in the
-    /// selected project; the picked one continues there as an ordinary card.
+    /// Continues a cloud session in `project` as an ordinary card
+    /// (`claude --teleport`): the one with `id`, or one picked in Claude's
+    /// own list.
     ///
     /// Refused outside a project, and while a session runs in the project
     /// (one of mc's or an outside one): teleport checks out the cloud
     /// session's branch in that folder.
-    fn teleport(&mut self) -> Option<Cmd> {
-        let project = self.selected_project()?.path.clone();
+    fn teleport(&mut self, project: PathBuf, id: Option<String>) -> Option<Cmd> {
         if project.as_os_str().is_empty() || self.root() == Some(project.as_path()) {
             self.message = Some("Teleport needs a project.".into());
             return None;
@@ -1704,7 +1713,7 @@ impl Model {
                 resume: None,
                 pick: false,
                 fork: false,
-                teleport: true,
+                cloud: Some(Cloud::Teleport(id)),
             },
             replaces: None,
         }))
@@ -1924,7 +1933,10 @@ impl Model {
                 }
                 return self.resume_pick();
             }
-            Action::Cloud => return self.teleport(),
+            Action::Cloud => {
+                let project = self.selected_project()?.path.clone();
+                return self.teleport(project, None);
+            }
             Action::Forget => {
                 if let Some(i) = self.selected_card().filter(|&i| !self.cards[i].running()) {
                     self.overlay = Some(Overlay::Forget(self.cards[i].id));
@@ -2313,7 +2325,8 @@ pub(crate) mod tests {
         let Some(Cmd::Launch(req)) = m.update(press(KeyCode::Char('C'))) else {
             panic!("a project with no running session: launch at once");
         };
-        assert!(req.launch.teleport && !req.launch.pick && req.launch.resume.is_none());
+        assert_eq!(req.launch.cloud, Some(Cloud::Teleport(None)));
+        assert!(!req.launch.pick && req.launch.resume.is_none());
         assert_eq!(req.kind, Kind::Claude);
         assert_eq!(req.replaces, None);
 
@@ -2343,6 +2356,58 @@ pub(crate) mod tests {
         m.focus = Focus::Sessions;
         assert!(m.update(press(KeyCode::Char('C'))).is_none());
         assert_eq!(m.message.as_deref(), Some("Teleport needs a project."));
+    }
+
+    #[test]
+    fn picker_starts_a_cloud_session_from_its_mode_row() {
+        let mut m = sample(&["a"]);
+        m.update(press(KeyCode::Char('n')));
+        for code in [
+            KeyCode::BackTab,
+            KeyCode::BackTab,
+            KeyCode::Right,
+            KeyCode::Enter,
+        ] {
+            assert!(m.update(press(code)).is_none(), "{code:?}: no task yet");
+        }
+        for c in "fix it".chars() {
+            m.update(press(KeyCode::Char(c)));
+        }
+        let Some(Cmd::Launch(req)) = m.update(press(KeyCode::Enter)) else {
+            panic!("a task: starts");
+        };
+        assert_eq!(req.launch.cloud, Some(Cloud::New));
+        assert_eq!(req.launch.prompt.as_deref(), Some("fix it"));
+    }
+
+    #[test]
+    fn r_on_a_cloud_card_brings_its_cloud_session_here() {
+        let mut m = sample(&["a"]);
+        with_session(&mut m, "s");
+        let now = m.now;
+        let card = &mut m.cards[0];
+        card.cloud = true;
+        card.auto_resume = true;
+        let cols = card.pty.as_ref().unwrap().lines()[0].len().max(20);
+        let pad = " ".repeat(cols.saturating_sub(18));
+        let screen = format!(
+            "Created cloud session: s\r\n{pad}https://claude.ai/code/session_01FgvjhhX85h?from=cli"
+        );
+        card.pty.as_mut().unwrap().advance(screen.as_bytes());
+        card.exited(Some(0), now);
+        assert_eq!(
+            card.cloud_session.as_deref(),
+            Some("session_01FgvjhhX85h"),
+            "read across the row the address wraps on"
+        );
+        assert!(m.auto_resume().is_empty(), "never at start-up");
+        m.focus = Focus::Sessions;
+        let Some(Cmd::Launch(req)) = m.update(press(KeyCode::Char('r'))) else {
+            panic!("r continues the cloud session here");
+        };
+        let id = Some("session_01FgvjhhX85h".to_owned());
+        assert_eq!(req.launch.cloud, Some(Cloud::Teleport(id)));
+        assert_eq!(req.replaces, None, "the cloud card stays");
     }
 
     #[test]

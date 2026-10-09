@@ -6,7 +6,7 @@
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::agent::Kind;
+use crate::agent::{self, Kind};
 
 /// The picker row in focus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -15,10 +15,21 @@ pub(crate) enum Row {
     Agent,
     /// Model choice.
     Model,
+    /// Where it runs: this machine or Claude's cloud.
+    Mode,
     /// Session name.
     Name,
     /// Start prompt.
     Prompt,
+}
+
+/// Where a new session runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Mode {
+    /// On this machine, in the output pane.
+    Local,
+    /// In Claude's cloud (`claude --cloud`); Claude only.
+    Cloud,
 }
 
 /// What a key did to the picker.
@@ -41,6 +52,8 @@ pub(crate) struct Picker {
     pub agent: Kind,
     /// Index into `agent.models()`.
     pub model: usize,
+    /// Where the session runs; see [`Picker::cloud`].
+    pub mode: Mode,
     /// Name as typed; empty leaves the naming to the agent.
     pub name: String,
     /// Prompt as typed.
@@ -59,6 +72,7 @@ impl Picker {
             row: Row::Prompt,
             agent,
             model: 0,
+            mode: Mode::Local,
             name: String::new(),
             prompt: String::new(),
             installed,
@@ -76,10 +90,26 @@ impl Picker {
             .map(|m| (*m).to_owned())
     }
 
+    /// Returns whether the session starts in Claude's cloud; Codex has no
+    /// cloud mode.
+    #[must_use]
+    pub(crate) fn cloud(&self) -> bool {
+        self.agent == Kind::Claude && self.mode == Mode::Cloud
+    }
+
+    /// Returns whether the prompt can start a cloud session: it is not
+    /// empty, and not a lone session id or address, which `claude --cloud`
+    /// would attach to instead of starting a session.
+    fn cloud_task(&self) -> bool {
+        let task = self.prompt.trim();
+        !task.is_empty() && (task.contains(char::is_whitespace) || agent::cloud_id(task).is_none())
+    }
+
     /// Handles one key press: `tab`/`↓` and `shift-tab`/`↑` move between
-    /// rows, `←`/`→` change agent and model, typing edits name and prompt,
-    /// `enter` starts, `esc` cancels. On the prompt row `alt-enter` or
-    /// `shift-enter` starts a new line. On the agent and model rows, where
+    /// rows, `←`/`→` change agent, model and mode, typing edits name and
+    /// prompt, `enter` starts (a cloud session only with a task for a
+    /// prompt), `esc` cancels. On the prompt row `alt-enter` or
+    /// `shift-enter` starts a new line. On the agent, model and mode rows, where
     /// nothing is typed, `j`/`k` move between rows and `h`/`l` change.
     pub(crate) fn key(&mut self, key: KeyEvent) -> Outcome {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
@@ -93,12 +123,13 @@ impl Picker {
             {
                 self.prompt.push('\n');
             }
+            KeyCode::Enter if self.cloud() && !self.cloud_task() => self.row = Row::Prompt,
             KeyCode::Enter => return Outcome::Start,
             KeyCode::Tab | KeyCode::Down => self.row = self.step(true),
             KeyCode::BackTab | KeyCode::Up => self.row = self.step(false),
             KeyCode::Left | KeyCode::Right => self.change(key.code == KeyCode::Right),
             KeyCode::Char(c @ ('j' | 'k' | 'h' | 'l'))
-                if !ctrl && matches!(self.row, Row::Agent | Row::Model) =>
+                if !ctrl && matches!(self.row, Row::Agent | Row::Model | Row::Mode) =>
             {
                 match c {
                     'j' => self.row = self.step(true),
@@ -119,8 +150,9 @@ impl Picker {
     /// Returns the next (or previous) row, wrapping round.
     const fn step(&self, forward: bool) -> Row {
         match (self.row, forward) {
-            (Row::Agent, true) | (Row::Name, false) => Row::Model,
-            (Row::Model, true) | (Row::Prompt, false) => Row::Name,
+            (Row::Agent, true) | (Row::Mode, false) => Row::Model,
+            (Row::Model, true) | (Row::Name, false) => Row::Mode,
+            (Row::Mode, true) | (Row::Prompt, false) => Row::Name,
             (Row::Name, true) | (Row::Agent, false) => Row::Prompt,
             (Row::Prompt, true) | (Row::Model, false) => Row::Agent,
         }
@@ -144,7 +176,13 @@ impl Picker {
                 let n = self.agent.models().len();
                 self.model = (self.model + if forward { 1 } else { n - 1 }) % n;
             }
-            Row::Name | Row::Prompt => {}
+            Row::Mode if self.agent == Kind::Claude => {
+                self.mode = match self.mode {
+                    Mode::Local => Mode::Cloud,
+                    Mode::Cloud => Mode::Local,
+                };
+            }
+            Row::Mode | Row::Name | Row::Prompt => {}
         }
     }
 
@@ -172,7 +210,7 @@ impl Picker {
         match self.row {
             Row::Name => f(&mut self.name),
             Row::Prompt => f(&mut self.prompt),
-            Row::Agent | Row::Model => {}
+            Row::Agent | Row::Model | Row::Mode => {}
         }
     }
 }
@@ -232,5 +270,29 @@ mod tests {
         press(&mut p, KeyCode::Right);
         assert_eq!((p.agent, p.model_id()), (Kind::Codex, None));
         assert_eq!(press(&mut p, KeyCode::Esc), Outcome::Cancel);
+    }
+
+    #[test]
+    fn a_cloud_session_needs_a_task_and_claude() {
+        let mut p = Picker::new(Kind::Claude, [true, true], "kedai-web".into());
+        p.row = Row::Mode;
+        press(&mut p, KeyCode::Right);
+        assert!(p.cloud());
+        for prompt in [
+            "",
+            "  ",
+            "session_01FgvjhhX85h",
+            "https://claude.ai/code/cse_abcdefgh12",
+        ] {
+            p.prompt = prompt.into();
+            assert_eq!(press(&mut p, KeyCode::Enter), Outcome::Continue, "{prompt}");
+            assert_eq!(p.row, Row::Prompt, "back on the prompt");
+        }
+        p.prompt = "fix session_01FgvjhhX85h".into();
+        assert_eq!(press(&mut p, KeyCode::Enter), Outcome::Start);
+        p.agent = Kind::Codex;
+        p.prompt.clear();
+        assert!(!p.cloud(), "codex has no cloud mode");
+        assert_eq!(press(&mut p, KeyCode::Enter), Outcome::Start);
     }
 }

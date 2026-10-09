@@ -93,9 +93,42 @@ pub(crate) struct Launch {
     /// With `resume`, continues as a new Claude session saved under the
     /// launch folder (`--fork-session`), leaving the original untouched.
     pub fork: bool,
-    /// Opens Claude's list of cloud sessions (`claude --teleport` without an
-    /// id) and continues the picked one here; Codex has no such list.
-    pub teleport: bool,
+    /// A Claude cloud launch instead of a local session; Codex has none.
+    pub cloud: Option<Cloud>,
+}
+
+/// What a Claude cloud launch does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Cloud {
+    /// `claude --cloud=<prompt>`: starts a new session in Claude's cloud
+    /// from the launch's prompt. The command prints the session's address
+    /// and exits.
+    New,
+    /// `claude --teleport [id]`: continues a cloud session here, the one
+    /// with this id ([`cloud_id`]) or one picked in Claude's own list.
+    Teleport(Option<String>),
+}
+
+/// Fewest characters after the prefix of a cloud session id.
+const CLOUD_ID_MIN: usize = 8;
+
+/// Returns the first cloud session id in `text`: `session_` or `cse_`,
+/// then ASCII letters and digits (at least [`CLOUD_ID_MIN`]). A
+/// `claude.ai/code/<id>` address yields its id.
+///
+/// An id is therefore never a flag or a path (SECURITY.md "Spawning
+/// agents").
+#[must_use]
+pub(crate) fn cloud_id(text: &str) -> Option<String> {
+    ["session_", "cse_"].iter().find_map(|prefix| {
+        text.match_indices(prefix).find_map(|(at, _)| {
+            let rest = &text[at + prefix.len()..];
+            let len = rest
+                .find(|c: char| !c.is_ascii_alphanumeric())
+                .unwrap_or(rest.len());
+            (len >= CLOUD_ID_MIN).then(|| format!("{prefix}{}", &rest[..len]))
+        })
+    })
 }
 
 /// Builds the argument vector for a new session (ARCHITECTURE §5.1, §5.2).
@@ -103,6 +136,10 @@ pub(crate) struct Launch {
 /// The prompt is always one argument after `--`, so a prompt starting with
 /// `-` cannot become a flag; the name is one `--name` value. Nothing goes
 /// through a shell.
+///
+/// A [`Cloud`] launch is Claude's alone: `--cloud=<prompt>` (one argument,
+/// so the prompt cannot become a flag either; no session id, model or
+/// name), or `--teleport [id]`, the id only when [`cloud_id`] accepts it.
 ///
 /// # Arguments
 ///
@@ -121,18 +158,30 @@ pub(crate) fn argv(kind: Kind, program: &Path, args: &[String], launch: &Launch)
         out.push(name.into());
         out.push(value.into());
     };
+    let cloud = launch.cloud.as_ref().filter(|_| kind == Kind::Claude);
+    if let Some(Cloud::New) = cloud {
+        let prompt = launch.prompt.as_deref().unwrap_or_default();
+        out.push(format!("--cloud={prompt}").into());
+        if let Some(settings) = &launch.settings {
+            flag(&mut out, "--settings", settings);
+        }
+        return out;
+    }
     match (kind, &launch.resume) {
         (Kind::Claude, resume) => {
-            match resume {
-                Some(id) => {
+            match (resume, cloud) {
+                (Some(id), _) => {
                     flag(&mut out, "--resume", id);
                     if launch.fork {
                         out.push("--fork-session".into());
                     }
                 }
-                None if launch.pick => out.push("--resume".into()),
-                None if launch.teleport => out.push("--teleport".into()),
-                None => flag(
+                (None, Some(Cloud::Teleport(id))) => {
+                    out.push("--teleport".into());
+                    out.extend(id.as_deref().and_then(cloud_id).map(OsString::from));
+                }
+                (None, _) if launch.pick => out.push("--resume".into()),
+                (None, _) => flag(
                     &mut out,
                     "--session-id",
                     &launch.id.0.hyphenated().to_string(),
@@ -145,7 +194,7 @@ pub(crate) fn argv(kind: Kind, program: &Path, args: &[String], launch: &Launch)
                 flag(&mut out, "--model", model);
             }
             if let (Some(name), None, false) =
-                (&launch.name, resume, launch.pick || launch.teleport)
+                (&launch.name, resume, launch.pick || cloud.is_some())
             {
                 flag(&mut out, "--name", name);
             }
@@ -361,7 +410,7 @@ mod tests {
             resume: None,
             pick: false,
             fork: false,
-            teleport: false,
+            cloud: None,
         };
         let bare = Launch {
             id,
@@ -373,7 +422,7 @@ mod tests {
             resume: None,
             pick: false,
             fork: false,
-            teleport: false,
+            cloud: None,
         };
         let s = |v: Vec<OsString>| {
             v.into_iter()
@@ -432,7 +481,7 @@ mod tests {
             resume: None,
             pick: true,
             fork: false,
-            teleport: false,
+            cloud: None,
         };
         let s = |v: Vec<OsString>| {
             v.into_iter()
@@ -448,16 +497,70 @@ mod tests {
             s(argv(Kind::Codex, Path::new("/bin/codex"), &[], &pick)),
             ["/bin/codex", "-c", "hooks.Stop=[]", "resume"]
         );
-        let teleport = Launch {
+        let cloud = |cloud, prompt: Option<&str>| Launch {
             pick: false,
-            teleport: true,
-            ..pick
+            cloud: Some(cloud),
+            prompt: prompt.map(str::to_owned),
+            model: Some("opus".into()),
+            ..pick.clone()
         };
+        let claude = |launch| s(argv(Kind::Claude, Path::new("/bin/claude"), &[], &launch));
         assert_eq!(
-            s(argv(Kind::Claude, Path::new("/bin/claude"), &[], &teleport)),
-            ["/bin/claude", "--teleport", "--settings", "{}"],
+            claude(cloud(Cloud::Teleport(None), None)),
+            [
+                "/bin/claude",
+                "--teleport",
+                "--settings",
+                "{}",
+                "--model",
+                "opus"
+            ],
             "no session id, no name"
         );
+        let id = "session_01FgvjhhX85hxdcda5Sn3AwM";
+        assert_eq!(
+            claude(cloud(Cloud::Teleport(Some(id.into())), None))[..3],
+            ["/bin/claude", "--teleport", id]
+        );
+        assert_eq!(
+            claude(cloud(Cloud::Teleport(Some("--evil".into())), None))[..3],
+            ["/bin/claude", "--teleport", "--settings"],
+            "not an id: Claude's own list"
+        );
+        assert_eq!(
+            claude(cloud(Cloud::New, Some("-rf everything"))),
+            ["/bin/claude", "--cloud=-rf everything", "--settings", "{}"],
+            "the prompt is part of one argument; no model, name or id"
+        );
+        assert_eq!(
+            s(argv(
+                Kind::Codex,
+                Path::new("/bin/codex"),
+                &[],
+                &Launch {
+                    hook_args: Vec::new(),
+                    ..cloud(Cloud::New, Some("x"))
+                }
+            )),
+            ["/bin/codex", "-m", "opus", "--", "x"],
+            "codex has no cloud"
+        );
+    }
+
+    #[test]
+    fn finds_a_cloud_session_id() {
+        for (text, want) in [
+            (
+                "View: https://claude.ai/code/session_01FgvjhhX85h?from=cli",
+                Some("session_01FgvjhhX85h"),
+            ),
+            ("claude --teleport cse_abcdefgh12", Some("cse_abcdefgh12")),
+            ("session_short", None),
+            ("the session_ table", None),
+            ("", None),
+        ] {
+            assert_eq!(cloud_id(text).as_deref(), want, "{text}");
+        }
     }
 
     #[test]
@@ -473,7 +576,7 @@ mod tests {
             resume: Some("5f1c0000-0000-0000-0000-000000000000".into()),
             pick: false,
             fork: false,
-            teleport: false,
+            cloud: None,
         };
         let s = |v: Vec<OsString>| {
             v.into_iter()
