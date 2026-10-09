@@ -1,6 +1,6 @@
 [package]
 name = "bungkus-mc"
-version = "0.1.0-beta.11"
+version = "0.1.0-beta.12"
 edition = "2024"
 rust-version = "1.97"
 description = "Mission control for AI coding agents in the terminal"
