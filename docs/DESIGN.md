@@ -1494,10 +1494,10 @@ launches the agent with the mapped model. What the user sees:
 | Codex hooks not trusted        | `Codex hooks are not trusted yet: run codex, then /hooks to approve. Output still works.` |
 | Codex resume without hooks     | `not resumable — hooks off`                                                |
 | `C` outside a project          | `Teleport needs a project.`                                                |
-| `m` / `p` on a cloud card      | `A cloud card cannot move — r continues it in a project.`                  |
 | `C` while a session runs there | `A session runs here — teleport would switch its branch.`                  |
 | cloud card, id read            | `cloud · session_…`                                                        |
 | cloud card, id not on screen   | `cloud · r lists cloud sessions`                                           |
+| `m` / `p` on a cloud card      | `A cloud card cannot move — r continues it in a project.`                  |
 | picker, mode `cloud`           | `cloud: a new session on claude.ai/code · the prompt is its task`          |
 | routing first use              | dialog (§10)                                                               |
 | routing fell back              | getah bar 5 s: `Routing unavailable — using claude's default model.`      |

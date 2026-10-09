@@ -576,6 +576,10 @@ mod tests {
                 "session_01FgvjhhX85h then cse_abcdefgh12",
                 Some("cse_abcdefgh12"),
             ),
+            (
+                "session_01FgvjhhX85h then session_ab",
+                Some("session_01FgvjhhX85h"),
+            ),
             ("session_short", None),
             ("the session_ table", None),
             ("", None),
