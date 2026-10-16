@@ -953,8 +953,11 @@ pub(super) fn draw_links(
     .areas(inner);
     frame.render_widget(Paragraph::new(lines), list);
     frame.render_widget(
-        Line::styled("j/k move · enter read · o browser · esc close  ", muted)
-            .alignment(Alignment::Right),
+        Line::styled(
+            "j/k move · enter read · n session · o browser · esc close  ",
+            muted,
+        )
+        .alignment(Alignment::Right),
         hint,
     );
 }
@@ -1020,7 +1023,7 @@ fn draw_link_body(frame: &mut Frame, area: Rect, body: &crate::app::links::Body,
     frame.render_widget(Paragraph::new(lines), text);
     frame.render_widget(
         Line::styled(
-            format!("{place}j/k d/u scroll · o browser · esc back  "),
+            format!("{place}j/k d/u scroll · n session · o browser · esc back  "),
             muted,
         )
         .alignment(Alignment::Right),
