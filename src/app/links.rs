@@ -565,14 +565,39 @@ impl Model {
         body.lines = Some(body_lines(text));
     }
 
+    /// Closes the popup and opens the `n` picker with a prompt to work on
+    /// `link` (its number, title and URL; the agent reads the rest with
+    /// `gh`).
+    fn session_from(&mut self, link: &Link) {
+        self.open_picker();
+        if let Some(Overlay::Picker(p)) = &mut self.overlay {
+            p.prompt = format!(
+                "Work on GitHub {} #{}: {}\n{}",
+                link.kind.words(),
+                link.number,
+                link.title,
+                link.url
+            );
+        }
+    }
+
     /// Applies a key to the popup.
     ///
     /// In the list `j`/`k` or `↑`/`↓` move, `enter` shows the row's text
     /// in the popup, `o` opens the row in the browser (the popup stays),
     /// `esc` or `q` closes. In the text view the same keys scroll (`d`/`u`
     /// or `pgdn`/`pgup` by [`BODY_PAGE`], `g`/`G` to the ends), `o` opens
-    /// it in the browser and `esc`, `q` or `h` go back to the list.
+    /// it in the browser and `esc`, `q` or `h` go back to the list. In
+    /// either, `n` starts a new session on the row ([`Model::session_from`]).
     pub(super) fn viewer_key(&mut self, mut viewer: Viewer, key: KeyEvent) -> Option<Cmd> {
+        if key.code == KeyCode::Char('n') {
+            let rows = viewer.rows.as_deref().unwrap_or_default();
+            let chosen = viewer.body.as_ref().map(|b| &b.link);
+            if let Some(link) = chosen.or_else(|| rows.get(viewer.selected)) {
+                self.session_from(&link.clone());
+                return None;
+            }
+        }
         let cmd = if let Some(body) = &mut viewer.body {
             let last = body
                 .lines
@@ -819,6 +844,32 @@ mod tests {
         assert!(viewer.body.is_none() && viewer.selected == 2);
         m.update(press(KeyCode::Esc));
         assert!(m.overlay.is_none());
+    }
+
+    #[test]
+    fn n_in_the_popup_starts_a_session_on_the_row() {
+        let mut m = sample(&["a"]);
+        let folder = m.links_folder().unwrap();
+        for read_first in [false, true] {
+            m.update(press(KeyCode::Char('i')));
+            m.update(AppEvent::LinkList(
+                folder.clone(),
+                vec![link(LinkKind::Issue, 5), link(LinkKind::Issue, 6)],
+            ));
+            m.update(press(KeyCode::Char('j')));
+            if read_first {
+                m.update(press(KeyCode::Enter));
+            }
+            m.update(press(KeyCode::Char('n')));
+            let Some(Overlay::Picker(p)) = &m.overlay else {
+                panic!("n opens the picker");
+            };
+            assert_eq!(
+                p.prompt,
+                "Work on GitHub issue #6: title 6\nhttps://github.com/o/r/x/6"
+            );
+            m.update(press(KeyCode::Esc));
+        }
     }
 
     #[test]
