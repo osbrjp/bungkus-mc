@@ -1596,7 +1596,7 @@ impl Model {
 
     /// Opens the `n` picker for the selected project, preselecting the
     /// default agent.
-    fn open_picker(&mut self) {
+    pub(super) fn open_picker(&mut self) {
         let agent = self.default_agent();
         let project = self
             .selected_project()
