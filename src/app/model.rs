@@ -414,9 +414,10 @@ pub(crate) struct Model {
     pub quick_row: Project,
     /// When the band mascot was last clicked and which quote it says.
     pub poke: Option<(Instant, usize)>,
-    /// The last notification and when it was raised; the band mascot says
-    /// it for [`crate::ui::mascot::NOTICE`].
-    pub notice: Option<(Instant, String)>,
+    /// The last notification, when it was raised and the session it is
+    /// about; the band mascot says it for [`crate::ui::mascot::NOTICE`],
+    /// and a click on it goes to that session.
+    pub notice: Option<(Instant, SessionId, String)>,
     /// The "elsewhere" row that ends the projects list while an outside
     /// session runs in no project folder; its path is empty.
     pub elsewhere: Project,
@@ -870,7 +871,7 @@ impl Model {
         let takeover = self.take_over_deadline();
         let activity = self.activity_deadline();
         let poke = self.poke.map(|(at, _)| at + crate::ui::mascot::POKE);
-        let notice = self.notice.as_ref().map(|(at, _)| *at + NOTICE);
+        let notice = self.notice.as_ref().map(|(at, ..)| *at + NOTICE);
         syncs
             .chain(takeover)
             .chain(activity)
@@ -975,7 +976,10 @@ impl Model {
                 self.poke = self
                     .poke
                     .filter(|(at, _)| self.now < *at + crate::ui::mascot::POKE);
-                self.notice = self.notice.take().filter(|(at, _)| self.now < *at + NOTICE);
+                self.notice = self
+                    .notice
+                    .take()
+                    .filter(|(at, ..)| self.now < *at + NOTICE);
                 if let Some(cmd) = self.take_over_due() {
                     return Some(cmd);
                 }
@@ -1068,7 +1072,7 @@ impl Model {
             card.exited(code, now);
             if let State::Failed(reason) = &card.state {
                 let text = format!("{} failed: {reason}", card.id.short());
-                self.notice = Some((now, text.clone()));
+                self.notice = Some((now, card.id, text.clone()));
                 self.alerts.push(Alert::Failed(text));
             }
         }
@@ -1118,10 +1122,11 @@ impl Model {
         );
         if card.state == State::NeedsYou && before != State::NeedsYou {
             let text = format!("{} needs you: {}", card.id.short(), card.name);
-            self.notice = Some((now, text.clone()));
+            self.notice = Some((now, card.id, text.clone()));
             self.alerts.push(Alert::NeedsYou(text));
         } else if card.state == State::YourTurn && before == State::Working {
-            self.notice = Some((now, format!("{} finished: {}", card.id.short(), card.name)));
+            let text = format!("{} finished: {}", card.id.short(), card.name);
+            self.notice = Some((now, card.id, text));
             // The user is in this session's output pane and sees it finish.
             if watched != Some(card.id) {
                 self.alerts.push(Alert::Finished);
@@ -2768,7 +2773,7 @@ pub(crate) mod tests {
         assert!(
             m.notice
                 .as_ref()
-                .is_some_and(|(_, text)| text.ends_with("needs you: s")),
+                .is_some_and(|(_, _, text)| text.ends_with("needs you: s")),
             "the mascot says it too"
         );
         assert_eq!(crate::ui::title(&m), "bungkus-mc · 1 needs you");
@@ -2800,7 +2805,7 @@ pub(crate) mod tests {
         assert!(
             m.notice
                 .as_ref()
-                .is_some_and(|(_, text)| text.ends_with("finished: s")),
+                .is_some_and(|(_, _, text)| text.ends_with("finished: s")),
             "{:?}",
             m.notice
         );

@@ -797,7 +797,8 @@ duck–hop–duck–hop–duck–look–blink (one pose per 350 ms tick; a singl
 without motion) and shows a speech bubble with a random line from
 `QUOTES` (never the same twice in a row) for 4 s. A notification shows in
 the same bubble for 8 s, cut to the strip's width; a click's quote goes
-first. The mascot announces three things, for any session in any project:
+first, and a click on a notification selects its session and focuses its
+output. The mascot announces three things, for any session in any project:
 a task completed (`#a3f1 finished: <name>`, on working → your turn; the
 bubble only, the host terminal is not told), a session needs you and a
 session failed (the same text the host terminal is told, §9). With no
