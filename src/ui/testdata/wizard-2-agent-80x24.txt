@@ -7,9 +7,9 @@
            █  █
           ▀▀ ▀▀
 
-     agent       > claude    codex (not on PATH)
+     agent       > claude    codex (not on PATH)    pi (not on PATH)
 
-                 + ~/.local/bin/claude   - codex not on PATH
+                 + claude: ~/.local/bin/claude
                  n starts this agent; the n picker can still switch
 
 

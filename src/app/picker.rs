@@ -59,7 +59,7 @@ pub(crate) struct Picker {
     /// Prompt as typed.
     pub prompt: String,
     /// Which agents are installed, in `Kind::ALL` order.
-    pub installed: [bool; 2],
+    pub installed: [bool; Kind::COUNT],
     /// The project the session starts in, for the title.
     pub project: String,
 }
@@ -67,7 +67,7 @@ pub(crate) struct Picker {
 impl Picker {
     /// Opens the picker on the prompt row with `agent` preselected.
     #[must_use]
-    pub(crate) fn new(agent: Kind, installed: [bool; 2], project: String) -> Self {
+    pub(crate) fn new(agent: Kind, installed: [bool; Kind::COUNT], project: String) -> Self {
         Self {
             row: Row::Prompt,
             agent,
@@ -90,8 +90,8 @@ impl Picker {
             .map(|m| (*m).to_owned())
     }
 
-    /// Returns whether the session starts in Claude's cloud; Codex has no
-    /// cloud mode.
+    /// Returns whether the session starts in Claude's cloud; other agents
+    /// have no cloud mode.
     #[must_use]
     pub(crate) fn cloud(&self) -> bool {
         self.agent == Kind::Claude && self.mode == Mode::Cloud
@@ -162,14 +162,15 @@ impl Picker {
     fn change(&mut self, forward: bool) {
         match self.row {
             Row::Agent => {
-                let other = match self.agent {
-                    Kind::Claude => Kind::Codex,
-                    Kind::Codex => Kind::Claude,
-                };
                 let none_installed = !self.installed.contains(&true);
-                if self.installed[other as usize] || none_installed {
-                    self.agent = other;
-                    self.model = 0;
+                let mut candidate = self.agent;
+                for _ in 0..Kind::COUNT {
+                    candidate = candidate.cycle(forward);
+                    if self.installed[candidate as usize] || none_installed {
+                        self.agent = candidate;
+                        self.model = 0;
+                        break;
+                    }
                 }
             }
             Row::Model => {
@@ -231,7 +232,7 @@ mod tests {
 
     #[test]
     fn the_name_stays_empty_until_the_user_types_one() {
-        let mut p = Picker::new(Kind::Claude, [true, true], "kedai-web".into());
+        let mut p = Picker::new(Kind::Claude, [true, true, true], "kedai-web".into());
         typed(&mut p, "fix the flaky date test");
         assert_eq!(p.name, "", "the agent names the session");
         press(&mut p, KeyCode::BackTab);
@@ -245,7 +246,7 @@ mod tests {
 
     #[test]
     fn the_prompt_takes_new_lines_and_the_name_does_not() {
-        let mut p = Picker::new(Kind::Claude, [true, true], String::new());
+        let mut p = Picker::new(Kind::Claude, [true, true, true], String::new());
         typed(&mut p, "a");
         let alt_enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::ALT);
         assert_eq!(p.key(alt_enter), Outcome::Continue);
@@ -259,22 +260,26 @@ mod tests {
 
     #[test]
     fn changes_agent_only_to_installed_ones_and_resets_the_model() {
-        let mut p = Picker::new(Kind::Claude, [true, false], String::new());
+        let mut p = Picker::new(Kind::Claude, [true, false, false], String::new());
         p.row = Row::Model;
         press(&mut p, KeyCode::Right);
         assert_eq!(p.model_id().as_deref(), Some("haiku"));
         p.row = Row::Agent;
         press(&mut p, KeyCode::Right);
         assert_eq!(p.agent, Kind::Claude, "codex is not installed");
-        p.installed = [true, true];
+        p.installed = [true, true, true];
         press(&mut p, KeyCode::Right);
         assert_eq!((p.agent, p.model_id()), (Kind::Codex, None));
+        press(&mut p, KeyCode::Right);
+        assert_eq!((p.agent, p.model_id()), (Kind::Pi, None));
+        press(&mut p, KeyCode::Left);
+        assert_eq!(p.agent, Kind::Codex, "backward cycling includes Pi");
         assert_eq!(press(&mut p, KeyCode::Esc), Outcome::Cancel);
     }
 
     #[test]
     fn a_cloud_session_needs_a_task_and_claude() {
-        let mut p = Picker::new(Kind::Claude, [true, true], "kedai-web".into());
+        let mut p = Picker::new(Kind::Claude, [true, true, true], "kedai-web".into());
         p.row = Row::Mode;
         press(&mut p, KeyCode::Right);
         assert!(p.cloud());

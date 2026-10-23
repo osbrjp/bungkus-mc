@@ -1,46 +1,41 @@
 # bungkus-mc — Proposal
 
-Status: **M1–M8 built** (v0.1.0 candidate, not yet released; M9 not
-started); product-owner decisions of 2026-09-30 applied. Companion documents: ARCHITECTURE.md
-(how), DESIGN.md (look and keys), TECH_STACK.md (deps), CODING_RULES.md,
-SECURITY.md.
+Status: **M1–M8 plus Pi integration built** (v0.1.0 candidate, not yet
+released; M9 not started); decisions through 2026-10-23 applied.
+Companion documents: ARCHITECTURE.md (how), DESIGN.md (look and keys),
+TECH_STACK.md (deps), CODING_RULES.md, SECURITY.md.
 
 ## 1. Executive summary
 
 bungkus-mc ("mission control") is a terminal panel for people who run AI
-coding agents (Claude Code, Codex CLI) in the terminal. One screen: the
-projects in a workspace, the selected project's agent sessions with their
-subagents as a live list, the selected session's real interactive UI —
-plus what it is costing you: tokens, cost, context fill and your plans'
-5-hour / weekly limits. You watch three agents work, hear a bell when one
-needs you, jump in with `!` and answer without hunting through tabs. When
-you quit, mc stops the agents *and* the dev servers they left behind, and
-remembers every session so you can resume it.
+coding agents (Claude Code, Codex CLI and Pi) in the terminal. One screen:
+projects in a workspace, the selected project's sessions with available
+structure and usage, and the selected session's real interactive UI.
+You watch agents work, hear a bell when one needs you, jump in with `!`
+and answer without hunting through tabs. When you quit, mc stops agents
+and the dev servers they left behind, then remembers sessions for resume.
 
 Technical core (ARCHITECTURE.md): **written in Rust** (owner decision on
 the M0 spike, §6 item 15), mc runs each agent in a PTY it owns and
 renders it with an embedded terminal emulator (`alacritty_terminal`) —
-focusing that pane is talking to the agent. It learns session state and the subagent list from
-the agents' own **hook** systems (verified live on both), and usage
-figures from Claude Code's **status line** and, for Codex, from the
-`token_count` records of Codex's own session log — the one documented
-exception to "never parse transcripts". Optionally, off by default, it asks
-TypeSafe's Jev which model tier a start prompt needs and launches the
-agent with a cheaper model. One Rust binary (~1.2 MB), no daemon, no
-async runtime, 12 crates pinned by `Cargo.lock`, the same release/install pipeline as
-bungkus-cli (which stays Go), released together with bungkus-cli's
-adoption of the shared Daun Pisang palette.
+focusing that pane is talking to the agent. It learns session state and
+available structure from Claude/Codex hooks or a bundled Pi extension.
+Usage comes from Claude's status line, Codex `token_count` rollout
+records (the one transcript exception), and Pi's extension numeric
+reports. Optionally, off by default, it asks TypeSafe's Jev which model
+tier a start prompt needs. One Rust binary, no daemon or async runtime,
+12 crates pinned by `Cargo.lock`, and bungkus-cli's release pipeline.
 
 ## 2. Goals
 
 1. See all running agent sessions across a workspace at a glance; "needs
    you" impossible to miss (colour + glyph + word + bell + terminal title).
-2. See each session's subagents as they start, work and finish.
+2. See each session's subagents when the agent exposes their lifecycle.
 3. Interact with any session in place (the agent's own UI, not a re-skin).
 4. Start a new session for a project in two keystrokes: `n` `enter` from
    the projects pane (default agent, no prompt).
-5. See tokens, cost, context % per session and plan limits globally, for
-   both agents.
+5. See available tokens, cost and context per session, plus exposed plan
+   limits globally.
 6. Leave nothing running by accident: quitting stops the agents and the
    processes they started.
 7. Work well in kitty, Ghostty, iTerm2, WezTerm, Alacritty, Terminal.app,
@@ -61,7 +56,7 @@ adoption of the shared Daun Pisang palette.
   the card that started it; issues #228, #213).
 - Parsing transcripts, except the approved Codex `token_count` reader.
 - Per-subagent token counts. Nested subagent trees (flat list).
-- Agents other than Claude Code and Codex.
+- Agents other than Claude Code, Codex and Pi.
 - The `N` "new project via bungkus-cli" action (stage 2).
 - Telemetry of any kind; network beyond the update check and, only when
   the user opts in, the routing request.
@@ -260,13 +255,18 @@ with the last agent preselected.
     fourth step and row (owner request, 2026-10-02). The `n` picker preselects the default agent (no
     "last used"). Built in M2 (DESIGN.md §5.8).
 23. **Sessions started outside mc are shown, read-only** (owner request,
-    2026-10-01). Claude sessions come from `claude agents --json`, Codex
-    sessions from running `codex` processes and their working folder.
-    They are listed under the project they run in, below mc's own cards,
-    with state and pid only: no output, no INTERACT, no stop, no usage,
-    never persisted. A Claude one can be taken over: after the user quits
-    it in its own terminal, mc resumes it with `claude --resume`
+    2026-10-01). Claude sessions come from `claude agents --json`;
+    native Codex and Pi sessions come from own-uid process snapshots and
+    cwd from `lsof` (Node-hosted Pi is omitted rather than reading argv).
+    They are listed under their project with state and pid only. A Claude
+    one can be taken over after it exits; any listed one can be stopped
+    only after explicit confirmation and a fresh pid/start-time check
     (ARCHITECTURE §3.4).
+24. **Pi support** (issue #244, 2026-10-23): treat Pi as a first-class
+    `agent::Kind`; launch/resume its real TUI in mc's PTY; load a bundled,
+    private, per-launch extension for lifecycle and numeric usage; never
+    read Pi session files; show no subagent tree or plan limits because Pi
+    exposes neither; keep `P` as its badge in every icon set.
 
 ## 7. Open questions for the product owner
 

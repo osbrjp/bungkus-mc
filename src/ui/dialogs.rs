@@ -370,14 +370,12 @@ pub(super) fn draw_resume_agent(frame: &mut Frame, area: Rect, kind: Kind, theme
         };
         Span::styled(format!("{text:<10}"), style)
     };
+    let mut agents = vec![Span::raw("  ")];
+    agents.extend(Kind::ALL.map(choice));
     let lines = vec![
         Line::from(""),
         Line::styled("  Resume a past session with", theme.fg(Token::Fg)),
-        Line::from(vec![
-            Span::raw("  "),
-            choice(Kind::Claude),
-            choice(Kind::Codex),
-        ]),
+        Line::from(agents),
         Line::styled(
             "  Its own list of this project's sessions opens.",
             theme.fg(Token::FgMuted),

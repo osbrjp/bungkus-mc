@@ -187,12 +187,13 @@ pub(crate) struct Env {
     pub state_path: Option<PathBuf>,
 }
 
-/// What launches need besides the model: the socket for hooks and mc's
-/// own path for the hook command.
+/// What launches need besides the model: the socket, mc's own path for
+/// hook commands, and the bundled Pi extension when it could be written.
 #[derive(Debug)]
 struct Hooks {
     socket: PathBuf,
     exe: PathBuf,
+    pi_extension: Option<PathBuf>,
 }
 
 /// Runs the TUI until the user quits.
@@ -356,10 +357,16 @@ fn start_background(
     let listener = server::start(&dir, uid, tx.clone(), AppEvent::Hook);
     let exe = std::env::current_exe().and_then(|p| p.canonicalize());
     let hooks = match (&listener, exe) {
-        (Ok(server), Ok(exe)) => Some(Hooks {
-            socket: server.path.clone(),
-            exe,
-        }),
+        (Ok(server), Ok(exe)) => {
+            let pi_extension = agent::pi::install_extension(&dir)
+                .inspect_err(|error| crate::debug_log!("Pi extension unavailable: {error}"))
+                .ok();
+            Some(Hooks {
+                socket: server.path.clone(),
+                exe,
+                pi_extension,
+            })
+        }
         (Err(e), _) => {
             model.message = Some(format!("No live tree this run ({e}); output still works."));
             None
@@ -724,7 +731,13 @@ fn save_state(model: &mut Model, env: &Env) {
         })
     };
     let ours = state::Limits {
-        vendors: [0, 1].map(|v| (model.limits[v].clone(), unix(model.limits_at[v]))),
+        vendors: Kind::ALL
+            .map(|kind| {
+                let vendor = kind as usize;
+                (model.limits[vendor].clone(), unix(model.limits_at[vendor]))
+            })
+            .into_iter()
+            .collect(),
     };
     let file = state::limits_file(path);
     let limits = state::merge_limits(state::load_limits(&file), ours.clone());
@@ -890,6 +903,34 @@ fn claude_config_dir(home: Option<&Path>) -> PathBuf {
     )
 }
 
+/// Adds the launch-time integration for `kind` and returns Claude's original
+/// status line, when one must be forwarded after mc's own status line.
+fn prepare_agent_integration(
+    model: &Model,
+    hooks: Option<&Hooks>,
+    project: &Path,
+    kind: Kind,
+    launch: &mut agent::Launch,
+) -> Option<agent::claude::UserStatusLine> {
+    let hooks = hooks?;
+    match kind {
+        Kind::Claude => {
+            let config_dir = claude_config_dir(model.home.as_deref());
+            let user_line = agent::claude::user_statusline(project, &config_dir);
+            launch.settings = Some(agent::claude::settings(&hooks.exe, user_line.as_ref()));
+            user_line
+        }
+        Kind::Codex => {
+            launch.hook_args = agent::codex::hook_args(&hooks.exe);
+            None
+        }
+        Kind::Pi => {
+            launch.pi_extension.clone_from(&hooks.pi_extension);
+            None
+        }
+    }
+}
+
 /// Starts a session for `request` and adds its card; a failure to start
 /// becomes a failed card with the reason.
 fn launch(
@@ -906,15 +947,7 @@ fn launch(
         mut launch,
         replaces,
     } = request;
-    if let (Some(hooks), Kind::Codex) = (hooks, kind) {
-        launch.hook_args = agent::codex::hook_args(&hooks.exe);
-    }
-    let mut user_line = None;
-    if let (Some(hooks), Kind::Claude) = (hooks, kind) {
-        let config_dir = claude_config_dir(model.home.as_deref());
-        user_line = agent::claude::user_statusline(&project, &config_dir);
-        launch.settings = Some(agent::claude::settings(&hooks.exe, user_line.as_ref()));
-    }
+    let user_line = prepare_agent_integration(model, hooks, &project, kind, &mut launch);
     let mut card = Card::new(
         launch.id,
         kind,
@@ -946,15 +979,21 @@ fn launch(
     extra.extend(gh.iter().map(|dir| ("GH_CONFIG_DIR", dir.as_os_str())));
     if let Some(hooks) = hooks {
         extra.push(("BUNGKUS_MC_SOCK", hooks.socket.as_os_str()));
+        if kind == Kind::Pi && launch.pi_extension.is_some() {
+            extra.push(("BUNGKUS_MC_EXE", hooks.exe.as_os_str()));
+        }
     }
     if let Some(line) = &user_line {
         extra.push(("BUNGKUS_MC_USER_STATUSLINE", OsStr::new(&line.command)));
     }
     let child = child_env(std::env::vars_os(), &extra);
-    if launch.settings.is_some() || !launch.hook_args.is_empty() {
+    if launch.settings.is_some() || !launch.hook_args.is_empty() || launch.pi_extension.is_some() {
         card.expect_hooks();
     }
-    card.agent_session.clone_from(&launch.resume);
+    card.agent_session = match (kind, &launch.resume, launch.pick) {
+        (Kind::Pi, None, false) => Some(id),
+        (_, resume, _) => resume.clone(),
+    };
     card.prompted = launch.resume.is_some();
     if let Some(old) = replaces {
         model.cards.retain(|c| c.id != old);
@@ -1324,12 +1363,12 @@ fn worktree_for(
 }
 
 /// Returns what goes between the agent's program and mc's own arguments,
-/// for a new session and a resumed one alike: the configured `args`,
-/// `--worktree <name>` if any, `--add-dir <folder>` for every project
-/// grouped with `project` ([`Model::group_of`]), and the instructions (the
-/// built-in rules unless `instructions` is off in the config, the related
-/// folders, then the open workspace's `.bungkus-mc/CLAUDE.md` /
-/// `AGENTS.md`; see [`agent::instruction_args`]).
+/// for a new session and a resumed one alike: configured `args`, Claude's
+/// `--worktree <name>`, Claude/Codex `--add-dir <folder>` for grouped
+/// projects, and instructions (built-in rules unless `instructions` is off,
+/// related folders, then the workspace's `.bungkus-mc/CLAUDE.md` /
+/// `AGENTS.md`; see [`agent::instruction_args`]). Pi receives the related
+/// folders only as instructions because it has no `--add-dir` option.
 ///
 /// A new cloud session (`cloud`) gets the configured `args` only: its
 /// machine has neither the related folders nor a use for mc's rules.
@@ -1344,11 +1383,15 @@ fn extra_args(
     }
     let dir = model.root().map(|root| root.join(config::WORKSPACE_DIR));
     let related = model.group_of(project);
-    let shared = related
-        .iter()
-        .filter_map(|folder| folder.to_str())
-        .flat_map(|folder| ["--add-dir".to_owned(), folder.to_owned()])
-        .collect();
+    let shared: Vec<String> = if kind == Kind::Pi {
+        Vec::new()
+    } else {
+        related
+            .iter()
+            .filter_map(|folder| folder.to_str())
+            .flat_map(|folder| ["--add-dir".to_owned(), folder.to_owned()])
+            .collect()
+    };
     let instructions = agent::instruction_args(kind, dir.as_deref(), config.instructions, &related);
     [
         worktree_args(&config.agents.get(kind).args, worktree),
@@ -1710,15 +1753,15 @@ fn restore_projects(model: &mut Model, moved: &[(PathBuf, PathBuf)]) {
 
 /// Sends SIGTERM to outside session `pid` after the user confirmed it
 /// (SECURITY.md "Sessions outside mc"): only when a fresh snapshot of this
-/// user's processes still shows it as `claude`, `codex` or `node`, and with
-/// that snapshot's start time checked again right before the signal.
+/// user's processes still shows it as `claude`, `codex`, `pi` or `node`,
+/// and with that snapshot's start time checked again before the signal.
 /// Returns the line to show.
 fn stop_outside(pid: i32, uid: u32) -> String {
     let snapshot = crate::proc::snapshot(uid);
     let Some(proc) = snapshot.iter().find(|p| p.pid == pid) else {
         return format!("pid {pid} has already gone.");
     };
-    if !matches!(proc.name().as_str(), "claude" | "codex" | "node") {
+    if !matches!(proc.name().as_str(), "claude" | "codex" | "pi" | "node") {
         return format!(
             "pid {pid} is no longer an agent ({}); left alone.",
             proc.name()
@@ -1861,8 +1904,16 @@ mod tests {
         model.overrides.groups = vec![vec!["web".into(), "api".into()]];
         for kind in Kind::ALL {
             let args = extra_args(&model, &config, (kind, &api, false), None);
-            assert_eq!(args[..2], ["--add-dir", web.to_str().unwrap()], "{kind:?}");
-            assert!(args[3].contains("Related folders") && args[3].contains(web.to_str().unwrap()));
+            if kind == Kind::Pi {
+                assert_eq!(args[0], "--append-system-prompt");
+                assert!(args[1].contains("Related folders"));
+                assert!(args[1].contains(web.to_str().unwrap()));
+            } else {
+                assert_eq!(args[..2], ["--add-dir", web.to_str().unwrap()], "{kind:?}");
+                assert!(
+                    args[3].contains("Related folders") && args[3].contains(web.to_str().unwrap())
+                );
+            }
             assert!(extra_args(&model, &config, (kind, &docs, false), None).is_empty());
             assert!(
                 extra_args(&model, &config, (kind, &api, true), None).is_empty(),
@@ -1937,6 +1988,7 @@ mod tests {
                 prompt: None,
                 settings: None,
                 hook_args: Vec::new(),
+                pi_extension: None,
                 resume: resume.map(str::to_owned),
                 pick: false,
                 fork: false,

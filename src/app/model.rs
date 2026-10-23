@@ -131,6 +131,7 @@ fn resume_cmd(card: &Card) -> Option<Cmd> {
         prompt: None,
         settings: None,
         hook_args: Vec::new(),
+        pi_extension: None,
         resume: Some(card.resume_id()?),
         pick: false,
         fork: false,
@@ -302,7 +303,7 @@ pub(crate) struct Model {
     /// One-line message shown in place of the key hints until the next key.
     pub message: Option<String>,
     /// Where each agent was found on `PATH`, in `Kind::ALL` order.
-    pub found: [Option<String>; 2],
+    pub found: [Option<String>; Kind::COUNT],
     /// The editors the settings offer ([`crate::app::tools::editors`]).
     pub editors: Vec<String>,
     /// Workspace used when the wizard is skipped with an empty field.
@@ -330,10 +331,10 @@ pub(crate) struct Model {
     pub alerts: Vec<Alert>,
     /// The latest plan limits per vendor (`Kind::ALL` order); per
     /// account, not per session (DESIGN §6.1).
-    pub limits: [Vec<Window>; 2],
+    pub limits: [Vec<Window>; Kind::COUNT],
     /// When each vendor's limits were last reported; they only refresh when
     /// a session in mc reports, so the status bar shows their age once old.
-    pub limits_at: [Option<Instant>; 2],
+    pub limits_at: [Option<Instant>; Kind::COUNT],
     /// Wall-clock time in unix seconds, for stale limit windows.
     pub unix_now: u64,
     /// What the open workspace's own `.bungkus-mc/config.json` sets
@@ -463,7 +464,7 @@ impl Model {
     pub(crate) fn new(
         theme: Theme,
         home: Option<PathBuf>,
-        found: [Option<String>; 2],
+        found: [Option<String>; Kind::COUNT],
         fallback: PathBuf,
     ) -> Self {
         Self {
@@ -501,8 +502,8 @@ impl Model {
             frame: 0,
             quitting: None,
             alerts: Vec::new(),
-            limits: [Vec::new(), Vec::new()],
-            limits_at: [None, None],
+            limits: std::array::from_fn(|_| Vec::new()),
+            limits_at: [None; Kind::COUNT],
             unix_now: 0,
             overrides: crate::store::config::Overrides::default(),
             keep: Vec::new(),
@@ -823,8 +824,8 @@ impl Model {
 
     /// Returns the installed agents, in `Kind::ALL` order.
     #[must_use]
-    pub(crate) fn installed(&self) -> [bool; 2] {
-        [self.found[0].is_some(), self.found[1].is_some()]
+    pub(crate) fn installed(&self) -> [bool; Kind::COUNT] {
+        self.found.each_ref().map(Option::is_some)
     }
 
     /// Returns whether anything on screen animates (a running card of the
@@ -1382,10 +1383,17 @@ impl Model {
                 | KeyCode::Down
                 | KeyCode::Char('h' | 'l' | 'j' | 'k')
                 | KeyCode::Tab => {
-                    let other = match kind {
-                        Kind::Claude => Kind::Codex,
-                        Kind::Codex => Kind::Claude,
-                    };
+                    let forward = !matches!(
+                        key.code,
+                        KeyCode::Left | KeyCode::Up | KeyCode::Char('h' | 'k')
+                    );
+                    let mut other = kind;
+                    for _ in 0..Kind::COUNT {
+                        other = other.cycle(forward);
+                        if self.found[other as usize].is_some() {
+                            break;
+                        }
+                    }
                     self.overlay = Some(Overlay::ResumeAgent(other));
                     None
                 }
@@ -1447,6 +1455,7 @@ impl Model {
             prompt: text(&p.prompt),
             settings: None,
             hook_args: Vec::new(),
+            pi_extension: None,
             resume: None,
             pick: false,
             fork: false,
@@ -1638,9 +1647,8 @@ impl Model {
     }
 
     /// Opens a past session of the selected project that mc did not start:
-    /// asks which agent when both are installed, then launches that agent's
-    /// own list of past sessions (`claude --resume`, `codex resume`) in the
-    /// output pane, where the user picks one.
+    /// asks which agent when several are installed, then launches that
+    /// agent's own session list in the output pane.
     fn resume_pick(&mut self) -> Option<Cmd> {
         if self
             .selected_project()
@@ -1648,16 +1656,25 @@ impl Model {
         {
             return None;
         }
-        let default = self.default_agent();
-        match self.installed() {
-            [true, true] => {
-                self.overlay = Some(Overlay::ResumeAgent(default));
+        let installed = self.installed();
+        let available: Vec<Kind> = Kind::ALL
+            .into_iter()
+            .filter(|kind| installed[*kind as usize])
+            .collect();
+        match available.as_slice() {
+            [] => {
+                self.message = Some("No supported agent is on PATH.".into());
                 None
             }
-            [true, false] => self.pick_past(Kind::Claude),
-            [false, true] => self.pick_past(Kind::Codex),
-            [false, false] => {
-                self.message = Some("Neither claude nor codex is on PATH.".into());
+            [only] => self.pick_past(*only),
+            _ => {
+                let default = self.default_agent();
+                let selected = if available.contains(&default) {
+                    default
+                } else {
+                    available[0]
+                };
+                self.overlay = Some(Overlay::ResumeAgent(selected));
                 None
             }
         }
@@ -1676,6 +1693,7 @@ impl Model {
                 prompt: None,
                 settings: None,
                 hook_args: Vec::new(),
+                pi_extension: None,
                 resume: None,
                 pick: true,
                 fork: false,
@@ -1715,6 +1733,7 @@ impl Model {
                 prompt: None,
                 settings: None,
                 hook_args: Vec::new(),
+                pi_extension: None,
                 resume: None,
                 pick: false,
                 fork: false,
@@ -2120,7 +2139,7 @@ pub(crate) mod tests {
         let mut model = Model::new(
             Theme::new(ThemeName::Dark, Profile::NoColor, Background::Paint),
             Some(home.clone()),
-            [Some("~/.local/bin/claude".into()), None],
+            [Some("~/.local/bin/claude".into()), None, None],
             home,
         );
         let projects = names
@@ -2708,7 +2727,7 @@ pub(crate) mod tests {
     #[test]
     fn picker_refuses_an_agent_that_is_not_installed() {
         let mut m = sample(&["kedai-web"]);
-        m.found = [None, None];
+        m.found = [None, None, None];
         m.update(press(KeyCode::Char('n')));
         assert_eq!(m.update(press(KeyCode::Enter)), None);
         assert_eq!(
@@ -2849,6 +2868,44 @@ pub(crate) mod tests {
             !m.cards[0].output_only(m.now + HOOK_GRACE),
             "a usage line counts as a sign of life"
         );
+    }
+
+    #[test]
+    fn pi_lifecycle_and_usage_update_the_card_without_plan_limits() {
+        let mut m = sample(&["a"]);
+        let (id, _w) = with_session(&mut m, "pi");
+        m.cards[0].kind = Kind::Pi;
+        m.cards[0].expect_hooks();
+        m.update(hook_line(
+            id,
+            r#"{"hook_event_name":"SessionStart","session_id":"pi-session_1"}"#,
+        ));
+        m.update(hook_line(id, r#"{"hook_event_name":"UserPromptSubmit"}"#));
+        assert_eq!(m.cards[0].state, State::Working);
+        m.update(hook_line(
+            id,
+            r#"{"hook_event_name":"Notification","notification_type":"agent_needs_input"}"#,
+        ));
+        assert_eq!(m.cards[0].state, State::NeedsYou);
+        m.update(hook_line(id, r#"{"hook_event_name":"UserPromptSubmit"}"#));
+        let usage = crate::agent::usage::Usage {
+            session_name: Some("pi work".into()),
+            input: Some(33),
+            output: Some(4),
+            ..Default::default()
+        };
+        let wire = Wire {
+            mc_session: id.0.hyphenated().to_string(),
+            event: crate::ipc::HookEvent::default(),
+            usage: Some(usage),
+        };
+        m.update(AppEvent::Hook(serde_json::to_vec(&wire).unwrap()));
+        m.update(hook_line(id, r#"{"hook_event_name":"Stop"}"#));
+        assert_eq!(m.cards[0].state, State::YourTurn);
+        assert_eq!(m.cards[0].name, "pi work");
+        assert_eq!(m.cards[0].usage.as_ref().and_then(|u| u.input), Some(33));
+        assert!(m.limits[Kind::Pi as usize].is_empty());
+        assert_eq!(m.cards[0].resume_id().as_deref(), Some("pi-session_1"));
     }
 
     #[test]

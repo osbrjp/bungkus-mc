@@ -1,12 +1,13 @@
 //! Hook events from the agents to mc over a private unix socket
 //! (ARCHITECTURE §4.3, SECURITY.md "Hook / status-line socket").
 //!
-//! The agent runs `bungkus-mc hook`, which trims the payload to the fields
-//! below and sends one JSON line to mc's socket. Only these fields ever
-//! leave the hook process: no `tool_input` beyond its description, no
-//! `tool_response`, no prompt text.
+//! Claude and Codex run `bungkus-mc hook`; mc's bundled Pi extension runs
+//! `bungkus-mc pi-hook`. Both trim payloads to the fields below and send
+//! one JSON line to mc's socket. No `tool_input` beyond its description,
+//! `tool_response` or prompt text crosses that boundary.
 
 pub(crate) mod hook;
+pub(crate) mod pi_hook;
 pub(crate) mod server;
 pub(crate) mod statusline;
 
@@ -62,11 +63,11 @@ pub(crate) struct HookEvent {
     pub tool_use_id: Option<String>,
     /// `tool_input.description`, the only `tool_input` field kept.
     pub tool_desc: Option<String>,
-    /// `notification_type` (Claude) or `permission_request` (Codex).
+    /// Permission/input notification type (Claude, Codex or normalized Pi).
     pub notify: Option<String>,
     /// `last_assistant_message`, cut short.
     pub last_message: Option<String>,
-    /// `session_title` (Claude).
+    /// Session title from Claude or Pi.
     pub session_title: Option<String>,
     /// `background_tasks` (Claude `Stop`/`SubagentStop`); `None` when absent.
     pub background_tasks: Option<Vec<BackgroundTask>>,
@@ -76,8 +77,8 @@ pub(crate) struct HookEvent {
     pub cwd: Option<String>,
 }
 
-/// One line on the socket: mc's session id and either a trimmed hook
-/// event or usage figures from the status line.
+/// One line on the socket: mc's session id and either a trimmed lifecycle
+/// event or usage figures from a status line / extension.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Wire {
     /// `BUNGKUS_MC_SESSION` of the sending process.
@@ -85,7 +86,7 @@ pub(crate) struct Wire {
     /// The hook event (empty name for a usage line).
     #[serde(default)]
     pub event: HookEvent,
-    /// Usage from `bungkus-mc statusline`.
+    /// Numeric usage from a bounded bridge payload.
     #[serde(default)]
     pub usage: Option<Usage>,
 }

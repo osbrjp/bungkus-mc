@@ -144,6 +144,8 @@ pub(crate) struct Agents {
     pub claude: AgentCommand,
     /// Codex.
     pub codex: AgentCommand,
+    /// Pi.
+    pub pi: AgentCommand,
 }
 
 impl Agents {
@@ -153,6 +155,7 @@ impl Agents {
         match kind {
             Kind::Claude => &self.claude,
             Kind::Codex => &self.codex,
+            Kind::Pi => &self.pi,
         }
     }
 }
@@ -495,14 +498,15 @@ mod tests {
         assert_eq!(load(&path).unwrap(), Config::default());
         std::fs::write(
             &path,
-            r#"{"theme":"light","defaultAgent":"codex","future":1}"#,
+            r#"{"theme":"light","defaultAgent":"pi","agents":{"pi":{"command":"pi-custom"}},"future":1}"#,
         )
         .unwrap();
         let config = load(&path).unwrap();
         assert_eq!(
             (config.theme, config.default_agent),
-            (ThemeChoice::Light, Kind::Codex)
+            (ThemeChoice::Light, Kind::Pi)
         );
+        assert_eq!(config.agents.pi.command.as_deref(), Some("pi-custom"));
         std::fs::write(&path, r#"{"theme":"purple"}"#).unwrap();
         assert!(matches!(load(&path), Err(ConfigError::Invalid(_))));
         std::fs::write(&path, "{not json").unwrap();

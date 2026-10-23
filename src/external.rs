@@ -2,11 +2,11 @@
 //! (PROPOSAL §6 item 23, ARCHITECTURE §3.4).
 //!
 //! Claude Code lists its own live sessions with `claude agents --json`
-//! (pid, cwd, name, `busy`/`idle`; its `background` rows, the agents its
-//! own daemon runs without a terminal, are left out); Codex has no such list, so a running
-//! `codex` process of this user and its working folder stand in for one.
-//! mc never types into these sessions, never signals them and never reads
-//! their transcripts: it only shows that they exist and what they report.
+//! (pid, cwd, name, `busy`/`idle`; its daemon's terminal-less background
+//! rows are left out). Codex and Pi expose no equivalent list, so a
+//! top-level process named `codex` or `pi` and its working folder stand in
+//! for one. Node-hosted Pi processes cannot be identified without argv and
+//! are intentionally omitted. mc never reads an agent transcript.
 
 use std::collections::HashMap;
 use std::io::Read;
@@ -39,9 +39,9 @@ pub(crate) struct External {
     pub pid: i32,
     /// The folder it runs in.
     pub cwd: PathBuf,
-    /// Its name (Claude) or `codex`, sanitised.
+    /// Its agent name, sanitised.
     pub name: String,
-    /// Claude's own status word (`busy`, `idle`, …); `None` for Codex.
+    /// Claude's own status word (`busy`, `idle`, …); `None` for Codex and Pi.
     pub status: Option<String>,
     /// The agent's session id, when it reports one.
     pub session_id: Option<String>,
@@ -141,22 +141,35 @@ fn claude_sessions(program: &Path) -> Vec<External> {
     parse_claude(&out)
 }
 
-/// Picks the interactive Codex processes from a snapshot: `comm` named
-/// `codex`, not the app-server daemon, and not a child of another `codex`
-/// (the npm wrapper starts the native binary).
-#[must_use]
-pub(crate) fn codex_processes(snapshot: &[Proc]) -> Vec<&Proc> {
-    let is_codex =
-        |p: &Proc| p.comm.rsplit('/').next() == Some("codex") && !p.comm.contains("app-server");
-    let codex_pids: Vec<i32> = snapshot
+/// Picks top-level processes named `name`; a wrapper child with a parent
+/// of the same name is not another session.
+fn named_processes<'a>(snapshot: &'a [Proc], name: &str) -> Vec<&'a Proc> {
+    let named = |p: &Proc| p.comm.rsplit('/').next() == Some(name);
+    let pids: Vec<i32> = snapshot
         .iter()
-        .filter(|p| is_codex(p))
-        .map(|p| p.pid)
+        .filter(|process| named(process))
+        .map(|process| process.pid)
         .collect();
     snapshot
         .iter()
-        .filter(|p| is_codex(p) && !codex_pids.contains(&p.ppid))
+        .filter(|process| named(process) && !pids.contains(&process.ppid))
         .collect()
+}
+
+/// Picks the interactive Codex processes from a snapshot, excluding its
+/// app-server daemon and wrapper children.
+#[must_use]
+pub(crate) fn codex_processes(snapshot: &[Proc]) -> Vec<&Proc> {
+    named_processes(snapshot, "codex")
+        .into_iter()
+        .filter(|process| !process.comm.contains("app-server"))
+        .collect()
+}
+
+/// Picks top-level native Pi processes from a snapshot.
+#[must_use]
+pub(crate) fn pi_processes(snapshot: &[Proc]) -> Vec<&Proc> {
+    named_processes(snapshot, "pi")
 }
 
 /// Parses `lsof -a -d cwd -p … -Fpn`: `p<pid>` then `n<path>`.
@@ -174,27 +187,38 @@ pub(crate) fn parse_cwd(text: &str) -> HashMap<i32, PathBuf> {
     out
 }
 
-/// Returns the running Codex sessions with their working folders.
-fn codex_sessions(snapshot: &[Proc]) -> Vec<External> {
-    let procs = codex_processes(snapshot);
+/// Returns running Codex and native Pi sessions with their working folders.
+fn process_sessions(snapshot: &[Proc]) -> Vec<External> {
+    let procs: Vec<(Kind, &Proc)> = codex_processes(snapshot)
+        .into_iter()
+        .map(|process| (Kind::Codex, process))
+        .chain(
+            pi_processes(snapshot)
+                .into_iter()
+                .map(|process| (Kind::Pi, process)),
+        )
+        .collect();
     if procs.is_empty() {
         return Vec::new();
     }
-    let pids: Vec<String> = procs.iter().map(|p| p.pid.to_string()).collect();
+    let pids: Vec<String> = procs
+        .iter()
+        .map(|(_, process)| process.pid.to_string())
+        .collect();
     let cwds = Command::new("lsof")
         .args(["-a", "-d", "cwd", "-p", &pids.join(","), "-Fpn"])
         .env("LC_ALL", "C")
         .output()
-        .map(|o| parse_cwd(&String::from_utf8_lossy(&o.stdout)))
+        .map(|output| parse_cwd(&String::from_utf8_lossy(&output.stdout)))
         .unwrap_or_default();
     procs
         .into_iter()
-        .filter_map(|p| {
+        .filter_map(|(kind, process)| {
             Some(External {
-                kind: Kind::Codex,
-                pid: p.pid,
-                cwd: cwds.get(&p.pid)?.clone(),
-                name: "codex".to_owned(),
+                kind,
+                pid: process.pid,
+                cwd: cwds.get(&process.pid)?.clone(),
+                name: kind.command().to_owned(),
                 status: None,
                 session_id: None,
                 started_ms: None,
@@ -203,8 +227,8 @@ fn codex_sessions(snapshot: &[Proc]) -> Vec<External> {
         .collect()
 }
 
-/// Lists every agent session of this user that is running now, from both
-/// agents; the caller drops the ones mc started itself.
+/// Lists every supported agent session of this user that can be identified;
+/// the caller drops the ones mc started itself.
 ///
 /// # Arguments
 ///
@@ -213,7 +237,7 @@ fn codex_sessions(snapshot: &[Proc]) -> Vec<External> {
 #[must_use]
 pub(crate) fn scan(claude: Option<&Path>, uid: u32) -> Vec<External> {
     let mut all = claude.map(claude_sessions).unwrap_or_default();
-    all.extend(codex_sessions(&crate::proc::snapshot(uid)));
+    all.extend(process_sessions(&crate::proc::snapshot(uid)));
     all
 }
 
@@ -257,7 +281,7 @@ mod tests {
     }
 
     #[test]
-    fn picks_top_level_interactive_codex_processes() {
+    fn picks_top_level_interactive_codex_and_pi_processes() {
         let p = |pid, ppid, comm: &str| Proc {
             pid,
             ppid,
@@ -278,9 +302,13 @@ mod tests {
                 "/opt/homebrew/lib/node_modules/@openai/codex/bin/codex",
             ),
             p(30, 5, "/usr/bin/vim"),
+            p(40, 5, "/opt/homebrew/bin/pi"),
+            p(41, 40, "/usr/local/bin/pi"),
         ];
-        let pids: Vec<i32> = codex_processes(&snapshot).iter().map(|p| p.pid).collect();
-        assert_eq!(pids, [20]);
+        let codex: Vec<i32> = codex_processes(&snapshot).iter().map(|p| p.pid).collect();
+        let pi: Vec<i32> = pi_processes(&snapshot).iter().map(|p| p.pid).collect();
+        assert_eq!(codex, [20]);
+        assert_eq!(pi, [40]);
     }
 
     #[test]

@@ -80,7 +80,7 @@ pub(crate) struct Form {
     /// Whether `auto` means the `nerd` set here ([`IconChoice::resolve`]).
     pub nerd_font: bool,
     /// Where each agent was found on `PATH`, in [`Kind::ALL`] order.
-    pub found: [Option<String>; 2],
+    pub found: [Option<String>; Kind::COUNT],
     /// The editors to choose from ([`crate::app::tools::editors`]).
     pub editors: Vec<String>,
     /// The chosen editor: an index into `editors`, or `editors.len()` for
@@ -116,7 +116,7 @@ impl Form {
     pub(crate) fn new(
         kind: FormKind,
         settings: &Settings,
-        found: [Option<String>; 2],
+        found: [Option<String>; Kind::COUNT],
         editors: Vec<String>,
         fallback: PathBuf,
         home: Option<PathBuf>,
@@ -157,7 +157,7 @@ impl Form {
         };
         form.sync_browser();
         if !form.selectable(form.agent) {
-            form.agent = form.cycle_agent();
+            form.agent = form.cycle_agent(true);
         }
         form
     }
@@ -352,7 +352,7 @@ impl Form {
     /// Moves the focused choice to the next (or previous) value.
     fn change(&mut self, forward: bool) {
         match self.field {
-            Field::Agent => self.agent = self.cycle_agent(),
+            Field::Agent => self.agent = self.cycle_agent(forward),
             Field::Theme => {
                 let all = ThemeChoice::ALL;
                 let i = all.iter().position(|t| *t == self.theme).unwrap_or(0);
@@ -435,17 +435,16 @@ impl Form {
         installed(kind) || !Kind::ALL.into_iter().any(installed)
     }
 
-    /// Returns the other agent when it is selectable, else the current one.
-    fn cycle_agent(&self) -> Kind {
-        let other = match self.agent {
-            Kind::Claude => Kind::Codex,
-            Kind::Codex => Kind::Claude,
-        };
-        if self.selectable(other) {
-            other
-        } else {
-            self.agent
+    /// Returns the adjacent selectable agent, else the current one.
+    fn cycle_agent(&self, forward: bool) -> Kind {
+        let mut candidate = self.agent;
+        for _ in 0..Kind::COUNT {
+            candidate = candidate.cycle(forward);
+            if self.selectable(candidate) {
+                return candidate;
+            }
         }
+        self.agent
     }
 
     /// Moves focus between the settings screen's fields, wrapping round.
@@ -590,7 +589,7 @@ mod tests {
         }
     }
 
-    fn wizard(found: [Option<String>; 2]) -> Form {
+    fn wizard(found: [Option<String>; Kind::COUNT]) -> Form {
         let empty = Settings {
             workspace: PathBuf::new(),
             theme: ThemeChoice::Auto,
@@ -612,7 +611,11 @@ mod tests {
     #[test]
     fn wizard_walks_every_step_and_submits() {
         let tmp = std::env::temp_dir();
-        let mut form = wizard([Some("claude".into()), Some("codex".into())]);
+        let mut form = wizard([
+            Some("claude".into()),
+            Some("codex".into()),
+            Some("pi".into()),
+        ]);
         typed(&mut form, &tmp.to_string_lossy());
         assert_eq!(form.key(press(KeyCode::Enter)), Outcome::Continue);
         assert_eq!(form.field, Field::Agent);
@@ -642,7 +645,7 @@ mod tests {
 
     #[test]
     fn wizard_refuses_a_bad_workspace_and_skips_to_the_fallback() {
-        let mut form = wizard([None, None]);
+        let mut form = wizard([None, None, None]);
         assert_eq!(form.key(press(KeyCode::Enter)), Outcome::Continue);
         assert_eq!(form.field, Field::Workspace);
         assert!(form.error.is_some());
@@ -662,7 +665,7 @@ mod tests {
 
     #[test]
     fn a_typed_editor_must_exist_and_an_empty_one_is_unset() {
-        let mut form = wizard([None, None]);
+        let mut form = wizard([None, None, None]);
         form.field = Field::Editor;
         form.key(press(KeyCode::Left));
         assert!(form.typing_editor(), "left of the first is the typed one");
@@ -708,7 +711,7 @@ mod tests {
             Form::new(
                 FormKind::Settings,
                 &saved(editor),
-                [None, None],
+                [None, None, None],
                 vec!["nvim".into(), "code".into()],
                 PathBuf::new(),
                 None,
@@ -722,18 +725,20 @@ mod tests {
 
     #[test]
     fn only_installed_agents_are_selectable() {
-        let mut form = wizard([None, Some("codex".into())]);
+        let mut form = wizard([None, Some("codex".into()), None]);
         assert_eq!(form.agent, Kind::Codex, "starts on the installed one");
         form.field = Field::Agent;
         form.key(press(KeyCode::Left));
         assert_eq!(form.agent, Kind::Codex);
-        let mut none = wizard([None, None]);
+        let pi = wizard([None, None, Some("pi".into())]);
+        assert_eq!(pi.agent, Kind::Pi, "Pi can be the only installed agent");
+        let mut none = wizard([None, None, None]);
         none.field = Field::Agent;
         none.key(press(KeyCode::Right));
         assert_eq!(
             none.agent,
             Kind::Codex,
-            "nothing installed: both selectable"
+            "nothing installed: all agents are selectable"
         );
     }
 
@@ -753,7 +758,7 @@ mod tests {
         let mut form = Form::new(
             FormKind::Settings,
             &current,
-            [None, None],
+            [None, None, None],
             Vec::new(),
             PathBuf::new(),
             None,
@@ -789,7 +794,7 @@ mod tests {
         let mut form = Form::new(
             FormKind::Settings,
             &current,
-            [None, None],
+            [None, None, None],
             Vec::new(),
             PathBuf::new(),
             None,
@@ -824,7 +829,11 @@ mod tests {
             sound: true,
             editor: None,
         };
-        let found = [Some("claude".into()), Some("codex".into())];
+        let found = [
+            Some("claude".into()),
+            Some("codex".into()),
+            Some("pi".into()),
+        ];
         let mut form = Form::new(
             FormKind::Settings,
             &settings,
@@ -868,7 +877,7 @@ mod tests {
         let mut form = Form::new(
             FormKind::Settings,
             &current,
-            [None, None],
+            [None, None, None],
             Vec::new(),
             PathBuf::new(),
             None,
