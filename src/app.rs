@@ -31,7 +31,7 @@ pub(crate) mod workspaces;
 use std::ffi::{OsStr, OsString};
 use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, RecvTimeoutError, SyncSender};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -61,6 +61,10 @@ const OSC_REPLY_BUDGET: Duration = Duration::from_millis(200);
 
 /// The animation tick (DESIGN §7).
 const TICK: Duration = Duration::from_millis(350);
+
+/// The shortest gap between renders caused by agent output: about 60
+/// frames a second, however many reads the agents send.
+const FRAME_GAP: Duration = Duration::from_millis(16);
 
 /// Capacity of the event channel: 64 PTY reads of 32 KiB (ARCHITECTURE §3).
 const CHANNEL_CAPACITY: usize = 64;
@@ -258,32 +262,34 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<bool> {
     });
 
     let mut next_tick = Instant::now() + TICK;
+    let mut pacer = Pacer::new(Instant::now());
     loop {
         model.now = Instant::now();
         model.unix_now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs());
         resize_sessions(&mut model);
-        terminal.draw(|frame| ui::draw(frame, &mut model))?;
+        if pacer.ready(model.now) {
+            terminal.draw(|frame| ui::draw(frame, &mut model))?;
+            pacer.drawn(model.now);
+        }
         announce(&mut model, env, &mut title);
         if model.state_dirty {
             save_state(&mut model, env);
         }
-        let first = match model.deadline(next_tick) {
-            Some(at) => match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
-                Ok(event) => event,
-                Err(RecvTimeoutError::Timeout) => AppEvent::Tick,
-                Err(RecvTimeoutError::Disconnected) => return Ok(false),
-            },
-            None => rx
-                .recv()
-                .map_err(|_| io::Error::other("event channel closed"))?,
+        let first = match wait(&rx, model.deadline(next_tick), pacer.pending())? {
+            Wake::Event(event) => event,
+            Wake::Render => continue,
+            Wake::Closed => return Ok(false),
         };
         if Instant::now() >= next_tick {
             next_tick = Instant::now() + TICK;
         }
         for event in std::iter::once(first).chain(rx.try_iter()) {
             model.now = Instant::now();
+            if !matches!(event, AppEvent::Pty(PtyEvent::Output(..))) {
+                pacer.at_once(model.now);
+            }
             before_event(&mut model, &event);
             if matches!(event, AppEvent::External(_) | AppEvent::Worktrees(_)) {
                 rescan(&mut model);
@@ -298,10 +304,129 @@ pub(crate) fn run(mut model: Model, env: &Env) -> io::Result<bool> {
                     save_state(&mut model, env);
                     return Ok(model.restart);
                 }
-                Next::Redraw => terminal.clear()?,
+                Next::Redraw => {
+                    terminal.clear()?;
+                    pacer.at_once(model.now);
+                }
                 Next::Continue => {}
             }
         }
+        if model.screen_changed() {
+            pacer.output(Instant::now());
+        }
+    }
+}
+
+/// What the loop woke up for.
+enum Wake {
+    /// An event (a passed `deadline` arrives as [`AppEvent::Tick`]).
+    Event(AppEvent),
+    /// Only the pending render was due.
+    Render,
+    /// Every sender is gone.
+    Closed,
+}
+
+/// Blocks until an event arrives, `deadline` passes or the pending render
+/// (`render`) is due, whichever comes first.
+///
+/// A deadline that has already passed is a tick before any queued event,
+/// so a flood of agent output cannot starve the animation, notices and
+/// stop graces. A render alone is no tick: it must not advance the
+/// animation.
+///
+/// # Errors
+///
+/// Returns an error when the channel closes while nothing is scheduled.
+fn wait(
+    rx: &Receiver<AppEvent>,
+    deadline: Option<Instant>,
+    render: Option<Instant>,
+) -> io::Result<Wake> {
+    if deadline.is_some_and(|at| at <= Instant::now()) {
+        return Ok(Wake::Event(AppEvent::Tick));
+    }
+    let Some(at) = deadline.into_iter().chain(render).min() else {
+        return rx
+            .recv()
+            .map(Wake::Event)
+            .map_err(|_| io::Error::other("event channel closed"));
+    };
+    Ok(
+        match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
+            Ok(event) => Wake::Event(event),
+            Err(RecvTimeoutError::Timeout) if deadline.is_none_or(|at| Instant::now() < at) => {
+                Wake::Render
+            }
+            Err(RecvTimeoutError::Timeout) => Wake::Event(AppEvent::Tick),
+            Err(RecvTimeoutError::Disconnected) => Wake::Closed,
+        },
+    )
+}
+
+/// Decides when the loop renders (ARCHITECTURE §4.1): on a dirty flag,
+/// never on a fixed timer.
+///
+/// Every event but agent output makes a render due at once. Output makes
+/// one due only when it changed an emulator that can be on screen
+/// ([`Model::screen_changed`]), and renders for output are at least
+/// [`FRAME_GAP`] apart, so busy agents streaming small reads cost a bounded
+/// number of frames. Other renders do not move that gap: the echo of a
+/// typed key is not held back by the render for the key itself.
+#[derive(Debug, Clone, Copy)]
+struct Pacer {
+    /// When the pending render is due; `None` while the screen is current.
+    due: Option<Instant>,
+    /// The pending render shows agent output.
+    output: bool,
+    /// When the last render that showed agent output happened.
+    paced: Option<Instant>,
+}
+
+impl Pacer {
+    /// Returns a pacer with a render due at `now`, so the loop renders once
+    /// on start.
+    const fn new(now: Instant) -> Self {
+        Self {
+            due: Some(now),
+            output: false,
+            paced: None,
+        }
+    }
+
+    /// Makes a render due at `now`.
+    fn at_once(&mut self, now: Instant) {
+        self.due_by(now);
+    }
+
+    /// Makes a render due for agent output that changed the screen at `now`:
+    /// [`FRAME_GAP`] after the last such render, or at once.
+    fn output(&mut self, now: Instant) {
+        self.due_by(self.paced.map_or(now, |at| now.max(at + FRAME_GAP)));
+        self.output = true;
+    }
+
+    /// Moves the pending render to `at` unless it is due earlier.
+    fn due_by(&mut self, at: Instant) {
+        self.due = Some(self.due.map_or(at, |due| due.min(at)));
+    }
+
+    /// Returns when the pending render is due, if one is pending.
+    const fn pending(&self) -> Option<Instant> {
+        self.due
+    }
+
+    /// Returns whether to render at `now`.
+    fn ready(&self, now: Instant) -> bool {
+        self.due.is_some_and(|due| due <= now)
+    }
+
+    /// Records a render at `now`.
+    const fn drawn(&mut self, now: Instant) {
+        if self.output {
+            self.paced = Some(now);
+        }
+        (self.due, self.output) = (None, false);
     }
 }
 
@@ -1888,6 +2013,60 @@ pub(crate) fn absolute(path: &str, cwd: &Path, home: Option<&Path>) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn renders_for_output_are_paced_and_other_renders_are_not() {
+        let start = Instant::now();
+        let at = |n: u32| start + FRAME_GAP / 4 * n;
+        let mut pacer = Pacer::new(start);
+        assert!(pacer.ready(start), "the first iteration renders");
+        pacer.drawn(start);
+        assert_eq!(pacer.pending(), None, "nothing changed");
+
+        pacer.output(start);
+        assert!(pacer.ready(start), "the first output renders at once");
+        pacer.drawn(start);
+        pacer.output(at(1));
+        assert_eq!(pacer.pending(), Some(start + FRAME_GAP), "then paced");
+        pacer.at_once(at(2));
+        assert!(pacer.ready(at(2)), "any other event renders at once");
+        pacer.drawn(at(2));
+        pacer.output(at(3));
+        assert_eq!(pacer.pending(), Some(at(6)), "that render showed output");
+        pacer.drawn(at(6));
+
+        // A key renders, then its echo arrives: the key's render does not
+        // hold the echo back.
+        pacer.at_once(at(11));
+        pacer.drawn(at(11));
+        pacer.output(at(11));
+        assert!(pacer.ready(at(11)));
+    }
+
+    #[test]
+    fn a_change_counts_only_for_an_emulator_that_can_be_on_screen() {
+        use crate::app::model::tests::{sample, with_session};
+        let mut m = sample(&["a"]);
+        let (selected, _selected_writes) = with_session(&mut m, "selected");
+        let (other, _other_writes) = with_session(&mut m, "other");
+        let output = |id| AppEvent::Pty(PtyEvent::Output(id, b"hi".to_vec()));
+        m.select_session(selected);
+        assert!(!m.screen_changed(), "nothing ran yet");
+
+        m.update(output(other));
+        assert!(m.screen_changed(), "its card stops warming up");
+        m.update(output(other));
+        assert!(!m.screen_changed(), "later output of a hidden session");
+        m.update(output(selected));
+        assert!(m.screen_changed(), "first output of the selected one");
+        m.update(output(selected));
+        assert!(m.screen_changed(), "later output of the selected one");
+        assert!(!m.screen_changed(), "each change counts once");
+
+        m.popup = Some(other);
+        m.update(output(other));
+        assert!(m.screen_changed(), "the quick popup's session");
+    }
 
     #[test]
     fn a_session_in_a_grouped_project_is_given_the_other_folders() {

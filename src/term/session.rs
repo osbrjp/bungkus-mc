@@ -187,6 +187,8 @@ pub(crate) struct Session {
     pty: Option<Pty>,
     /// When the agent last wrote output; `None` before the first byte.
     pub last_output: Option<Instant>,
+    /// The screen changed since [`Self::take_changed`] last looked.
+    changed: bool,
 }
 
 impl std::fmt::Debug for Session {
@@ -335,6 +337,7 @@ impl Session {
             shared,
             pty: None,
             last_output: None,
+            changed: false,
         };
         (session, outbox)
     }
@@ -343,6 +346,13 @@ impl Session {
     pub(crate) fn advance(&mut self, bytes: &[u8]) {
         self.processor.advance(&mut self.term, bytes);
         self.last_output = Some(Instant::now());
+        self.changed = true;
+    }
+
+    /// Returns whether the screen changed (output, or a flushed
+    /// synchronized update) since the last call, and forgets it.
+    pub(crate) const fn take_changed(&mut self) -> bool {
+        std::mem::replace(&mut self.changed, false)
     }
 
     /// Returns when a pending synchronized update must be flushed, if one
@@ -357,6 +367,7 @@ impl Session {
     pub(crate) fn flush_sync(&mut self) {
         if self.sync_deadline().is_some_and(|at| at <= Instant::now()) {
             self.processor.stop_sync(&mut self.term);
+            self.changed = true;
         }
     }
 

@@ -424,6 +424,16 @@ thread**, one **waiter thread**.
   finding). `PtyOutput` for the visible session, any model change and any
   resize set `dirty`; the loop renders once per wake-up when dirty, and on
   the 350 ms animation tick only while something animated is on screen.
+  Each emulator records that it changed (output, or a flushed synchronized
+  update), and after each batch the loop asks whether one that can be on
+  screen did: the selected session, the quick popup's, the tools, or a
+  card's first output (it stops warming up). Output of any other session
+  renders nothing until it is selected. Renders for output are at least
+  16 ms apart (`FRAME_GAP`), so busy agents streaming small reads cost at
+  most about 60 frames a second; any other event renders at once and does
+  not move that gap, so a typed key's echo is not held back. A deadline
+  that has passed is a tick before any queued event, so output cannot
+  starve the animation.
 - **Kitty keyboard toward the agent.** M3 builds the emulator with
   `Config { kitty_keyboard: true, .. }` so agents that push kitty flags see
   them advertised, and the encoder emits CSI-u while a flag is active
