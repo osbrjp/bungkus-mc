@@ -84,7 +84,7 @@ WCAG formula: (L1 + 0.05)/(L2 + 0.05), sRGB relative luminance. AA text
 | `fg-muted`   | Surat khabar | `#9aab9c`   | 6.19         | hints, timestamps, secondary text         |
 | `fg-dim`     | Dim          | `#5c7062`   | 2.82 (decorative) | rules, inactive border               |
 | `border`     | Dark         | `#3b4d40`   | 1.66 (decorative) | inactive pane border                 |
-| `accent`     | Minyak       | `#ffaa88`   | 8.10         | app title, selected row text, agent badge |
+| `accent`     | Minyak       | `#ffaa88`   | 8.10         | app title, selected row text              |
 | `ok`         | Daun         | `#7fb069`   | 5.93         | running, wrapped, focused border          |
 | `warn`       | Kuning       | `#e8c547`   | 8.92         | needs you, INTERACT mode word             |
 | `err`        | Sambal       | `#ff7361`   | 5.62         | failed                                    |
@@ -266,7 +266,7 @@ A TUI does not choose the font. We choose code points.
 | focus marker  | U+F0DA         | `▸`     | `>`   | N |
 | INTERACT      | U+F11C (kbd)   | `►`     | `>`   | N |
 | progress bar  | `█░` in every set on a UTF-8 terminal, `#-` without UTF-8 (not an icon: the same block characters as the mascot) | | | |
-| agent badge   | `C` / `X` letter in the ascii and unicode sets; the company's logo in the nerd set: `nf-cod-claude` (U+EC82), `nf-cod-openai` (U+EC81), which need Nerd Fonts 3.5 or newer. In `accent` |
+| agent badge   | `C` / `X` / `P` in ascii and unicode. Nerd uses `nf-cod-claude` (U+EC82) and `nf-cod-openai` (U+EC81) for Claude/Codex; Pi remains `P`. Claude orange, Codex green, Pi coral (`#f09082`, index 210 / ANSI red); bold and uncoloured under `NO_COLOR` |
 | MCP server    | logo alone (once per logo) when a word of the name is in `MCP_BRANDS` (`ui/icons.rs`: about 120 rows — GitHub, GitLab, Slack, Figma, Blender, Chrome, Playwright, Google Drive, Gmail, AWS, Azure, Cloudflare, Vercel, Supabase, Postgres, MongoDB, Redis, Docker, Kubernetes, Notion, Jira, Sentry, Stripe, …); else the glyph of its kind from `MCP_KINDS` (CMS such as Payload, files, memory, database, web, search, terminal, docs, …) or U+F1E6 (plug), then the name. Code points come from Nerd Fonts' `glyphnames.json`; some logos (Figma, Playwright, Notion, …) need Nerd Fonts 3.3 or newer | name | name | N |
 
 Nerd Font code points are private-use; patched "Mono" variants render them
@@ -522,14 +522,11 @@ whether there is a header line.
   an `mcp` row with the same servers: their names, or in the nerd set
   their glyphs as on the MCP line.
 - Gutter column: `┃` in `warn` for needs-you, `err` for failed, space otherwise.
-- Title = **the session's name**, as the agent itself knows it (decided):
-  Claude's session name (set at launch with `--name`, renamed inside the
-  session, or auto-titled — whatever the status line's `session_name` /
-  SessionStart's `session_title` says, ARCHITECTURE.md §5.4); Codex has no
-  name source mc may read in stage 1. Fallbacks in order: the name given
-  in the `n` picker, the first prompt line, then `untitled`. Sanitised,
-  truncated to fit. A rename inside the agent updates the card on the next
-  status-line report.
+- Title = **the session's name**, as the agent itself knows it when
+  exposed: Claude through status line/hooks, Pi through its extension;
+  Codex has no approved name source. Fallbacks: picker name, first prompt
+  line, then `untitled`. Sanitised and truncated. A Claude or Pi rename
+  updates the card on the next report/event.
 - `#id`: first 4 hex chars of the agent's own session id, in `info`.
 - Cards never collapse; when the pane is short, it scrolls (the selected
   card is kept in view). **The selected card is expanded (§6.3) only while
@@ -568,7 +565,7 @@ The four states in the mock set:
 |-----------|-------------------------|-----------|----------|------------------------------------------------------------------------|
 | running   | `\|/-\` / spinner       | working   | ok       | main turn active **or any subagent running**; any Pre/PostToolUse or SubagentStart sets it |
 | your turn | `~` / `»`               | your turn | info glyph, `fg` word | Stop received and no running children; not muted (it is a prompt to act) |
-| needs you | `!` / `!`               | needs you | warn + gutter + bold title | permission_prompt / agent_needs_input / elicitation_dialog (Claude), PermissionRequest (Codex). `idle_prompt` is ignored |
+| needs you | `!` / `!`               | needs you | warn + gutter + bold title | permission / input notifications (Claude/Pi), PermissionRequest (Codex); `idle_prompt` ignored |
 | failed    | `x` / `✗`               | failed    | err + gutter | process exit ≠ 0                                                    |
 | wrapped   | `+` / `✓`               | wrapped   | ok glyph, `fg-muted` card | process exit 0                                              |
 | stopped   | `#` / `▪`               | stopped   | fg-muted | stopped by the user (`x`)                                              |
@@ -591,9 +588,9 @@ group, in the group's colour: `accent`, `info`, `warn`, `ok` by the
 group's place in `groups` (the fifth group has the first colour again);
 the bar is full while the selected project is in that group and dim
 otherwise. A project in no group that a running session of another
-project works in too (Claude's `/add-dir`, read from
-`workspace.added_dirs` of its status line; Codex reports none) carries
-one bar: `fg` when the link is with the selected project, `fg-muted`
+project works in too (`--add-dir` for Claude/Codex; Pi receives only the
+related-folder instruction, and only Claude reports `workspace.added_dirs`)
+carries one bar: `fg` when linked to the selected project, `fg-muted`
 otherwise. The cells are as wide as the most bars on a row, one space
 when there is none. A linked
 project counts as in use and stays in the recent group. The header tally's `/` and every card's
@@ -601,11 +598,11 @@ working glyph tick with the same clock.
 
 ### 5.4 Badge
 
-`<glyph> <count>` or `<letter>`; one cell glyph, one space, digits. Agent
-badges are the letters `C` (Claude Code) and `X` (Codex) in `accent`; in
-the nerd set they are the companies' logos (§3, Nerd Fonts 3.5 or newer),
-on cards, outside sessions, the output pane's title, the `!` list and the
-limits.
+`<glyph> <count>` or `<letter>`; one-cell glyph, one space, digits. Agent
+badges are `C` (Claude), `X` (Codex) and `P` (Pi). Claude is orange,
+Codex green and Pi coral. The nerd set substitutes company logos for
+Claude/Codex; Pi stays `P`. Badges appear on cards, outside sessions,
+the output title, `!` list and reported plan-limit groups.
 
 ### 5.5 Dialogs
 
@@ -621,7 +618,7 @@ prompt is its task`, and `enter` waits for a prompt:
 ```
 ╔ new session · kedai-web ═══════════════════════════════════════════╗
 ║                                                                    ║
-║  agent   > claude    codex                                         ║
+║  agent   > claude    codex    pi                                   ║
 ║  model     auto · haiku · sonnet · opus                            ║
 ║  mode    > local    cloud                                          ║
 ║  name    ┃flaky date test                                 ┃        ║
@@ -645,13 +642,11 @@ The picker preselects the default agent (§5.8), so `n` `enter` starts a session
 with no prompt; missing agents are listed greyed with "not on PATH". The
 `model` row defaults to `auto` when routing is on (§10) and to the agent's
 default otherwise; `←`/`→` (or `h`/`l`) change it — that is the override.
-With routing off the row reads `default · haiku · sonnet · opus` (Claude)
-or `default · <ids from config>` (Codex). The `name` row stays empty
-unless the user types one: a typed name is passed to Claude as `--name`
-(for Codex it is only mc's card title, no launch flag); with none, no
-`--name` is passed and Claude names the session itself, the card showing
-the prompt's first line until that name arrives. Empty name and empty
-prompt → `untitled`.
+With routing off the row reads `default · haiku · sonnet · opus`
+(Claude), configured ids for Codex, and `default` for Pi. A typed name is
+passed through `--name` for Claude/Pi and is card-only for Codex. With no
+name, Claude/Pi may report one later; meanwhile the card uses the first
+prompt line. Empty name and prompt → `untitled`.
 
 The quit dialog (also the `x` dialog) lists everything that will be
 stopped — sessions first, then the descendants tracked in ARCHITECTURE.md
@@ -678,11 +673,12 @@ stopped — sessions first, then the descendants tracked in ARCHITECTURE.md
 
 Process rows are `basename(comm) [:port …] pid <n>` (never argv); ports
 are omitted when `lsof` is unavailable. Rows start as `[stop]` except the
-default-keep set (app bundles under `Applications`, `claude`, `codex`, `ssh-agent`, `gpg-agent`, `tmux`,
-`screen`, `watchman`, `ollama`, `colima`, `docker`, `code`, and
-`cleanup.keep`), which start as `[keep]`; `space` toggles the highlighted
-row; `j`/`k` move. After 8 rows the dialog shows `… and N more` and
-scrolls. Exactly the listed `[stop]` set is signalled.
+default-keep set (app bundles under `Applications`, `claude`, `codex`,
+`pi`, `ssh-agent`, `gpg-agent`, `tmux`, `screen`, `watchman`, `ollama`,
+`colima`, `docker`, `code`, and `cleanup.keep`), which start as `[keep]`;
+`space` toggles the highlighted row; `j`/`k` move. After 8 rows the
+dialog shows `… and N more` and scrolls. Exactly the listed `[stop]` set
+is signalled.
 
 Activity overlay (`A`): how much of the device mc is using. One row per
 group of processes — `mc` itself, each running session (its agent and
@@ -1014,10 +1010,11 @@ else the current folder). Under the field a **folder browser** lists the
 folder's subfolders like a file picker (dot-folders hidden): `↑`/`↓` move
 the highlight, `→` opens the highlighted folder and `←` goes up (the field
 follows), typing a path re-lists it, and a line says how many projects the
-folder holds, with each project marked. The agent step lists both agents
-with where they were found; only installed agents can be chosen (both, if
-neither is installed). The theme step **previews live**: the whole screen
-repaints in the chosen theme, with a sample of the state colours. The
+folder holds, with each project marked. The agent step lists all three
+agents and where the selected one was found; only installed agents can be
+chosen (all three remain selectable when none is installed).
+The theme step **previews live**: the whole screen repaints in the chosen
+theme, with a sample of the state colours. The
 editor step offers the user's own `$VISUAL`/`$EDITOR` first, then every
 known editor found on `PATH` (`nvim`, `vim`, `vi`, `code`, `cursor`,
 `zed`), then `other`: a typed command or full path (`~` expanded), which
@@ -1069,9 +1066,9 @@ row saves.
            █  █
           ▀▀ ▀▀
 
-     agent       > claude    codex (not on PATH)
+     agent       > claude    codex (not on PATH)    pi (not on PATH)
 
-                 + ~/.local/bin/claude   - codex not on PATH
+                 + claude: ~/.local/bin/claude
                  n starts this agent; the n picker can still switch
 
 
@@ -1173,11 +1170,11 @@ INTERACT: every key there goes to the agent.
 ┃  ╔ settings ══════════════════════════════════════════════════════════════╗  ┃
 ┃  ║                                                                        ║  ┃
 ┃  ║   workspace   ┃~/Works/OSBR                                          ┃ ║  ┃
-┃  ║ > agent       > claude    codex (not on PATH)                          ║  ┃
+┃  ║ > agent       > claude    codex (not on PATH)    pi (not on PATH)         ║  ┃
 ┃  ║   theme         auto  > dark    light                                  ║  ┃
 ┃  ║   icons       > auto    ascii    unicode    nerd                       ║  ┃
 ┃  ║   editor      > nvim    vim    code    other                           ║  ┃
-┃  ║               + ~/.local/bin/claude   - codex not on PATH              ║  ┃
+┃  ║               + claude: ~/.local/bin/claude                            ║  ┃
 ┃  ║                                                                        ║  ┃
 ┃  ║                                                                        ║  ┃
 ┃  ║                                                                        ║  ┃
@@ -1201,10 +1198,10 @@ Sources and honesty about them are in ARCHITECTURE.md §6. On screen:
 
 ### 6.1 Global: plan limits in the getah bar
 
-`C 5h 42% · 7d 18% · X 5h 10% · 7d 3%` — the most recent limits received
-per vendor (`C` Claude from the status line, `X` Codex from the usage
-reader, ARCHITECTURE.md §6.3), each labelled by its window (Codex's
-`window_minutes` → `5h`/`7d`). Limits are per account, not per session.
+`C 5h 42% · 7d 18% · X 5h 10% · 7d 3%` — the most recent
+limits received (`C` Claude status line, `X` Codex usage reader),
+labelled by window. Pi exposes no plan-limit windows, so no empty `P`
+group is rendered. Limits are per account, not per session.
 When only one vendor has reported, its figures get 5-cell bars
 (`5h ██░░░ 42% · 7d █░░░░ 18%`; `#-` without UTF-8; filled to the nearest cell, one at least for any use); `warn` colour from 80 %,
 `err` from 95 %. Below 100 columns: `C 42% X 10%` (5-hour window only).
@@ -1216,20 +1213,15 @@ figures are shown dimmed (`fg-muted`) as stale until the next report.
 ### 6.2 Per card, compact (line 3)
 
 `499k tok · $1.42 · ctx 37%` — tokens (input incl. cache + output, k/M
-abbreviated), cost as the agent reports it, context fill %. The unknown
-marker is ASCII `-`: a Codex card reads `312k tok · - · ctx 22%` (no cost:
-Codex reports credits, not USD) and `- tok · - · ctx -` until its first
-`token_count` record; a Claude card reads `-` for `ctx` before the first reply
-(`used_percentage`/`current_usage` are null then) and again once wrapped
-(the last report is not a live context). `ctx` turns `warn` at 80 % and
-`err` at 90 % — ASSUMPTION that 90 % is Claude's auto-compact point; the
-thresholds are constants to adjust in M5. Token semantics as reported by
-Claude's status line: `total_input_tokens` **includes cache** reads/writes
-and is **per request** (settled in M5, ARCHITECTURE.md §6.2), so `tok` is
-the last request's size, not a session total; cost is cumulative. The mock
-numbers follow that reading (in 486k = 65k fresh + 402k cache read + 19k
-cache write). The getah bar drops the limits first when the key hints need
-the room (§5.1); `/ filter` and `, settings` are listed in `?` help only.
+abbreviated), cost as the agent reports it, context fill %. Unknown is
+ASCII `-`: Codex shows no USD cost; Claude has no context figure before
+the first reply; Pi shows numeric usage after its first assistant message.
+Wrapped cards keep the last totals but no longer claim a live context.
+`ctx` turns `warn` at 80 % and `err` at 90 %. Claude's
+`total_input_tokens` includes cache and is per request, so `tok` is its
+last request size while cost is cumulative (ARCHITECTURE.md §6.2). Pi's
+extension totals its current process launch. The getah bar drops limits
+first when key hints need the room (§5.1).
 
 ### 6.3 Selected card, expanded
 
@@ -1252,9 +1244,9 @@ least for any use), then the percentage and used / reported
 `context_window_size` when the card is wide enough (200k here; 1M has
 been observed). The filled part is `ok`, `warn` from 80 % and `err` from
 90 %; the rest is `fg-muted`.
-Per-subagent tokens are not shown (no source outside transcripts). A routed
-session adds a `model    haiku · routed 0.82` line (§10). A Codex card has
-no `cache`/`cost` lines.
+Per-subagent tokens are not shown. A routed session adds a `model
+haiku · routed 0.82` line (§10). Claude and Pi cards show cache/cost rows;
+Codex has neither.
 
 ## 7. Motion
 

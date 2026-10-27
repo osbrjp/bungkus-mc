@@ -3,14 +3,14 @@
 ## Project Overview
 
 **bungkus-mc** ("mission control") is a **Rust** terminal TUI for people
-who run AI coding agents (Claude Code, Codex CLI) in the terminal. One
-screen: projects in a workspace (left), the selected project's agent
-sessions with their subagents and usage figures (middle), the selected
+who run AI coding agents (Claude Code, Codex CLI, Pi) in the terminal.
+One screen: projects in a workspace (left), the selected project's agent
+sessions with available structure and usage (middle), the selected
 agent's real interactive UI (right), plan limits in the status bar.
 Sibling of bungkus-cli (Go); same release pipeline, installer and
-conventions; the palette is shared as a token spec. Status: **M1–M8 built**
-(v0.1.0 candidate; M9 routing not started). Read the docs before changing
-behaviour.
+conventions; the palette is shared as a token spec. Status: **M1–M8 plus
+Pi support built** (v0.1.0 candidate; M9 routing not started).
+Read the docs before changing behaviour.
 
 ## Docs (read in this order)
 
@@ -38,8 +38,8 @@ src/main.rs        # lexopt → subcommand (TUI, hook, statusline, update); anyh
 src/app/           # event loop + Model (Elm-style): mode/focus, sessions, dirty flag, ticks, AppEvent; diff.rs (the `D` changes popup)
 src/ui/            # panes, dialogs, first run, keymap.rs, theme.rs (token spec), mascot.rs, string sanitise
 src/term/          # session.rs (PTY + Term + reader/waiter threads), keys.rs (encoder), query replies
-src/agent/         # Event/Usage/Adapter, claude.rs, codex.rs, codex_usage.rs (the one transcript reader), mcp.rs (MCP server names from hook tool names); testdata/
-src/ipc/           # unix socket server; hook.rs / statusline.rs subcommands
+src/agent/         # Event/Usage/Adapter, claude.rs, codex.rs, pi.rs + bundled extension, codex_usage.rs (the one transcript reader), mcp.rs; testdata/
+src/ipc/           # unix socket server; hook.rs / pi_hook.rs / statusline.rs subcommands
 src/proc/          # descendant scan (/proc + pidfd, ps), lsof ports, kill + keep rule
 src/route/         # TypeSafe Jev tier → model id (opt-in)
 src/store/         # XDG paths, config.json, sessions.json, consent.json
@@ -51,14 +51,14 @@ src/workspace.rs   # project dir scan
 
 - **Rust, not Go** (owner, M0 spike: 12× faster on heavy output, 1.2 MB binary, a maintained emulator crate on crates.io). bungkus-cli stays Go.
 - Live pane = PTY + `alacritty_terminal` advanced on the UI thread (M3 re-times the flood cases; pump-thread fallback); per session a bounded reader thread, a **writer thread** that owns the PTY writer (the UI thread only sends), and a waiter (exit on reader EOF or 500 ms after `wait`); query replies (DSR/DA/OSC 10/11 from the theme, CSI 14 t; 18 t is alacritty's); `kitty_keyboard: true` + our own encoder (`term/keys.rs`) incl. kitty CSI-u toward the agent (M3); sync-update deadline + `stop_sync`; mouse forwarded when the agent enabled it; EIO after child exit ignored. **Focusing the output pane is INTERACT** (full passthrough); `ctrl-\` returns to the sessions pane.
-- Structure = agent hooks → `bungkus-mc hook` → unix socket. Usage = Claude status line → `bungkus-mc statusline` (forwards within 200 ms, then runs the user's own status line under `sh`). **Never parse agent transcripts — except `agent/codex_usage.rs`** (`token_count` records only, owner-approved).
+- Structure = Claude/Codex hooks or mc's bundled per-launch Pi extension → unix socket. Usage = Claude status line, Codex `token_count` rollout records, Pi extension numeric reports. **Never parse agent transcripts/session files — except `agent/codex_usage.rs`** (Codex `token_count` only, owner-approved).
 - MCP servers on a card = the ones in use: the `mcp__<server>__` tool names in hook events. Configured-but-unused servers are not shown; the agents' MCP config files are never read (`agent/mcp.rs`: names only). Nerd set: logo, or kind glyph / plug + name (tables in `ui/icons.rs`, code points from Nerd Fonts' `glyphnames.json`); other sets: names.
 - Issue / pull request links (`app/links.rs`, issue #188): read through the user's `gh` CLI (fixed argv, read-only, no token in mc) per session folder, on a branch change and every 60 s for running sessions; the issue comes from the `i{issue#}-…` branch name, else the PR's first closing issue. `P` / `I` open them in the browser, `i` lists the repository's open ones (`enter` reads one's description, comments, reviews and review comments on code in the popup, Markdown rendered by `app/markdown.rs`, no crate; `o` opens it; `n` opens the `n` picker with a prompt naming it); only plain `https://` URLs reach the opener.
 - Changes popup (`D`, `app/diff.rs`): the changed files of the session folder's repository (`git status`, then the files changed only in the branch's commits) and the highlighted file's diff against the branch's base (`git merge-base HEAD origin/HEAD`, else `HEAD`; `git diff`, fixed argv, `--no-optional-locks`, off the UI thread, only while open), like lazygit's files panel. The session folder follows the hook events' `cwd` into a worktree the agent made itself. Display only: mc never stages, discards or commits (ARCHITECTURE §3.8).
 - The ding (`sound`, default on; `app/ding.rs`): a kitchen-timer bell when a session finishes its turn (not the one whose output pane has the focus), needs you or fails. Synthesised (no audio file, no audio crate), written as `ding.wav` next to `sessions.json`, played by the system's player (`afplay`, `pw-play`, `paplay`, `aplay`; fixed argv); it takes the BEL's place, and the BEL stays the fallback (no player, SSH). Independent of `notify`.
 - Activity overlay (`A`): RAM/CPU of mc, each session's process tree and mc's other children, sampled only while open (2 s, off the UI thread; `ps` on macOS, `/proc` on Linux); temperature on Linux only (macOS needs root or `unsafe` FFI → `n/a`). Display only (ARCHITECTURE §3.7).
 - Render on a dirty flag or the 350 ms animation tick, never on a fixed timer.
-- Child env: `TERM`/`COLORTERM` set; host-terminal identity vars, `TYPESAFE_API_KEY` and the Claude/Codex **session-marker** vars (`CLAUDECODE`, `CLAUDE_CODE_CHILD_SESSION`, …, see ARCHITECTURE §3.1) unset; `CLAUDE_CONFIG_DIR`/`CODEX_HOME` kept; `GH_CONFIG_DIR` set per workspace from the global `ghConfigDirs` (a folder name only, never a token).
+- Child env: `TERM`/`COLORTERM` set; host-terminal identity vars, `TYPESAFE_API_KEY` and explicit Claude/Pi **session markers** (ARCHITECTURE §3.1) unset; `CLAUDE_CONFIG_DIR`/`CODEX_HOME`/`PI_CODING_AGENT_DIR` kept; `GH_CONFIG_DIR` set per workspace from global `ghConfigDirs`.
 - Quit and `x` also stop observed descendants (dev servers): 2 s scan, uid filter, pid + start-time identity (pidfd on Linux), `[stop]/[keep]` dialog with a default-keep list, SIGTERM → 3 s → SIGKILL; never by port; a user stop yields `stopped`.
 - States: running / your turn / needs you / failed / wrapped / stopped; `background_tasks` authoritative; `idle_prompt` ignored; sidebar badge precedence failed > needs you > your turn, spinner for working.
 - Middle pane = selected project's sessions; `!` jumps across projects. Card title = the session's own name. Projects = child folders containing `CLAUDE.md`, `AGENTS.md` or `.git`.

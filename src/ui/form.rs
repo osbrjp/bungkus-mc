@@ -512,16 +512,13 @@ fn choice(label: &str, chosen: bool, focused: bool, theme: Theme) -> Span<'stati
     }
 }
 
-/// Returns where each agent was found, as one line.
+/// Returns where the selected agent was found, as one line.
 fn found_text(form: &Form) -> String {
-    Kind::ALL
-        .iter()
-        .map(|k| match &form.found[*k as usize] {
-            Some(path) => format!("+ {path}"),
-            None => format!("- {} not on PATH", k.command()),
-        })
-        .collect::<Vec<_>>()
-        .join("   ")
+    let command = form.agent.command();
+    match &form.found[form.agent as usize] {
+        Some(path) => format!("+ {command}: {path}"),
+        None => format!("- {command} not on PATH"),
+    }
 }
 
 /// Returns the explanation under the theme choice.

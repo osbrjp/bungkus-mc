@@ -31,7 +31,8 @@ const HELP: &str = "\
 bungkus-mc - mission control for AI coding agents
 
 Usage: bungkus-mc [options] [WORKSPACE]
-       bungkus-mc hook        (run by agent hooks; silent)
+       bungkus-mc hook        (run by Claude/Codex hooks; silent)
+       bungkus-mc pi-hook     (run by mc's Pi extension; silent)
        bungkus-mc statusline  (Claude's status line inside mc)
        bungkus-mc update [--check]
        bungkus-mc uninstall [--purge] [--yes]
@@ -80,6 +81,8 @@ enum Command {
     Version,
     /// The silent hook subcommand agents run.
     Hook,
+    /// The silent bridge mc's bundled Pi extension runs.
+    PiHook,
     /// The status-line wrapper Claude runs.
     StatusLine,
     /// Update to the latest release (or only check, with `--check`).
@@ -115,6 +118,9 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, lexopt:
             Short('h') | Long("help") => return Ok(Command::Help),
             Short('V') | Long("version") => return Ok(Command::Version),
             Value(value) if tui.workspace.is_none() && value == "hook" => return Ok(Command::Hook),
+            Value(value) if tui.workspace.is_none() && value == "pi-hook" => {
+                return Ok(Command::PiHook);
+            }
             Value(value) if tui.workspace.is_none() && value == "statusline" => {
                 return Ok(Command::StatusLine);
             }
@@ -277,6 +283,7 @@ fn run_subcommand(command: Command, stdout: &mut std::io::Stdout) -> Result<Opti
                 .context("printing version")?;
         }
         Command::Hook => ipc::hook::run(),
+        Command::PiHook => ipc::pi_hook::run(),
         Command::StatusLine => std::process::exit(ipc::statusline::run()),
         Command::Uninstall { purge, yes } => {
             let text = update::uninstall(purge, yes).context("uninstall")?;
@@ -315,7 +322,12 @@ fn restore_state(model: &mut app::model::Model, path: &std::path::Path) {
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
     let stored = store::state::load_limits(&store::state::limits_file(path));
-    for (v, (windows, at)) in stored.vendors.into_iter().enumerate() {
+    for (v, (windows, at)) in stored
+        .vendors
+        .into_iter()
+        .take(crate::agent::Kind::COUNT)
+        .enumerate()
+    {
         if !windows.is_empty() {
             model.limits[v] = windows;
             model.limits_at[v] =
@@ -448,6 +460,7 @@ mod tests {
             (&["--help"], Command::Help),
             (&["-V"], Command::Version),
             (&["hook"], Command::Hook),
+            (&["pi-hook"], Command::PiHook),
             (
                 &["--icons", "unicode"],
                 tui(TuiArgs {

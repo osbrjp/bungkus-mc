@@ -29,10 +29,10 @@ major-pinned by caret, and `cargo update` is a reviewed commit.
 | `portable-pty` | 0.9 | Open a PTY, spawn the child with a size, resize (`TIOCSWINSZ`), master reader/writer | `pty-process` (smaller, but tokio-flavoured API and less used); raw `rustix::pty` (we'd own openpty/login_tty/fork details) |
 | `thiserror` | 2.0 | One error enum per module boundary (`term::SpawnError`, `ipc::Error`, …) | hand-written `Display`/`Error` impls (boilerplate) |
 | `anyhow` | 1.0 | `main.rs` and the top-level subcommand entry points only, with `.context()` | — |
-| `serde` (+ `derive`) | 1.0 | Config, state, hook payloads, status-line payload, Codex `token_count` records, TypeSafe request/response — **tolerant structs, never `deny_unknown_fields` for agent payloads** | hand-rolled JSON (no) |
+| `serde` (+ `derive`) | 1.0 | Config, state, hook/Pi-extension payloads, status-line payload, Codex `token_count` records, TypeSafe request/response — **tolerant structs, never `deny_unknown_fields` for agent payloads** | hand-rolled JSON (no) |
 | `serde_json` (+ `preserve_order`) | 1.0 | The JSON codec for all of the above; `from_slice` on capped buffers. `preserve_order` (pulls `indexmap`) keeps the user's key order when the settings screen writes `config.json` back | `simd-json` (unneeded speed, unsafe inside) |
-| `uuid` (+ `v4`) | 1.26 | Session ids we choose for Claude (`--session-id`) and strict UUID validation of ids from hooks | a regex (we need generation too) |
-| `lexopt` | 0.3 | CLI parsing for `bungkus-mc [workspace]`, `hook`, `statusline`, `update`, and ~6 flags | `clap` (derive): the obvious choice, but it adds ~15 crates and ~600 KB for four subcommands; `lexopt` has zero dependencies and the help text is 30 hand-written lines. Revisit if the CLI grows past two levels |
+| `uuid` (+ `v4`) | 1.26 | Session ids mc chooses for Claude and Pi; strict UUID validation of Claude/Codex ids from hooks | a regex (we need generation too) |
+| `lexopt` | 0.3 | CLI parsing for `bungkus-mc [workspace]`, `hook`, `pi-hook`, `statusline`, `update`, and flags | `clap` (derive): the obvious choice, but it adds ~15 crates and ~600 KB for these small subcommands; `lexopt` has zero dependencies. Revisit if the CLI grows past two levels |
 | `ureq` (rustls) | 3.4 | **Synchronous** HTTPS for the daily release check and the opt-in TypeSafe routing request: timeouts, no redirects, body size caps via ureq's body limit / `Read::take` — no async runtime anywhere in mc. Note: ureq 3's default rustls crypto provider is `ring`, which contains C/asm; that is fine on native runners, and `cargo-zigbuild` handles it, but it is the one place a pure-Rust build assumption breaks (switch to the `aws-lc-rs` or a pure-Rust provider feature only if cross-compiling ever fails) | `reqwest` (pulls tokio/hyper for two requests); `curl` bindings (C dependency); native-tls (platform TLS quirks) |
 | `semver` | 1.0 | Compare the running version with the release tag; validate the cached tag before display | hand-written compare |
 | `rustix` (+ `process`, `fs`, `event`, `stdio`, `param`) | 1.1 | **Safe wrappers** for what the port needs: page size and clock ticks for the activity overlay's `/proc` figures (`param`); `kill`/`kill_process_group`, `pidfd_open`/`pidfd_send_signal` (Linux), `getuid` (`process`); `OFlags::NONBLOCK` for the Codex log open (`fs`, nothing else — regular-file checks use std `File::metadata()`); `poll` on stdin for the start-up OSC 11 reply (`event`) — so `unsafe_code` stays denied crate-wide | `nix` (fine, but rustix is the modern, `unsafe`-free-at-the-API choice); `libc` directly (would require our own `unsafe`) |
@@ -81,7 +81,7 @@ require) and ships it next to each binary.
 
 ## Runtime prerequisites (not dependencies)
 
-- `claude` and/or `codex` on PATH (detected at start; shown in the setup wizard and settings).
+- `claude`, `codex` and/or `pi` on PATH (detected at start; shown in the setup wizard and settings).
 - `bash`, `curl` for `bungkus-mc update` (the installer script is reused from bungkus-cli).
 - macOS: `ps` (ships with the OS); Linux: `/proc`. `lsof` on either OS for
   port annotation; missing `lsof` = no port labels in the quit dialog.

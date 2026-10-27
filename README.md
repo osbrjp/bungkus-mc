@@ -4,7 +4,7 @@
 
 <p align="center">
   <b>Mission control for AI coding agents in the terminal.</b><br>
-  Claude Code and Codex CLI, across every project in a workspace, on one screen.
+  Claude Code, Codex CLI and Pi, across every project in a workspace, on one screen.
 </p>
 
 <p align="center">
@@ -42,7 +42,7 @@ pipeline, same "Daun Pisang" design language.
 curl -fsSL https://raw.githubusercontent.com/osbrjp/bungkus-mc/main/install.sh | bash
 ```
 
-**Needs** `claude` and/or `codex` on `PATH`. Any monospace font works.
+**Needs** `claude`, `codex` and/or [`pi`](https://pi.dev) on `PATH`. Any monospace font works.
 
 ### Let Claude set it up
 
@@ -108,7 +108,7 @@ defaults; change them later with `,`.
 | Step | What |
 |------|------|
 | **Workspace** | a folder whose child folders are projects |
-| **Default agent** | `claude` or `codex` |
+| **Default agent** | `claude`, `codex` or `pi` |
 | **Theme** | auto, dark "Daun Teduh", light "Santan" (the screen previews it) |
 
 **What counts as a project:** a child folder that contains `CLAUDE.md`,
@@ -151,7 +151,7 @@ pane; press one to run it.
 | `N` | quick session at the workspace root, in a popup (see [Quick session](#quick-session-n)) |
 | `enter` · `l` · `→` · `tab` | talk to the selected session (**INTERACT**: every key goes to the agent) |
 | `ctrl-\` | leave INTERACT |
-| `r` | on a finished session: resume it. On a `cloud` card: bring its cloud session to this machine as a new card (`claude --teleport <id>`). Anywhere else: open the agent's own list of this project's past sessions (`claude --resume` / `codex resume`) to pick any of them |
+| `r` | on a finished session: resume it. On a `cloud` card: bring its cloud session to this machine as a new card (`claude --teleport <id>`). Anywhere else: open the agent's own list of this project's past sessions (`claude --resume` / `codex resume` / `pi --resume`) to pick any of them |
 | `C` | continue one of Claude's cloud sessions in this project (`claude --teleport`, picked in Claude's own list). Not available outside a project or while a session runs in it, because it switches the folder's branch |
 | `x` | stop a session (lists what it started too) |
 | `P` · `I` | open the pull request · the issue of the session's branch in the browser. mc finds them itself through the `gh` CLI: the pull request GitHub has for the branch, and the issue from a branch named `i{issue#}-…` (else the first issue the pull request closes). The card shows their numbers after the branch |
@@ -347,7 +347,8 @@ key back with `kitten @ focus-window --match neighbor:…`.
   "interactExit": "ctrl-\\",
   "agents": {
     "claude": { "command": "claude", "args": [] },
-    "codex":  { "command": "codex",  "args": [] }
+    "codex":  { "command": "codex",  "args": [] },
+    "pi":     { "command": "pi",     "args": [] }
   },
   "workspaces": ["/Users/me/Works", "/Users/me/code"],
   "cleanup": { "keep": ["postgres"] },
@@ -361,7 +362,7 @@ key back with `kitten @ focus-window --match neighbor:…`.
 |-----|--------|
 | `editor` | the command `o` opens a project with (`nvim`, `code --wait`, a full path); unset: `$VISUAL`, then `$EDITOR`, then an installed `nvim`/`vim`/`vi`. `O` opens the folder in Finder / the file manager |
 | `background` | `paint` · `terminal` keeps your terminal's own background (mc paints its green only on TrueColor terminals anyway) |
-| `icons` | `auto` (default: `nerd` when a Nerd Font is installed, else `ascii`) · `ascii` · `unicode` · `nerd` (also `--icons`, and the `icons` row of the settings screen, which shows the glyphs before you save). mc cannot see which font your terminal uses: if the glyphs show as boxes, choose `ascii`; if your terminal draws Nerd glyphs without an installed font (kitty does), choose `nerd`. In the `nerd` set the agent badge is the company's logo (Claude, OpenAI) instead of `C` / `X`; if it shows as a box see [Agent logos](#agent-logos) |
+| `icons` | `auto` (default: `nerd` when a Nerd Font is installed, else `ascii`) · `ascii` · `unicode` · `nerd` (also `--icons`, and the `icons` row of the settings screen, which shows the glyphs before you save). mc cannot see which font your terminal uses: if the glyphs show as boxes, choose `ascii`; if your terminal draws Nerd glyphs without an installed font (kitty does), choose `nerd`. In the `nerd` set Claude and Codex use company logos instead of `C` / `X`; Pi keeps `P`. If a logo shows as a box see [Agent logos](#agent-logos) |
 | `notify` | `bell` (default) · `desktop` (plus OSC 9/99/777) · `off` |
 | `sound` | `true` (default) · `false`: a kitchen-timer ding when a session finishes its turn (not the one whose output pane you are in), needs you or fails (also the `sound` row of the settings screen). Played with `afplay` on macOS and `pw-play` / `paplay` / `aplay` on Linux; over SSH or without one of them the terminal bell rings instead |
 | `interactExit` | the chord that leaves INTERACT (default `ctrl-\`) |
@@ -376,10 +377,10 @@ writes `panes`. Everything else is kept as you wrote it.
 
 ### Agent logos
 
-In the `nerd` icon set the agent badge is the Claude or OpenAI logo
-instead of `C` / `X`. The two glyphs (`nf-cod-claude`
-U+EC82, `nf-cod-openai` U+EC81) are in **Nerd Fonts 3.5 or newer**; an
-older font shows a box. Check your terminal:
+In the `nerd` icon set Claude and Codex use the Claude or OpenAI logo
+instead of `C` / `X`; Pi keeps the `P` badge. The two logo glyphs
+(`nf-cod-claude` U+EC82, `nf-cod-openai` U+EC81) are in **Nerd Fonts 3.5
+or newer**; an older font shows a box. Check your terminal:
 
 ```bash
 printf 'claude: \xee\xb2\x82  openai: \xee\xb2\x81\n'
@@ -411,7 +412,7 @@ the two do not edit the same checkout.
 - Resuming goes back into the same worktree.
 - Forgetting the session (`d`) removes the worktree unless it has
   uncommitted files; its branch (`worktree-<name>`) stays.
-- Codex sessions are not affected.
+- Codex and Pi sessions are not affected.
 
 ### Files
 
@@ -430,13 +431,15 @@ never what you type, prompts or agent output.
 
 | What | Source |
 |------|--------|
-| **Structure** (working / your turn / needs you, subagents) | the agents' own hooks, injected per launch (`claude --settings`, `codex -c hooks.*`) |
+| **Structure** (working / your turn / needs you, subagents where exposed) | per-launch integrations: Claude `--settings`, Codex `-c hooks.*`, Pi `--extension <mc extension>` |
 | **Claude usage** | Claude's status line; your own status line keeps rendering (mc runs it for you) |
 | **Codex usage** | `token_count` records in Codex's own session log, and nothing else |
+| **Pi usage** | numeric token, cache, cost and context figures emitted by mc's Pi extension; no messages or session files |
 | **MCP servers** on a card | the servers the session's tool calls name, so a server shows once the session has used it (connectors and plugin servers too). Servers that are only configured are not shown. Names only. With the `nerd` icon set a known server shows as its logo, on the selected card's `mcp` row too |
 
-- **Nothing is written to your agent config**, so there is nothing to
-  remove; your own hooks keep running.
+- **Nothing is written to your agent config.** Claude/Codex hooks are
+  injected as launch arguments; Pi loads a private mc-owned extension for
+  that launch only. Your own hooks and extensions keep running.
 - **Codex asks once** to trust mc's hooks ("Hooks need review" → "Trust
   all and continue"). The trust is remembered while mc stays at the same
   path.
@@ -445,8 +448,9 @@ never what you type, prompts or agent output.
 
 Sessions from another terminal tab or an IDE are listed under their
 project with their state and pid (from `claude agents --json` and running
-`codex` processes). Those that run in no project folder go under
-`elsewhere` at the end of the list.
+native `codex` / `pi` processes). Node-hosted Pi processes cannot be
+identified without reading argv and are omitted. Sessions outside project
+folders go under `elsewhere` at the end of the list.
 
 | Keys | What |
 |------|------|
@@ -476,6 +480,8 @@ identified by pid and start time, never by port.
 - Sessions do not survive mc; resume them with `r` instead.
 - On a non-UTF-8 locale, borders and the mascot fall back to ASCII, but
   separators such as `·` and `→` stay as they are.
+- Pi exposes main-agent lifecycle, tool calls and aggregate usage through
+  mc's extension, but no subagent tree or plan-limit windows.
 - Two mc instances on one workspace share `sessions.json` (last writer wins).
 
 ---

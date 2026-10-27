@@ -4,7 +4,7 @@
 ┃>  1 kedai-web      ┃│                                                        │
 ┃   2╔ new session · kedai-web ═══════════════════════════════════════════╗    │
 ┃   3║                                                                    ║    │
-┃   4║  agent   > claude    codex (not on PATH)                           ║    │
+┃   4║  agent   > claude    codex (not on PATH)    pi (not on PATH)       ║    │
 ┃   5║  model   > default    haiku    sonnet    opus                      ║────┘
 ┃    ║  mode    > local    cloud                                          ║────┐
 ┃    ║  name    ┃                                                ┃        ║▄   │
