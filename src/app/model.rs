@@ -348,6 +348,9 @@ pub(crate) struct Model {
     pub activity: crate::app::activity::Activity,
     /// Whether `sessions.json` must be written.
     pub state_dirty: bool,
+    /// A card got its first output, so it no longer says it is warming up
+    /// ([`Self::screen_changed`]).
+    first_output: bool,
     /// Agent sessions running outside mc, read-only (ARCHITECTURE §3.4).
     pub external: Vec<External>,
     /// The git branch and status of each session folder that is in a
@@ -510,6 +513,7 @@ impl Model {
             next_scan: None,
             activity: crate::app::activity::Activity::default(),
             state_dirty: false,
+            first_output: false,
             external: Vec::new(),
             repos: std::collections::HashMap::new(),
             repo_scan: false,
@@ -886,6 +890,29 @@ impl Model {
             .min()
     }
 
+    /// Returns whether an emulator that can be on screen changed since the
+    /// last call, and forgets every emulator's change (ARCHITECTURE §4.1).
+    ///
+    /// On screen can be the selected session, the quick popup's session and
+    /// the tools (the editor and the shells; few, and the terminal pane or
+    /// popup may show one). A card's first output counts too, since the card
+    /// then stops saying it is warming up. A change to any other session's
+    /// emulator is dropped: selecting it is an event that renders anyway.
+    pub(crate) fn screen_changed(&mut self) -> bool {
+        let selected = self.selected_card().map(|i| self.cards[i].id);
+        let (popup, mut changed) = (self.popup, std::mem::take(&mut self.first_output));
+        for card in &mut self.cards {
+            if let Some(pty) = card.pty.as_mut() {
+                let shown = Some(card.id) == selected || Some(card.id) == popup;
+                changed |= pty.take_changed() && shown;
+            }
+        }
+        for pty in self.tools_mut() {
+            changed |= pty.take_changed();
+        }
+        changed
+    }
+
     /// Returns `settings` as they are to be saved. A form left on the
     /// `--icons` choice keeps the saved icon set, so the flag is not
     /// written to `config.json`; any other choice ends the flag.
@@ -1030,7 +1057,9 @@ impl Model {
                 if let Some(pty) = self.tool_mut(id) {
                     pty.advance(&bytes);
                 } else if let Some(pty) = self.card_mut(id).and_then(|c| c.pty.as_mut()) {
+                    let first = pty.last_output.is_none();
                     pty.advance(&bytes);
+                    self.first_output |= first;
                 }
             }
             AppEvent::Hook(line) => {
