@@ -1061,8 +1061,8 @@ src/
                      # mascot.rs (pixel maps, frames, moods), sanitise.rs (the one string sanitiser)
   term/              # session.rs (PTY + Term + reader/writer/waiter threads; query replies OSC 10/11, CSI 14 t), keys.rs (encoder, from the spike), screen.rs (cell allowlist → ratatui buffer)
   agent/             # mod.rs (Kind, Launch, argv), usage.rs (Usage), claude.rs, codex.rs, pi.rs + pi-extension.js, codex_usage.rs, mcp.rs; testdata/{claude,codex,pi}/
-  ipc/               # server.rs (UnixListener), hook.rs and statusline.rs (the silent subcommands), wire types
-  proc/              # mod.rs (scan: /proc on Linux, ps on macOS), ports.rs (lsof), kill.rs, keep rule
+  ipc/               # server.rs (UnixListener), hook.rs, pi_hook.rs and statusline.rs (the silent subcommands), wire types (HookEvent, Wire)
+  proc/              # mod.rs (scan: /proc on Linux, ps on macOS), ports.rs (lsof), kill.rs, keep rule, usage.rs (the `A` activity sample)
   route/             # M9, not built yet: Jev tier judgement → model id, key runner, secret-shape guard, consent
   store/             # mod.rs (XDG paths, atomic writes), config.rs, state.rs (sessions.json, limits.json), debug.rs (the ~20-line debug_log! macro → 0600 file under --debug)
   update.rs          # release check + `update` subcommand (follows bungkus-cli's updater: `curl` lookup, then `install.sh`)
