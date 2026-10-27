@@ -89,12 +89,23 @@ pub(crate) fn save(path: &Path, records: &[Record]) -> std::io::Result<()> {
 
 /// The plan limits last reported, per vendor, kept across runs so the
 /// status bar is not empty until a session reports again.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+///
+/// A vector keeps limits written by the two-agent format readable; missing
+/// slots are filled for every current [`Kind`] on load or merge.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct Limits {
     /// Per vendor in `Kind::ALL` order: the windows and when they were
     /// reported (unix seconds).
-    pub vendors: [(Vec<crate::agent::usage::Window>, u64); 2],
+    pub vendors: Vec<(Vec<crate::agent::usage::Window>, u64)>,
+}
+
+impl Default for Limits {
+    fn default() -> Self {
+        Self {
+            vendors: vec![(Vec::new(), 0); Kind::COUNT],
+        }
+    }
 }
 
 /// Merges this mc's records into what is on disk, so several mc windows
@@ -118,6 +129,8 @@ pub(crate) fn merge_records(
 #[must_use]
 pub(crate) fn merge_limits(disk: Limits, ours: Limits) -> Limits {
     let mut out = disk;
+    out.vendors.resize_with(Kind::COUNT, || (Vec::new(), 0));
+    out.vendors.truncate(Kind::COUNT);
     for (slot, mine) in out.vendors.iter_mut().zip(ours.vendors) {
         if !mine.0.is_empty() && (slot.0.is_empty() || mine.1 >= slot.1) {
             *slot = mine;
@@ -185,7 +198,7 @@ mod tests {
             }]
         };
         let disk = Limits {
-            vendors: [(w(8.0), 200), (Vec::new(), 0)],
+            vendors: vec![(w(8.0), 200), (Vec::new(), 0), (Vec::new(), 0)],
         };
         let empty = Limits::default();
         assert_eq!(
@@ -194,7 +207,7 @@ mod tests {
             "nothing heard erases nothing"
         );
         let older = Limits {
-            vendors: [(w(3.0), 100), (Vec::new(), 0)],
+            vendors: vec![(w(3.0), 100), (Vec::new(), 0), (Vec::new(), 0)],
         };
         assert_eq!(
             merge_limits(disk.clone(), older),
@@ -202,9 +215,16 @@ mod tests {
             "an older report loses"
         );
         let newer = Limits {
-            vendors: [(w(9.0), 300), (Vec::new(), 0)],
+            vendors: vec![(w(9.0), 300), (Vec::new(), 0), (Vec::new(), 0)],
         };
         assert_eq!(merge_limits(disk, newer.clone()), newer);
+
+        let legacy = Limits {
+            vendors: vec![(w(7.0), 250), (Vec::new(), 0)],
+        };
+        let upgraded = merge_limits(legacy, Limits::default());
+        assert_eq!(upgraded.vendors.len(), Kind::COUNT);
+        assert_eq!(upgraded.vendors[0], (w(7.0), 250));
     }
 
     #[test]

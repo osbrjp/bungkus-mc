@@ -20,7 +20,7 @@ use crate::ui::sanitise::sanitise;
 const NAME_MAX: usize = 40;
 
 /// Basenames that start as `[keep]` (ARCHITECTURE §3.2).
-const DEFAULT_KEEP: [&str; 11] = [
+const DEFAULT_KEEP: [&str; 12] = [
     "gpg-agent",
     "ssh-agent",
     "tmux",
@@ -32,6 +32,7 @@ const DEFAULT_KEEP: [&str; 11] = [
     "code",
     "claude",
     "codex",
+    "pi",
 ];
 
 /// One process as seen in a snapshot.

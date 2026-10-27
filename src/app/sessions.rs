@@ -367,21 +367,25 @@ impl Card {
         Some(card)
     }
 
-    /// Returns the agent session id to resume, when it is a valid UUID
-    /// (SECURITY.md: anything else would be read as a name or a picker).
-    /// A Claude session without hooks still has mc's own id, which it was
-    /// started with; a Codex session without hooks cannot be resumed.
+    /// Returns the agent session id to resume when it is valid for that
+    /// agent (SECURITY.md "Spawning agents").
+    ///
+    /// Claude and Pi receive mc's own id at a fresh launch, so they remain
+    /// resumable without hooks. Codex learns its id only through a hook.
     #[must_use]
     pub(crate) fn resume_id(&self) -> Option<String> {
         let own = self.id.0.hyphenated().to_string();
         let id = match (self.kind, &self.agent_session) {
             (_, Some(bound)) => bound.as_str(),
-            (Kind::Claude, None) => own.as_str(),
+            (Kind::Claude | Kind::Pi, None) => own.as_str(),
             (Kind::Codex, None) => return None,
         };
-        uuid::Uuid::parse_str(id)
-            .ok()
-            .map(|u| u.hyphenated().to_string())
+        match self.kind {
+            Kind::Claude | Kind::Codex => uuid::Uuid::parse_str(id)
+                .ok()
+                .map(|uuid| uuid.hyphenated().to_string()),
+            Kind::Pi => crate::agent::pi::valid_session_id(id).then(|| id.to_owned()),
+        }
     }
 
     /// Marks the session as started with hooks: it now waits for them.

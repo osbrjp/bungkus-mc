@@ -1,8 +1,8 @@
 //! Usage figures: tokens, cost, context fill and plan limits
 //! (ARCHITECTURE §6, DESIGN §6).
 //!
-//! Claude's come from its status-line payload, Codex's from the rollout
-//! reader (M6). Every figure is optional: unknown renders as `-`.
+//! Claude's come from its status line, Codex's from the rollout reader,
+//! and Pi's from the bundled extension. Unknown figures render as `-`.
 
 use std::path::PathBuf;
 
@@ -32,17 +32,17 @@ pub(crate) struct Window {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct Usage {
-    /// The agent's own session name (Claude `session_name`).
+    /// The agent's own session name (Claude status line or Pi extension).
     pub session_name: Option<String>,
     /// Input tokens, including cache reads and writes.
     pub input: Option<u64>,
     /// Output tokens.
     pub output: Option<u64>,
-    /// Cache-read tokens of the last request.
+    /// Cache-read tokens as reported by the agent.
     pub cache_read: Option<u64>,
-    /// Cache-write tokens of the last request.
+    /// Cache-write tokens as reported by the agent.
     pub cache_write: Option<u64>,
-    /// Cost in USD at list price; `None` for Codex.
+    /// Cost in USD; `None` when the agent does not expose one.
     pub cost_usd: Option<f64>,
     /// Context window fill, 0–100.
     pub ctx_pct: Option<f64>,

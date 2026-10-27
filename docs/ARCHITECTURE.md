@@ -2,31 +2,32 @@
 
 Status: proposal (product-owner decisions of 2026-09-30 applied; **Rust**
 per the M0 spike, PROPOSAL.md §6). Decisions are for stage 1 unless
-marked "later". Facts about Claude Code / Codex were checked on 2026-09-30
-against Claude Code 2.1.285 and Codex CLI 0.153.4, the official docs, live
-experiments in the review scratchpad (`sub/`, `cx/`, `merge/`, `sl/`,
-`dd/`), and the two M0 prototypes in `spikes/` (`spikes/SPEC.md`,
-`spikes/rust/README.md`, `spikes/compare.py`). "VERIFIED" means one of
-those. ASSUMPTION / UNCONFIRMED items are re-verified at implementation.
+marked "later". Claude Code / Codex facts were checked on 2026-09-30
+against Claude Code 2.1.285 and Codex CLI 0.153.4; Pi facts were checked
+on 2026-10-23 against Pi 1.4.0, its official docs and extension types.
+Other evidence comes from live experiments in the review scratchpad
+(`sub/`, `cx/`, `merge/`, `sl/`, `dd/`) and the two M0 prototypes in
+`spikes/`. "VERIFIED" means an official contract or a live check.
+ASSUMPTION / UNCONFIRMED items are re-verified at implementation.
 
 ## 1. One-paragraph summary
 
 bungkus-mc is a single Rust binary: a ratatui/crossterm full-screen app
-with one event loop that owns all state. It spawns each AI agent
-(`claude`, `codex`) as a child process in a PTY it owns and renders that
-PTY through an embedded VT emulator (`alacritty_terminal`) in the right
-pane; focusing that pane is interacting with the agent. It learns
-*structure* (session state, subagents, current tool, waiting-for-input)
-and *usage* (tokens, cost, context %, plan limits) not by parsing anything
-on screen but from the agents' own **hook** and **status-line** extension
-points: every hook runs `bungkus-mc hook`, Claude's status line runs
-`bungkus-mc statusline`, and both forward a trimmed JSON line over a
-per-process unix socket back into the app. mc never parses agent
-transcripts — with **one documented, contained exception**: Codex's usage
-figures come from the `token_count` records of the rollout file Codex's
-own hook names (§6.3). Optionally (off by default) it asks TypeSafe's Jev
-which model tier a start prompt needs (§13). On quit it stops the agents
-and the processes they left behind (§3.3).
+with one event loop that owns all state. It spawns `claude`, `codex` or
+`pi` as a child process in a PTY it owns and renders that PTY through an
+embedded VT emulator (`alacritty_terminal`) in the right pane; focusing
+that pane is interacting with the agent. It learns *structure* (session
+state, subagents when exposed, current tool, waiting-for-input) and
+*usage* (tokens, cost, context %, plan limits when exposed) without
+parsing the screen: Claude and Codex use hooks, Claude uses its status
+line, and Pi loads mc's per-launch extension. `bungkus-mc hook`,
+`bungkus-mc statusline` and `bungkus-mc pi-hook` forward bounded,
+trimmed JSON over a per-process unix socket. mc never parses agent
+transcripts — with **one documented, contained exception**: Codex usage
+comes from `token_count` records in the rollout file its hook names
+(§6.3). Optionally (off by default) mc asks TypeSafe's Jev which model
+tier a start prompt needs (§13). On quit it stops the agents and the
+processes they left behind (§3.3).
 
 ## 2. How mc sees subagents — options evaluated
 
@@ -34,12 +35,12 @@ and the processes they left behind (§3.3).
 |---|--------|-------|----------------|---------|
 | 1 | **PTY + embedded VT emulator** (`portable-pty` + `alacritty_terminal`) | The agent's real UI, permission prompts, colours, interactive input. Works for any CLI agent. Spike-verified against a tmux reference on every case (slash menu, shift+enter, paste, resize, Codex, CJK/emoji, alt screen, queries). | Zero structure. Our own key encoder (the crate has none). | **Use — live pane.** |
 | 2 | **Tail transcripts** (`~/.claude/projects/<slug>/<sid>.jsonl` + `<sid>/subagents/agent-<id>.jsonl`; `~/.codex/sessions/…/rollout-*.jsonl`) | Full history, sessions mc did not start. | Both formats are explicitly internal (Claude docs: "changes between versions … can break on any release"; Codex undocumented and mid-migration to SQLite). Transcripts hold every secret the agent saw. | **Not for structure.** One owner-approved exception: Codex `token_count` records for usage only (§6.3). |
-| 3 | **Hooks → unix socket** (Claude `--settings`; Codex `-c hooks.*`) | Documented, structured, push-based; identical JSON shape in both agents (VERIFIED). | Only sessions mc launched (outside sessions are listed read-only, §3.4). Codex needs one-time hook trust. One process spawn per event. | **Use — structure.** |
+| 3 | **Hooks/extensions → unix socket** (Claude `--settings`; Codex `-c hooks.*`; Pi `--extension`) | Documented, structured, push-based; one normalized event shape in mc. | Only sessions mc launched (outside sessions are listed read-only, §3.4). Codex needs one-time hook trust. One bridge process per event. Pi exposes no subagent events. | **Use — structure.** |
 | 4 | **Headless structured mode** (`claude -p --output-format stream-json`, `codex exec --json`, Codex app-server JSON-RPC) | Cleanest structured stream incl. usage. | Not the agent's interactive UI: mc would have to build chat + permission UIs — a different product. | **Not for stage 1.** |
 | 5 | **tmux/zellij panes** | Detach for free. | Two code paths, requires a multiplexer, mc cannot draw inside another pane. | **No.** Run mc *inside* tmux instead. |
 
-Recommendation: **1 + 3** (plus Claude's status line and the Codex usage
-reader for numbers, §6).
+Recommendation: **1 + 3** (plus Claude's status line, Codex's usage reader
+and Pi's numeric extension reports for usage, §6).
 
 ## 3. Process model
 
@@ -76,6 +77,13 @@ reader for numbers, §6).
    (exit 0 always; never blocks the agent beyond its own runtime)
 ```
 
+Pi is the third launch path: `pi --extension <private mc file>
+--session-id <uuid> [--model m] [--name n] -- <prompt>`. The bundled
+extension calls mc's canonical executable as fixed argv `pi-hook` (never a
+shell), forwarding lifecycle metadata and numeric usage over the same
+socket. Without a socket or extension file, Pi's PTY remains fully usable
+and its card degrades to output-only.
+
 - One process, no daemon, no async runtime. Socket per pid so two mc
   instances never cross-talk. If the socket directory cannot be created or
   verified (§7, SECURITY.md), or the path exceeds the 104-byte `sun_path`
@@ -85,10 +93,8 @@ reader for numbers, §6).
   leader of its PTY (inside the crate, not in our code), so the process
   group is the child's pid.
 - Prompt: `n` optionally takes an initial prompt, passed as one positional
-  argument after `--` (VERIFIED for `claude -p` and `codex exec` with a
-  dash-leading prompt; ASSUMPTION that the interactive entry points parse
-  `--` the same way — an M3 check; if not, dash-leading prompts are
-  rejected with a hint). It becomes the card title fallback (§5.3).
+  argument after `--` (verified against all three CLIs). It becomes the
+  card title fallback (§5.3).
 
 ### 3.1 Child environment (decided)
 
@@ -101,23 +107,23 @@ Start from `std::env::vars_os()` and then:
   `WEZTERM_*`, `ITERM_*` (agents probe these to pick notification and
   hyperlink strategies);
 - unset `TYPESAFE_API_KEY` (the routing key is mc's, never the agent's);
-- **unset the agents' session-marker variables** (NEW, spike finding: a
-  child inherited `CLAUDE_CODE_CHILD_SESSION` from the Claude Code session
-  the spike ran under and *disabled transcript saving*). Observed in a
-  Claude Code 2.1.285 session (names only, values never read):
-  `CLAUDECODE`, `CLAUDE_CODE_CHILD_SESSION`, `CLAUDE_CODE_ENTRYPOINT`,
-  `CLAUDE_CODE_EXECPATH`, `CLAUDE_CODE_MESSAGING_SOCKET`,
-  `CLAUDE_CODE_MESSAGING_TOKEN`, `CLAUDE_CODE_SESSION_ATTENDED`,
-  `CLAUDE_CODE_SESSION_ID`, `CLAUDE_EFFORT`, `CLAUDE_PID`. No `CODEX_*`
-  markers were present in that session; any found at M3/M6 (running mc
-  from inside a Codex session) join the list. **User configuration vars
-  are kept**: `CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_PROJECT_DIR_NAME`,
-  `CLAUDE_CODE_*` settings the user set on purpose (the list is an explicit
-  denylist, not a `CLAUDE_*` wildcard, precisely so those survive),
-  `CODEX_HOME`. A test asserts the denylist is absent and the kept names
-  present;
-- add `BUNGKUS_MC_SOCK`, `BUNGKUS_MC_SESSION`, and for Claude
-  `BUNGKUS_MC_USER_STATUSLINE` (§6.2);
+- **unset the agents' session-marker variables** (spike finding: a child
+  inherited `CLAUDE_CODE_CHILD_SESSION` and stopped saving its transcript).
+  Claude's denylist is `CLAUDECODE`, `CLAUDE_CODE_CHILD_SESSION`,
+  `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_CODE_EXECPATH`,
+  `CLAUDE_CODE_MESSAGING_SOCKET`, `CLAUDE_CODE_MESSAGING_TOKEN`,
+  `CLAUDE_CODE_SESSION_ATTENDED`, `CLAUDE_CODE_SESSION_ID`,
+  `CLAUDE_EFFORT`, `CLAUDE_PID`. Pi's is `AI_AGENT`,
+  `PI_CODING_AGENT`, `PI_SESSION_ID`, `PI_SESSION_FILE`, `PI_PROVIDER`,
+  `PI_MODEL`, `PI_REASONING_LEVEL`. No Codex marker was found. **User
+  configuration vars are kept**: `CLAUDE_CONFIG_DIR`,
+  `CLAUDE_CODE_PROJECT_DIR_NAME`, deliberate `CLAUDE_CODE_*` settings,
+  `CODEX_HOME`, `PI_CODING_AGENT_DIR`. This is an explicit denylist, not
+  a prefix wildcard; a test asserts denied and kept names;
+- add `BUNGKUS_MC_SOCK`, `BUNGKUS_MC_SESSION`; Claude also gets
+  `BUNGKUS_MC_USER_STATUSLINE` (§6.2), and a hooked Pi gets
+  `BUNGKUS_MC_EXE`, the canonical executable used for fixed-argv
+  `pi-hook` calls;
 - set `GH_CONFIG_DIR` when the global `ghConfigDirs` has an entry for the
   workspace the child runs in (the longest workspace folder that contains
   the child's folder; both sides may start with `~`). mc is one process
@@ -156,7 +162,7 @@ resume.**
   dialog) never signals them, for: any `comm` inside an app bundle under an
   `Applications` folder (`…/Applications/*.app/Contents/…`; M7: Homebrew's
   `Python.app` interpreter is not a desktop app and starts as `[stop]`);
-  the agents `claude` and `codex`;
+  the agents `claude`, `codex` and `pi`;
   basenames `gpg-agent`, `ssh-agent`, `tmux`, `screen`, `watchman`,
   `ollama`, `colima`, `docker`, `code`; and anything in config
   `cleanup.keep`. Everything else starts as `[stop]`.
@@ -184,9 +190,9 @@ resume.**
   hooked session that never got a prompt (nothing was saved to resume).
 - SIGHUP/terminal close: same as quit, without the dialog, keep rule applied.
 
-Detach was considered and rejected for v0.1 (owner decision): both agents
-have daemons (`claude --bg`/`attach`, `codex app-server`), which are the
-long-term answer and a stage-2 candidate.
+Detach was considered and rejected for v0.1 (owner decision): Claude and
+Codex have daemons (`claude --bg`/`attach`, `codex app-server`), while Pi
+has durable session files; stop + resume is the stage-1 behavior.
 
 ### 3.3 Descendant tracking (dev servers and friends)
 
@@ -226,10 +232,12 @@ A thread lists them every 5 s (`src/external.rs`) and sends
   `background` are left out: Claude's own daemon runs those agents
   (forks, background tasks) without a terminal, so there is nothing to
   take over.
-- **Codex:** has no listing. A process of this user whose `comm` basename
-  is `codex`, that is not the app-server daemon and whose parent is not
-  another `codex` (the npm wrapper), counts as one session; its folder
-  comes from `lsof -a -d cwd -p <pids> -Fpn`. Its state is "running".
+- **Codex / Pi:** neither has an equivalent listing. A process of this
+  user whose `comm` basename is `codex` or `pi`, and whose parent is not
+  the same command (an npm/native wrapper), counts as one session. Codex's
+  app-server daemon is excluded. Folders come from one
+  `lsof -a -d cwd -p <pids> -Fpn` call; state is "running". A Node-hosted
+  Pi process cannot be distinguished without argv and is omitted.
 - A row whose cwd is the project folder or below it shows in that
   project, after mc's cards; one in no project folder (outside the
   workspace, or a folder since deleted) and in no other saved workspace shows under an `elsewhere` row
@@ -237,8 +245,8 @@ A thread lists them every 5 s (`src/external.rs`) and sends
   badge. Sessions mc started are left out by pid, tracked descendant pid,
   or session id.
 - `x` on one asks "Stop … (pid N)?"; `y` sends SIGTERM if a fresh
-  snapshot still shows that pid as this user's `claude`/`codex`/`node`
-  (pid + start time re-checked), nothing else.
+  snapshot still shows that pid as this user's
+  `claude`/`codex`/`pi`/`node` (pid + start time re-checked), nothing else.
 - Otherwise read-only while they run: no output, no INTERACT, never signalled,
   never written to `sessions.json`, no transcript read.
 - **Quick sessions** (`src/app/quick.rs`, issue #46): a session whose
@@ -472,13 +480,13 @@ bytes, `ESC c`, `CSI ? 1049 h/l`.
 ### 4.3 Structure (hook events)
 
 ```
-agent ──sh -c '<exe> hook'──▶ bungkus-mc hook
-                               reads stdin (cap 8 MiB, drains the rest), env BUNGKUS_MC_SOCK/SESSION
-                               keeps only the fields below, writes one JSON line to the socket, exit 0
+Claude/Codex ──sh -c '<exe> hook'──▶ bungkus-mc hook
+Pi extension ──spawn(<exe>, ["pi-hook"])──▶ bungkus-mc pi-hook
+   bounded stdin + BUNGKUS_MC_SOCK/SESSION; trimmed one-line JSON; exit 0
 listener thread ──▶ AppEvent::Hook ──▶ Model::hook ──▶ Card::reduce(&event, now)
 ```
 
-Session state machine (decided; the same for both agents):
+Session state machine (decided; shared by all agents):
 
 ```
  launch/SessionStart ─► your turn (nothing happening yet)
@@ -523,13 +531,12 @@ an unknown `agent_id` — they are ignored, since only agents seen through
 On macOS the listener must not drop a connection whose peer already
 closed: setting its read timeout then fails with `EINVAL`.
 
-Session-id binding: Claude sessions get `--session-id <uuid>` (generated
-with `uuid::Uuid::new_v4`). Codex sessions bind on the first event carrying
-their `BUNGKUS_MC_SESSION`; after that the reducer **ignores any event
-whose `session_id` differs** (nested `claude`/`codex` runs inherit the
-env). All ids must parse with `uuid::Uuid::parse_str` before use in argv
-or file names — `codex resume <non-uuid>` would be treated as a *name* and
-`claude --resume <non-uuid>` opens an interactive picker.
+Session-id binding: Claude and fresh Pi sessions get mc's generated UUID
+through `--session-id`. Codex binds on the first hook event. Pi resumes
+accept its documented 1–64 character id alphabet (`A-Za-z0-9._-`, with
+alphanumeric ends); Claude and Codex resume ids must parse as UUIDs.
+After binding, the reducer ignores events whose `session_id` differs
+(nested agent runs can inherit mc's env).
 
 Claude runs hooks and the status line **only after the workspace-trust
 prompt has been answered**, and managed settings with `disableAllHooks` /
@@ -546,26 +553,27 @@ pieces in three modules:
 ```rust
 // src/agent/mod.rs — which agent, and its launch argv
 
-pub(crate) enum Kind { Claude, Codex }          // serde: "claude" | "codex"; default Claude
+pub(crate) enum Kind { Claude, Codex, Pi }       // serde: lowercase; default Claude
 impl Kind {
-    const ALL: [Kind; 2];                        // picker order
-    const fn command(self) -> &'static str;      // "claude" | "codex"
-    const fn badge(self) -> char;                // 'C' | 'X'
-    const fn product(self) -> &'static str;      // "Claude Code" | "Codex"
+    const ALL: [Kind; 3];                        // picker order
+    const fn command(self) -> &'static str;      // "claude" | "codex" | "pi"
+    const fn badge(self) -> char;                // 'C' | 'X' | 'P'
+    const fn product(self) -> &'static str;
     const fn models(self) -> &'static [&'static str]; // `n` picker; "default" = no flag
 }
 
 /// What the user chose in the `n` picker.
 pub(crate) struct Launch {
-    id: SessionId,                // mc's id; Claude also gets it as --session-id
+    id: SessionId,                // mc's id; Claude and Pi get --session-id
     model: Option<String>,
-    name: Option<String>,         // --name (claude); Codex has no such flag
+    name: Option<String>,         // --name for Claude/Pi; card-only for Codex
     prompt: Option<String>,       // one argument after `--`
-    settings: Option<String>,     // claude --settings JSON; None without a socket
-    hook_args: Vec<String>,       // codex -c hooks.* arguments; empty without a socket
-    resume: Option<String>,       // the agent's own session id; must be a UUID
-    pick: bool,                   // open the agent's own list of past sessions
-    fork: bool,                   // with resume: claude --fork-session
+    settings: Option<String>,     // Claude --settings JSON
+    hook_args: Vec<String>,       // Codex -c hooks.*
+    pi_extension: Option<PathBuf>,// Pi --extension; None without a socket
+    resume: Option<String>,       // validated for the selected agent
+    pick: bool,                   // open the agent's own past-session list
+    fork: bool,                   // Claude --fork-session on resume
 }
 
 /// The one place CLI flags are written (§5.1, §5.2). No shell.
@@ -574,6 +582,7 @@ pub(crate) fn find_on_path(name: &str, path: &OsStr) -> Option<PathBuf>;
 
 // src/agent/claude.rs — EVENTS, command(exe, subcommand), user_statusline(cwd, config_dir), settings(exe, user)
 // src/agent/codex.rs  — EVENTS, hook_args(exe)
+// src/agent/pi.rs     — bundled extension install and Pi session-id validation
 
 // src/ipc/mod.rs — what crosses the socket
 
@@ -600,7 +609,7 @@ pub(crate) struct Wire { mc_session: String /* BUNGKUS_MC_SESSION */, event: Hoo
 /// Raw payload → HookEvent in the `hook` subcommand; a field of the wrong type is absent. Never fails.
 pub(crate) fn trim(raw: &Value) -> HookEvent;
 
-// src/agent/usage.rs — Claude from `statusline`, Codex from the rollout reader
+// src/agent/usage.rs — Claude statusline, Codex rollout, Pi extension numbers
 
 pub(crate) struct Window { label: String /* "5h" | "7d" */, used_pct: f64, resets_at: Option<u64> /* unix s */ }
 #[derive(Default)]
@@ -612,7 +621,7 @@ pub(crate) struct Usage {
     limits: Vec<Window>,              // empty when the account has none
 }
 
-// src/app/sessions.rs — the state machine of §4.3, the same for both agents
+// src/app/sessions.rs — the state machine of §4.3, shared by all agents
 
 impl Card {
     fn reduce(&mut self, event: &HookEvent, now: Instant);
@@ -620,18 +629,18 @@ impl Card {
 }
 ```
 
-`app.rs` assembles a launch: it fills `settings` / `hook_args` from
-`claude::settings` / `codex::hook_args`, calls `agent::argv`, and adds
-`BUNGKUS_MC_SESSION` (always) and `BUNGKUS_MC_SOCK` (when the socket is
-up) to the child env. `Model::hook` decodes a `Wire` line and calls
-`Card::report` or `Card::reduce`. Limits are kept per vendor in
+`app.rs` assembles a launch: it fills Claude settings, Codex hook args or
+the Pi extension path, calls `agent::argv`, and adds
+`BUNGKUS_MC_SESSION` (always), `BUNGKUS_MC_SOCK` (when available) and
+`BUNGKUS_MC_EXE` (hooked Pi). `Model::hook` decodes a `Wire` and calls
+`Card::report` or `Card::reduce`. Limits are kept per agent in
 `Kind::ALL` order (`store::state::Limits`).
 
-Adding an agent is **not** one match arm: a `Kind` variant, its arms in
-`Kind`'s methods and in `argv`, a hook-injection file next to
-`claude.rs` / `codex.rs`, and the `Kind::Claude` / `Kind::Codex` sites
-in `app/`, `store/` and `ui/` (the per-vendor limits array is sized 2).
-No capability flags, no registry.
+Adding an agent is **not** one match arm: add a `Kind` variant; launch and
+observation integration; branches in `app/`, `store/` and `ui/`; tests,
+goldens, security and architecture docs. No capability registry: three
+variants do not justify one. Per-agent persisted limits use a vector so an
+older two-entry file upgrades without losing figures.
 
 ### 5.1 Claude (`claude.rs`)
 
@@ -713,14 +722,36 @@ No capability flags, no registry.
   the prompt and the encrypted spawn message removed) and
   `rollout.jsonl` (the session's three `token_count` records plus decoys).
 
+### 5.2a Pi (`pi.rs`, `pi-extension.js`)
+
+- **New:** `pi --extension <mc.js> [--model <id>] --session-id <uuid>
+  [--name <name>] -- <prompt?>`.
+- **Resume:** `pi --extension <mc.js> [--model <id>] --session <id>`;
+  `pi --extension <mc.js> --resume` opens Pi's own picker. Pi's documented
+  session-id alphabet is validated before an id reaches argv.
+- `<mc.js>` is bundled into the binary, atomically written 0600 under mc's
+  verified 0700 runtime directory, and loaded for this launch only. No Pi
+  config is changed. The extension uses documented lifecycle APIs and
+  spawns `BUNGKUS_MC_EXE pi-hook` with fixed argv and a 2 s kill timeout.
+- Normalized events: `session_start` → `SessionStart`,
+  `before_agent_start` / `ui_prompt_end` → `UserPromptSubmit`, tool
+  execution start/end → `PreToolUse` / `PostToolUse`, `ui_prompt_start` →
+  `Notification{agent_needs_input}`, `agent_settled` → `Stop`.
+  `session_info_changed` updates the card title. Pi exposes no native
+  subagent lifecycle, so no subagent tree is claimed.
+- Assistant `message_end` sends only cumulative numeric token/cache/cost
+  totals, context percent/window and the session name. Message content,
+  tool arguments/results and session files never cross the extension
+  boundary. There are no Pi plan-limit windows.
+
 ### 5.3 Session names (decided: the card title is the session's own name)
 
-| Source | Claude Code 2.1.285 | Codex 0.153.4 |
-|--------|---------------------|---------------|
-| set at launch | `-n, --name <name>` — VERIFIED in `claude --help`; mc passes the picker's name | no launch flag; mc keeps the name for its own card only |
-| read live | status line stdin `session_name` — VERIFIED present, refreshed on every assistant message / 30 s; `SessionStart` hook `session_title` — documented (UNCONFIRMED whether it reflects a later rename) | no hook or status-line field; the thread name lives in `~/.codex/session_index.jsonl` and presumably a rollout record (UNCONFIRMED type) — outside the approved `token_count` exception, so **not read in stage 1** |
-| renamed inside the agent | `/rename` (verify in M4 that `session_name` follows) | `/rename` (UNCONFIRMED) — mc would not see it |
-| auto-generated title | Claude generates titles (`ai-title` records exist); UNCONFIRMED whether `session_name` carries them | — |
+| Source | Claude Code 2.1.285 | Codex 0.153.4 | Pi 1.4.0 |
+|--------|---------------------|---------------|----------|
+| set at launch | `-n, --name <name>` — mc passes the picker's name | no launch flag; mc keeps the name for its card only | `--name <name>` |
+| read live | status line `session_name`; `SessionStart.session_title` | no approved live source | extension `session_info_changed.name` and `pi.getSessionName()` |
+| renamed inside the agent | `/rename`; the next status line updates mc | not visible to mc | extension event updates mc |
+| auto-generated title | Claude-generated title may reach `session_name` | — | — |
 
 Resolution order: live `session_name` → `session_title` → the picker's
 name → first prompt line → `untitled`. Stored in `sessions.json` as
@@ -736,15 +767,16 @@ name → first prompt line → `untitled`. Stored in `sessions.json` as
 | Codex hook trust | Codex card "output only" | detection + hint; PTY unaffected |
 | statusLine schema | Claude usage shows `-` | fields optional |
 | Codex rollout `token_count` shape (internal) | Codex usage shows `-` | one module, tolerant structs, fixtures (§6.3) |
+| Pi extension API or usage shape | Pi card becomes output-only or shows `-` | one bundled file, optional numeric fields, fixture and real launch smoke |
 | Process-tree parsing (`ps` format, `/proc`) | descendants not listed/killed | fixture tests per OS; the kill list is never *wider* on parse failure |
 | `alacritty_terminal` API on a minor bump | build break | one module (`term`); exact-minor pin; `Cargo.lock` |
 | Jev API/schema change | routing falls back | one module, timeout, fake-server tests (§13) |
 
 ### 5.5 MCP servers on the card (`mcp.rs`)
 
-A card lists the MCP servers its session has used (DESIGN §5.2). Neither
-agent reports which servers are connected, so `agent/mcp.rs` takes them
-from hook events: a `PreToolUse` whose `tool_name` is
+A card lists the MCP servers its session has used (DESIGN §5.2). No
+supported agent reports a complete connected-server list, so
+`agent/mcp.rs` watches tool events: a `PreToolUse` whose `tool_name` is
 `mcp__<server>__<tool>` marks `<server>` (less Claude's `claude_ai_` /
 `plugin_` prefix) as in use for the rest of the session. claude.ai
 connectors and plugin servers show the same way, from their first tool
@@ -759,20 +791,20 @@ Rules:
 
 ## 6. Usage figures — sources, verified vs assumed
 
-| Number | Claude Code 2.1.285 | Codex 0.153.4 |
-|--------|---------------------|---------------|
-| tokens (session) | **statusLine stdin** `context_window.total_input_tokens/total_output_tokens` (input **includes cache**; cumulative vs per-request UNCONFIRMED → M5), `current_usage{…}` — VERIFIED | **rollout `token_count`** `info.total_token_usage{input_tokens, cached_input_tokens, output_tokens, reasoning_output_tokens, total_tokens}` — schema confirmed from `codex-rs/protocol`, internal, approved exception (§6.3) |
-| tokens (per subagent) | not exposed | not exposed |
-| cost | **statusLine** `cost.total_cost_usd` — VERIFIED | none (credits; USD only for eligible workspaces) → `-` |
-| context % | **statusLine** `context_window.used_percentage` — VERIFIED | `token_count.info.model_context_window` + `last_token_usage` → computed |
-| plan limits | **statusLine** `rate_limits.five_hour/seven_day` — VERIFIED (absent for API-key users) | `token_count.rate_limits{primary, secondary}{used_percent, window_minutes, resets_at}` — often `null` → `-` when absent |
-| hooks carry usage? | no (VERIFIED) | no |
+| Number | Claude Code 2.1.285 | Codex 0.153.4 | Pi 1.4.0 |
+|--------|---------------------|---------------|----------|
+| tokens (session) | status line `context_window.total_input_tokens/total_output_tokens`; current input includes cache | rollout `token_count.info.total_token_usage` | extension totals assistant `message_end.usage`; displayed input includes direct + cache read + cache write |
+| tokens (per subagent) | not exposed | not exposed | not exposed |
+| cost | status line `cost.total_cost_usd` | none → `-` | extension `usage.cost.total` |
+| context % | status line `context_window.used_percentage` | model window + last usage → computed | `ctx.getContextUsage().percent` |
+| plan limits | status line `rate_limits` | `token_count.rate_limits` | not exposed → no Pi limit group |
+| hook/extension carries usage? | no | no | yes, numeric summary only |
 
-### 6.1 Decision (owner, 2026-09-30)
+### 6.1 Decision (owner, updated 2026-10-23)
 
-Claude: all four numbers from the status line. Codex: tokens, context %
-and limits from the rollout `token_count` records; cost `-`. Both feed the
-getah bar per vendor (DESIGN.md §6.1). Per-subagent tokens: not shown.
+Claude gets usage from the status line; Codex from rollout `token_count`
+records; Pi from mc's extension. Claude and Codex limits feed the getah
+bar per vendor (DESIGN.md §6.1). Per-subagent tokens are not shown.
 
 ### 6.2 Claude status line delivery (`bungkus-mc statusline`)
 
@@ -861,6 +893,16 @@ command unchanged.
   partial line, `null` info/limits, prefilter counting decoder.
 - **Milestone:** M6.
 
+### 6.4 Pi extension usage
+
+The bundled extension accumulates assistant-message `usage.input`,
+`output`, `cacheRead`, `cacheWrite` and `cost.total` for this process
+launch, and reads current context through documented
+`ctx.getContextUsage()`. It sends only those numbers and the session name
+to `pi-hook`; the Rust bridge rejects non-numeric, negative, non-finite
+and overflowing values, applies the shared title bound, and emits
+`Usage`. It never opens Pi's session file or forwards a message.
+
 ## 7. State and config storage
 
 | What | Path | Mode |
@@ -871,6 +913,7 @@ command unchanged.
 | routing consent | `${XDG_STATE_HOME:-~/.local/state}/bungkus/mc/consent.json` (`{"routing": "2026-09-30T…"}`) | 0600 |
 | debug log (`--debug` only) | `${XDG_STATE_HOME:-~/.local/state}/bungkus/mc/mc.log` | 0600 |
 | socket | `clean(${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}})/bungkus-mc-<uid>/<pid>.sock` | dir 0700, sock 0600 |
+| bundled Pi extension | `clean(${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}})/bungkus-mc-<uid>/pi-bungkus-mc.js` | 0600 in the verified 0700 runtime dir |
 | workspace overrides | `<workspace>/.bungkus-mc/config.json` (hand-edited; the settings screen writes its `defaultAgent`) | the user's; 0600, dir 0700 when mc creates them |
 | workspace instructions | `<workspace>/.bungkus-mc/CLAUDE.md`, `<workspace>/.bungkus-mc/AGENTS.md` (read only) | the user's |
 | update-check cache | `${XDG_CACHE_HOME:-~/.cache}/bungkus-mc/latest-release` (macOS: `~/Library/Caches`, matching bungkus-cli's `os.UserCacheDir`) | 0600 |
@@ -889,21 +932,18 @@ the key). A hidden folder is never listed as a project.
   message line says so. Every other key is ignored there: what mc runs
   (`agents.*.command`/`args`) and what belongs to the terminal (panes,
   mouse, icons, motion, the exit chord, theme) stay global.
-- **Instructions.** Every session mc starts or resumes gets one
-  instruction text: mc's built-in rules (`src/agent/instructions.md`: how
-  to find session ids, branch from the default branch, name worktrees
-  `<project-name>-<session-id>` and remove them when done), then a
-  "Related folders" section listing the other members of the project's
-  group (each also passed as `--add-dir <folder>` to Claude and Codex
-  alike), then the workspace's own file, `CLAUDE.md` for Claude and `AGENTS.md` for Codex
-  (its first 64 KiB), which has the last word. `"instructions": false` in
-  the global `config.json` leaves the built-in rules out; the workspace
-  files apply either way. Claude gets the text as `--append-system-prompt
-  <text>`, Codex as the `developer_instructions` config value (`-c
-  developer_instructions=<TOML string>`; it takes the place of a
-  `developer_instructions` in `~/.codex/config.toml`). Both add to the
-  instruction files the agents read from the project themselves. Sessions
-  started outside mc get neither.
+- **Instructions.** Every session mc starts or resumes gets one instruction
+  text: mc's built-in rules, then a "Related folders" section listing the
+  other members of the project's group, then the workspace's own file
+  (`CLAUDE.md` for Claude; `AGENTS.md` for Codex and Pi, first 64 KiB),
+  which has the last word. Related folders are also passed as `--add-dir`
+  to Claude and Codex; Pi has no such option, so it receives only the
+  instruction list. `"instructions": false` leaves the built-in rules out;
+  workspace files still apply. Claude and Pi receive one
+  `--append-system-prompt <text>` argv pair. Codex receives
+  `-c developer_instructions=<TOML string>`. All three add to the
+  instruction files they read from the project. Sessions started outside
+  mc get none.
 
 `config.json` (all keys optional; workspace can also be the first CLI argument):
 
@@ -925,7 +965,8 @@ the key). A hidden folder is never listed as a project.
   "ghConfigDirs": { "~/Works": "~/.config/gh-work" },
   "agents": {
     "claude": { "command": "claude", "args": [] },
-    "codex":  { "command": "codex",  "args": [] }
+    "codex":  { "command": "codex",  "args": [] },
+    "pi":     { "command": "pi",     "args": [] }
   },
   "cleanup": { "keep": ["postgres"] },
   "routing": {
@@ -1135,7 +1176,7 @@ Release test matrix: kitty, Ghostty, iTerm2, WezTerm, Alacritty,
 Terminal.app, tmux 3.4+ (plain and with vim-tmux-navigator), zellij 0.4x
 (default and lock mode), VS Code and Cursor terminals, Warp; keyboards US,
 JIS, German. Each: colours, `gg`/exit chord, wheel scroll, resize, INTERACT
-with `claude` and `codex` (permission prompt answered via passthrough),
+with `claude`, `codex` and `pi` (permission prompt answered via passthrough),
 `NO_COLOR=1`, `--icons unicode`, non-UTF-8 locale, BEL/desktop
 notification; plus the `spikes/cases/` corpus replayed by `compare.py`
 against tmux.

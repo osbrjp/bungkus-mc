@@ -1,15 +1,15 @@
 
             ▄▄
-          ▄████▄         bungkus-mc  v0.1.0-beta.13
+          ▄████▄         bungkus-mc  v0.1.0-beta.14
          ████████        mission control for AI agents
        ▄██████████▄
      ▄██████████████▄    step 2 of 5 · default agent
            █  █
           ▀▀ ▀▀
 
-     agent       > claude    codex (not on PATH)
+     agent       > claude    codex (not on PATH)    pi (not on PATH)
 
-                 + ~/.local/bin/claude   - codex not on PATH
+                 + claude: ~/.local/bin/claude
                  n starts this agent; the n picker can still switch
 
 

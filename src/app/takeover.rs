@@ -31,11 +31,11 @@ impl Model {
     /// otherwise opens the dialog that waits for it to close.
     pub(crate) fn take_over(&mut self, ext: External) -> Option<Cmd> {
         let project = self.selected_project()?.path.clone();
-        if ext.kind == Kind::Codex {
-            self.message = Some(
-                "Only Claude sessions can be taken over: Codex doesn't say which session it is."
-                    .into(),
-            );
+        if ext.kind != Kind::Claude {
+            self.message = Some(format!(
+                "Only Claude sessions can be taken over: {} doesn't expose its session here.",
+                ext.kind.product()
+            ));
             return None;
         }
         let id = ext
@@ -103,6 +103,7 @@ fn resume(ext: &External, project: std::path::PathBuf) -> Cmd {
             prompt: None,
             settings: None,
             hook_args: Vec::new(),
+            pi_extension: None,
             resume: ext.session_id.clone(),
             pick: false,
             fork: false,

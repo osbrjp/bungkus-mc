@@ -24,7 +24,7 @@ pub(crate) enum Token {
     FgDim,
     /// Inactive pane border.
     Border,
-    /// App title, selected row text, agent badge.
+    /// App title and selected-row text.
     Accent,
     /// Running, wrapped, focused border.
     Ok,
@@ -278,20 +278,23 @@ impl Theme {
     }
 
     /// Returns the agent mark's colour, bold: Claude's orange (`#d97757`,
-    /// 256-index 173, yellow at 16 colours) and Codex's green (`#10a37f`,
-    /// 256-index 36, cyan at 16); plain bold under `NO_COLOR`.
+    /// 256-index 173), Codex's green (`#10a37f`, index 36), and Pi's coral
+    /// (`#f09082`, index 210); plain bold under `NO_COLOR`.
     #[must_use]
     pub(crate) const fn agent_style(self, kind: crate::agent::Kind) -> ratatui::style::Style {
-        use crate::agent::Kind::{Claude, Codex};
+        use crate::agent::Kind::{Claude, Codex, Pi};
         let bold = ratatui::style::Style::new().add_modifier(ratatui::style::Modifier::BOLD);
         let color = match (kind, self.profile) {
             (_, Profile::NoColor) => return bold,
             (Claude, Profile::TrueColor) => rgb(0xd9_7757),
             (Codex, Profile::TrueColor) => rgb(0x10_a37f),
+            (Pi, Profile::TrueColor) => rgb(0xf0_9082),
             (Claude, Profile::Ansi256) => Color::Indexed(173),
             (Codex, Profile::Ansi256) => Color::Indexed(36),
+            (Pi, Profile::Ansi256) => Color::Indexed(210),
             (Claude, Profile::Ansi16) => Color::Indexed(3),
             (Codex, Profile::Ansi16) => Color::Indexed(6),
+            (Pi, Profile::Ansi16) => Color::Indexed(1),
         };
         bold.fg(color)
     }

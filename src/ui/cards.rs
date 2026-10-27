@@ -530,15 +530,22 @@ fn expanded_usage(card: &Card, width: usize, text: Style, theme: Theme) -> Vec<V
         n(u.input),
         n(u.output)
     ))];
-    if card.kind == Kind::Claude {
+    if matches!(card.kind, Kind::Claude | Kind::Pi) {
         rows.push(plain(format!(
             "cache    read {} · write {}",
             n(u.cache_read),
             n(u.cache_write)
         )));
-        let cost = u
-            .cost_usd
-            .map_or_else(|| "-".to_owned(), |c| format!("${c:.2} (list price)"));
+        let cost = u.cost_usd.map_or_else(
+            || "-".to_owned(),
+            |cost| {
+                if card.kind == Kind::Claude {
+                    format!("${cost:.2} (list price)")
+                } else {
+                    format!("${cost:.2}")
+                }
+            },
+        );
         rows.push(plain(format!("cost     {cost}")));
     }
     rows.push(match live_ctx(card) {

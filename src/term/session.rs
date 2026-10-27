@@ -42,8 +42,8 @@ const DRAIN_GRACE: Duration = Duration::from_millis(500);
 const CELL_PIXELS: (u16, u16) = (8, 16);
 
 /// Environment variables never passed to an agent: host-terminal identity
-/// (the child talks to mc's emulator), mc's routing key, and the Claude
-/// Code / Codex session markers (ARCHITECTURE §3.1, SECURITY.md).
+/// (the child talks to mc's emulator), mc's routing key, and inherited
+/// Claude Code, Codex and Pi session markers (ARCHITECTURE §3.1, SECURITY.md).
 const ENV_DENY: &[&str] = &[
     "TERM_PROGRAM",
     "TERM_PROGRAM_VERSION",
@@ -61,6 +61,13 @@ const ENV_DENY: &[&str] = &[
     "CLAUDE_CODE_SESSION_ID",
     "CLAUDE_EFFORT",
     "CLAUDE_PID",
+    "AI_AGENT",
+    "PI_CODING_AGENT",
+    "PI_SESSION_ID",
+    "PI_SESSION_FILE",
+    "PI_PROVIDER",
+    "PI_MODEL",
+    "PI_REASONING_LEVEL",
 ];
 
 /// Prefixes of host-terminal identity variables that are dropped too.
@@ -449,8 +456,8 @@ impl Session {
 /// Builds the complete environment for an agent from mc's own.
 ///
 /// Drops [`ENV_DENY`] and [`ENV_DENY_PREFIX`], sets `TERM` and `COLORTERM`
-/// for mc's emulator, and adds `extra`. Everything else, including user
-/// settings such as `CLAUDE_CONFIG_DIR` and `CODEX_HOME`, is kept.
+/// for mc's emulator, and adds `extra`. User configuration such as
+/// `CLAUDE_CONFIG_DIR`, `CODEX_HOME` and `PI_CODING_AGENT_DIR` is kept.
 ///
 /// # Arguments
 ///
@@ -570,6 +577,9 @@ mod tests {
             ("CLAUDE_CONFIG_DIR", "/c"),
             ("CLAUDE_CODE_PROJECT_DIR_NAME", "p"),
             ("CODEX_HOME", "/x"),
+            ("PI_CODING_AGENT", "1"),
+            ("PI_SESSION_ID", "pi-session"),
+            ("PI_CODING_AGENT_DIR", "/p"),
             ("BUNGKUS_MC_SESSION", "stale"),
         ];
         let vars = host
@@ -589,6 +599,7 @@ mod tests {
             "CLAUDE_CONFIG_DIR",
             "CLAUDE_CODE_PROJECT_DIR_NAME",
             "CODEX_HOME",
+            "PI_CODING_AGENT_DIR",
         ] {
             assert!(get(kept).is_some(), "{kept} must be kept");
         }

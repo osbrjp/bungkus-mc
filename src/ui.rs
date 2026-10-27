@@ -1438,7 +1438,7 @@ pub(crate) mod tests {
             Some(theme.color(Token::FgMuted)),
             "stale window is dimmed"
         );
-        model.limits = [Vec::new(), Vec::new()];
+        model.limits = std::array::from_fn(|_| Vec::new());
         assert_eq!(
             line(&model, true),
             "",

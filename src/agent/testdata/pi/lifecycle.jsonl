@@ -1,0 +1,6 @@
+{"hook_event_name":"SessionStart","session_id":"pi-session_1","session_title":"fix dates","cwd":"/workspace/app"}
+{"hook_event_name":"UserPromptSubmit","session_id":"pi-session_1","cwd":"/workspace/app"}
+{"hook_event_name":"PreToolUse","session_id":"pi-session_1","tool_name":"bash","tool_use_id":"call_1","cwd":"/workspace/app"}
+{"hook_event_name":"PostToolUse","session_id":"pi-session_1","tool_name":"bash","tool_use_id":"call_1","cwd":"/workspace/app"}
+{"bungkus_mc_pi_usage":{"input":10,"output":4,"cacheRead":20,"cacheWrite":3,"cost":0.25,"contextPercent":12.5,"contextWindow":200000,"sessionName":"fix dates"}}
+{"hook_event_name":"Stop","session_id":"pi-session_1","cwd":"/workspace/app"}

@@ -1,4 +1,4 @@
-//! The agents mc can run: Claude Code and Codex.
+//! The agents mc can run: Claude Code, Codex and Pi.
 //!
 //! This module names them, finds them on `PATH` and builds their launch
 //! argv. It never reads agent transcripts; structure arrives through hook
@@ -8,6 +8,7 @@ pub(crate) mod claude;
 pub(crate) mod codex;
 pub(crate) mod codex_usage;
 pub(crate) mod mcp;
+pub(crate) mod pi;
 pub(crate) mod usage;
 
 use std::ffi::{OsStr, OsString};
@@ -27,11 +28,16 @@ pub(crate) enum Kind {
     Claude,
     /// Codex CLI (`codex`).
     Codex,
+    /// Pi coding agent (`pi`).
+    Pi,
 }
 
 impl Kind {
-    /// Both agents, in picker order.
-    pub(crate) const ALL: [Self; 2] = [Self::Claude, Self::Codex];
+    /// Number of supported agents.
+    pub(crate) const COUNT: usize = 3;
+
+    /// Every agent, in picker order.
+    pub(crate) const ALL: [Self; Self::COUNT] = [Self::Claude, Self::Codex, Self::Pi];
 
     /// Returns the command name, which is also the word shown in the UI.
     #[must_use]
@@ -39,6 +45,7 @@ impl Kind {
         match self {
             Self::Claude => "claude",
             Self::Codex => "codex",
+            Self::Pi => "pi",
         }
     }
 
@@ -48,6 +55,7 @@ impl Kind {
         match self {
             Self::Claude => 'C',
             Self::Codex => 'X',
+            Self::Pi => 'P',
         }
     }
 
@@ -57,6 +65,7 @@ impl Kind {
         match self {
             Self::Claude => "Claude Code",
             Self::Codex => "Codex",
+            Self::Pi => "Pi",
         }
     }
 
@@ -65,19 +74,27 @@ impl Kind {
     pub(crate) const fn models(self) -> &'static [&'static str] {
         match self {
             Self::Claude => &["default", "haiku", "sonnet", "opus"],
-            Self::Codex => &["default"],
+            Self::Codex | Self::Pi => &["default"],
         }
+    }
+
+    /// Returns the adjacent agent in picker order.
+    #[must_use]
+    pub(crate) fn cycle(self, forward: bool) -> Self {
+        let index = Self::ALL.iter().position(|kind| *kind == self).unwrap_or(0);
+        let step = if forward { 1 } else { Self::COUNT - 1 };
+        Self::ALL[(index + step) % Self::COUNT]
     }
 }
 
 /// What the user chose in the `n` picker for a new session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Launch {
-    /// mc's id; Claude also gets it as `--session-id`.
+    /// mc's id; Claude and Pi also receive it as `--session-id`.
     pub id: SessionId,
     /// Model id, or `None` for the agent's default.
     pub model: Option<String>,
-    /// Session name (`--name` for Claude; Codex has no such flag).
+    /// Session name (`--name` for Claude and Pi; Codex has no such flag).
     pub name: Option<String>,
     /// Start prompt, passed as one argument after `--`.
     pub prompt: Option<String>,
@@ -85,15 +102,16 @@ pub(crate) struct Launch {
     pub settings: Option<String>,
     /// Codex `-c hooks.*` arguments; empty without a socket.
     pub hook_args: Vec<String>,
-    /// The agent's own session id to resume; must be a UUID.
+    /// Pi extension path; `None` without a socket or when it could not be written.
+    pub pi_extension: Option<PathBuf>,
+    /// The agent's own session id to resume; validated for that agent.
     pub resume: Option<String>,
-    /// Opens the agent's own list of past sessions (`claude --resume`,
-    /// `codex resume` without an id) instead of starting a new one.
+    /// Opens the agent's own list of past sessions instead of starting a new one.
     pub pick: bool,
     /// With `resume`, continues as a new Claude session saved under the
     /// launch folder (`--fork-session`), leaving the original untouched.
     pub fork: bool,
-    /// A Claude cloud launch instead of a local session; Codex has none.
+    /// A Claude cloud launch instead of a local session; the others have none.
     pub cloud: Option<Cloud>,
 }
 
@@ -162,6 +180,12 @@ pub(crate) fn argv(kind: Kind, program: &Path, args: &[String], launch: &Launch)
     if kind == Kind::Codex {
         out.extend(launch.hook_args.iter().map(OsString::from));
     }
+    if kind == Kind::Pi
+        && let Some(extension) = &launch.pi_extension
+    {
+        out.push("--extension".into());
+        out.push(extension.into());
+    }
     let flag = |out: &mut Vec<OsString>, name: &str, value: &str| {
         out.push(name.into());
         out.push(value.into());
@@ -217,6 +241,23 @@ pub(crate) fn argv(kind: Kind, program: &Path, args: &[String], launch: &Launch)
                 None => {}
             }
         }
+        (Kind::Pi, resume) => {
+            if let Some(model) = &launch.model {
+                flag(&mut out, "--model", model);
+            }
+            match resume {
+                Some(id) => flag(&mut out, "--session", id),
+                None if launch.pick => out.push("--resume".into()),
+                None => flag(
+                    &mut out,
+                    "--session-id",
+                    &launch.id.0.hyphenated().to_string(),
+                ),
+            }
+            if let (Some(name), None, false) = (&launch.name, resume, launch.pick) {
+                flag(&mut out, "--name", name);
+            }
+        }
     }
     if let Some(prompt) = &launch.prompt {
         out.push("--".into());
@@ -244,16 +285,15 @@ you change something in one of them.";
 /// mc starts or resumes: the built-in rules when `builtin` is on, the
 /// `related` folders of its project's group ([`RELATED_FOLDERS`]), then
 /// the workspace's own file from `dir` (`<workspace>/.bungkus-mc`:
-/// `CLAUDE.md` for Claude, `AGENTS.md` for Codex; its first
+/// `CLAUDE.md` for Claude, `AGENTS.md` for Codex and Pi; its first
 /// [`INSTRUCTIONS_MAX`] bytes), which therefore has the last word. None
 /// when there is nothing to say: no built-in text and a file that is
 /// missing, empty, unreadable or not UTF-8.
 ///
 /// The text goes in as one argument: `--append-system-prompt <text>` for
-/// Claude, the `developer_instructions` config value for Codex, written
-/// as a TOML string so no content can be read as another value. Both add
-/// to the agent's own instructions; neither replaces `CLAUDE.md` /
-/// `AGENTS.md` files in the project.
+/// Claude and Pi, or the `developer_instructions` config value for Codex,
+/// written as a TOML string so no content can be read as another value.
+/// All add to the agent's own project instructions.
 #[must_use]
 pub(crate) fn instruction_args(
     kind: Kind,
@@ -264,7 +304,7 @@ pub(crate) fn instruction_args(
     use std::io::Read;
     let name = match kind {
         Kind::Claude => "CLAUDE.md",
-        Kind::Codex => "AGENTS.md",
+        Kind::Codex | Kind::Pi => "AGENTS.md",
     };
     let mut own = String::new();
     let read = dir.map(|dir| {
@@ -297,7 +337,7 @@ pub(crate) fn instruction_args(
     }
     let text = text.join("\n\n");
     match kind {
-        Kind::Claude => vec!["--append-system-prompt".into(), text],
+        Kind::Claude | Kind::Pi => vec!["--append-system-prompt".into(), text],
         Kind::Codex => vec![
             "-c".into(),
             format!("developer_instructions={}", toml_string(&text)),
@@ -384,6 +424,10 @@ mod tests {
             instruction_args(Kind::Codex, Some(&dir), false, &[]),
             ["-c", r#"developer_instructions="say \"hi\"\nuse C:\\tmp""#]
         );
+        assert_eq!(
+            instruction_args(Kind::Pi, Some(&dir), false, &[]),
+            ["--append-system-prompt", "say \"hi\"\nuse C:\\tmp"]
+        );
         let codex = instruction_args(Kind::Codex, Some(&dir), true, &[]);
         assert!(codex[1].starts_with("developer_instructions=\"# bungkus-mc session rules\\n"));
         assert!(!codex[1].contains('\n'), "one TOML string, no raw newline");
@@ -415,6 +459,7 @@ mod tests {
             prompt: Some("-rf everything".into()),
             settings: Some("{}".into()),
             hook_args: vec!["-c".into(), "hooks.Stop=[]".into()],
+            pi_extension: None,
             resume: None,
             pick: false,
             fork: false,
@@ -427,6 +472,7 @@ mod tests {
             prompt: None,
             settings: None,
             hook_args: Vec::new(),
+            pi_extension: None,
             resume: None,
             pick: false,
             fork: false,
@@ -475,6 +521,32 @@ mod tests {
                 "-rf everything"
             ]
         );
+        let pi = Launch {
+            pi_extension: Some("/runtime/pi-bungkus-mc.js".into()),
+            ..full
+        };
+        assert_eq!(
+            s(argv(
+                Kind::Pi,
+                Path::new("/bin/pi"),
+                &["--verbose".into()],
+                &pi
+            )),
+            [
+                "/bin/pi",
+                "--verbose",
+                "--extension",
+                "/runtime/pi-bungkus-mc.js",
+                "--model",
+                "haiku",
+                "--session-id",
+                "00000000-0000-0000-0000-000000000000",
+                "--name",
+                "flaky test",
+                "--",
+                "-rf everything"
+            ]
+        );
     }
 
     #[test]
@@ -486,6 +558,7 @@ mod tests {
             prompt: None,
             settings: Some("{}".into()),
             hook_args: vec!["-c".into(), "hooks.Stop=[]".into()],
+            pi_extension: None,
             resume: None,
             pick: true,
             fork: false,
@@ -504,6 +577,20 @@ mod tests {
         assert_eq!(
             s(argv(Kind::Codex, Path::new("/bin/codex"), &[], &pick)),
             ["/bin/codex", "-c", "hooks.Stop=[]", "resume"]
+        );
+        assert_eq!(
+            s(argv(Kind::Pi, Path::new("/bin/pi"), &[], &pick)),
+            ["/bin/pi", "--resume"],
+            "Pi opens its own session picker"
+        );
+        let pi_resume = Launch {
+            resume: Some("pi-session_1".into()),
+            pick: false,
+            ..pick.clone()
+        };
+        assert_eq!(
+            s(argv(Kind::Pi, Path::new("/bin/pi"), &[], &pi_resume)),
+            ["/bin/pi", "--session", "pi-session_1"]
         );
         let cloud = |cloud, prompt: Option<&str>| Launch {
             pick: false,
@@ -547,6 +634,7 @@ mod tests {
                 &[],
                 &Launch {
                     hook_args: Vec::new(),
+                    pi_extension: None,
                     ..cloud(Cloud::New, Some("x"))
                 }
             )),
@@ -598,6 +686,7 @@ mod tests {
             prompt: None,
             settings: Some("{}".into()),
             hook_args: vec!["-c".into(), "hooks.Stop=[]".into()],
+            pi_extension: None,
             resume: Some("5f1c0000-0000-0000-0000-000000000000".into()),
             pick: false,
             fork: false,
