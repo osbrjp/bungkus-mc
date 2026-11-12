@@ -1652,11 +1652,25 @@ fn forget_worktree(model: &mut Model, project: &Path, name: &str, tx: &SyncSende
     });
 }
 
+/// Returns whether the commit worktree `path` of repository `repo` is on
+/// is already in the default branch: `origin/HEAD` as of the last fetch,
+/// else (no such ref) the main checkout's `HEAD`. A worktree with no
+/// commits of its own counts as merged; a squash or rebase merge does not.
+fn merged(repo: &Path, path: &Path) -> bool {
+    let rev = |name| git(repo, &["rev-parse", "-q", "--verify", name].map(OsStr::new));
+    let Some(base) = rev("origin/HEAD").or_else(|| rev("HEAD")) else {
+        return false;
+    };
+    let args = ["merge-base", "--is-ancestor", "HEAD", base.trim()].map(OsStr::new);
+    git(path, &args).is_some()
+}
+
 /// Removes the unused worktrees of `project` (`c`, confirmed): every
-/// linked worktree git lists, except one a session of mc runs in or can
-/// resume into, one an outside agent session runs in, and (git refuses)
-/// one holding modified or untracked files. Branches stay. The removal
-/// runs off the UI thread and reports as [`AppEvent::Worktrees`].
+/// linked worktree git lists, except one a session of mc runs in, one a
+/// stopped session can resume into unless its work is [`merged`], one an
+/// outside agent session runs in, and (git refuses) one holding modified
+/// or untracked files. Branches stay. The removal runs off the UI thread
+/// and reports as [`AppEvent::Worktrees`].
 fn clean_worktrees(model: &mut Model, project: &Path, tx: &SyncSender<AppEvent>) {
     // reason: pruning only drops records of folders that are gone.
     let _ = git(project, &["worktree", "prune"].map(OsStr::new));
@@ -1670,6 +1684,7 @@ fn clean_worktrees(model: &mut Model, project: &Path, tx: &SyncSender<AppEvent>)
             (c.running() && workspace::same_dir(&c.project, path))
                 || c.worktree.as_ref().is_some_and(|name| {
                     workspace::same_dir(&c.project.join(".claude/worktrees").join(name), path)
+                        && (c.running() || !merged(project, path))
                 })
         }) || model.external.iter().any(|e| {
             let cwd = e.cwd.canonicalize().unwrap_or_else(|_| e.cwd.clone());
@@ -2217,7 +2232,7 @@ mod tests {
     }
 
     #[test]
-    fn cleaning_removes_clean_unused_worktrees_and_keeps_dirty_ones() {
+    fn cleaning_removes_unused_and_merged_stopped_worktrees_and_keeps_the_rest() {
         let repo = std::env::temp_dir().join(format!("mc-clean-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&repo);
         std::fs::create_dir_all(&repo).unwrap();
@@ -2227,35 +2242,38 @@ mod tests {
         };
         run(&["init", "-q"]);
         assert!(!has_commit(&repo));
-        run(&[
-            "-c",
-            "user.name=t",
-            "-c",
-            "user.email=t@t",
-            "commit",
-            "-q",
-            "--allow-empty",
-            "-m",
-            "init",
-        ]);
+        let commit = |dir: &Path| {
+            let args = "-c user.name=t -c user.email=t@t commit -q --allow-empty -m x";
+            let args: Vec<&OsStr> = args.split(' ').map(OsStr::new).collect();
+            git(dir, &args).unwrap_or_else(|| panic!("git {args:?}"));
+        };
+        commit(&repo);
         assert!(has_commit(&repo));
-        for name in ["clean", "dirty", "mine"] {
+        for name in ["clean", "dirty", "mine", "open", "done"] {
             let path = format!(".claude/worktrees/{name}");
             run(&["worktree", "add", "-q", "-b", name, &path]);
             run(&["worktree", "lock", &path]);
         }
         std::fs::write(repo.join(".claude/worktrees/dirty/new.txt"), "x").unwrap();
         let mut model = crate::app::model::tests::sample(&[]);
-        let mut card = Card::new(
-            SessionId::new(),
-            Kind::Claude,
-            repo.clone(),
-            None,
-            None,
-            model.now,
-        );
-        card.worktree = Some("mine".into());
-        model.cards.push(card);
+        commit(&repo.join(".claude/worktrees/open"));
+        for (name, state) in [
+            ("mine", State::Working),
+            ("open", State::Stopped),
+            ("done", State::Stopped),
+        ] {
+            let mut card = Card::new(
+                SessionId::new(),
+                Kind::Claude,
+                repo.clone(),
+                None,
+                None,
+                model.now,
+            );
+            card.worktree = Some(name.into());
+            card.state = state;
+            model.cards.push(card);
+        }
         let (tx, rx) = mpsc::sync_channel(1);
         let done = || match rx.recv().unwrap() {
             AppEvent::Worktrees(text) => text,
@@ -2265,7 +2283,9 @@ mod tests {
         let text = done();
         let left = |name: &str| repo.join(".claude/worktrees").join(name).exists();
         assert!(!left("clean"), "{text}");
+        assert!(!left("done"), "a stopped session's merged worktree goes");
         assert!(left("dirty") && left("mine"));
+        assert!(left("open"), "a stopped session's unmerged worktree stays");
         assert!(
             run(&["branch", "--list", "clean"]).contains("clean"),
             "the branch stays"

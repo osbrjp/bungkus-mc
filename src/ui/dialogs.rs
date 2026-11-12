@@ -286,8 +286,8 @@ pub(super) fn draw_forget(
 }
 
 /// Draws the "remove unused worktrees?" confirm: only worktrees no session
-/// runs in or can resume into, never one with uncommitted files, and the
-/// branches stay.
+/// runs in or can resume into with unmerged work, never one with
+/// uncommitted files, and the branches stay.
 pub(super) fn draw_clean_worktrees(
     frame: &mut Frame,
     area: Rect,

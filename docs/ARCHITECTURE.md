@@ -668,8 +668,11 @@ older two-entry file upgrades without losing figures.
   Forgetting the card, and `c` on a project, run `git worktree unlock` then
   `git worktree remove` without force (fixed argv): git refuses a worktree
   with modified or untracked files, and the branch stays. `c` skips any
-  worktree a card runs in or can resume into, or an outside agent session
-  runs in.
+  worktree a card runs in, one a stopped card can resume into unless its
+  commit is already in the default branch (`git merge-base --is-ancestor`
+  against `origin/HEAD` as of the last fetch, else the main checkout's
+  `HEAD`; mc does not fetch, and a squash merge does not count), and one an
+  outside agent session runs in.
   The removal runs on its own thread (a worktree with dependencies takes
   seconds to delete) with git in its own process group, so mc stays
   responsive and a closed terminal does not leave a half-deleted worktree.
