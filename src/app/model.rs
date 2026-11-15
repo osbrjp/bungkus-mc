@@ -739,11 +739,21 @@ impl Model {
     /// the elsewhere row.
     #[must_use]
     pub(crate) fn shared(&self, project: &Path) -> bool {
-        let homes = || self.projects.iter().map(|p| p.path.as_path());
-        homes().any(|p| p == project)
-            && homes()
-                .filter(|home| *home != project)
-                .any(|home| self.added(home, project))
+        // One pass over the cards: [`Model::grouped`] asks this for every
+        // project on every frame, so a loop over homes × cards here was
+        // cubic in the number of projects.
+        let is_project = |path: &Path| self.projects.iter().any(|p| p.path == path);
+        is_project(project)
+            && self
+                .cards
+                .iter()
+                .filter(|c| c.running() && c.project != project)
+                .filter(|c| {
+                    c.usage
+                        .as_ref()
+                        .is_some_and(|u| u.added_dirs.iter().any(|d| d.starts_with(project)))
+                })
+                .any(|c| is_project(&c.project))
     }
 
     /// Returns whether projects `a` and `b` are linked: a session of one
