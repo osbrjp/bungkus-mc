@@ -303,6 +303,14 @@ fn draw_terminal(frame: &mut Frame, rect: Rect, popup: bool, model: &Model, them
 /// * `frame` - The frame to draw into; its area is the whole terminal.
 /// * `model` - What to show; its `list_rows` is updated.
 pub(crate) fn draw(frame: &mut Frame, model: &mut Model) {
+    model.frame_rows = Some(model.rows());
+    draw_frame(frame, model);
+    model.frame_rows = None;
+}
+
+/// Draws one frame of `model`; [`draw`] holds the projects list's rows
+/// meanwhile, so nothing here may change what they depend on.
+fn draw_frame(frame: &mut Frame, model: &mut Model) {
     let theme = model.view_theme();
     let area = frame.area();
     frame.render_widget(Block::new().style(theme.base()), area);
