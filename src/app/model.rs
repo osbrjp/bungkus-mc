@@ -425,6 +425,20 @@ pub(crate) struct Model {
     /// The "elsewhere" row that ends the projects list while an outside
     /// session runs in no project folder; its path is empty.
     pub elsewhere: Project,
+    /// The projects list's rows while [`crate::ui::draw`] draws a frame,
+    /// so [`Model::grouped`] runs once per frame; `None` between frames.
+    pub frame_rows: Option<(Vec<Row>, Option<Rest>)>,
+}
+
+/// A row of the projects list (see [`Model::visible`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Row {
+    /// The `quick` row ([`Model::quick_row`]).
+    Quick,
+    /// The project at this index of [`Model::projects`].
+    Project(usize),
+    /// The elsewhere row ([`Model::elsewhere`]).
+    Elsewhere,
 }
 
 /// Returns whether `key` confirms a dialog that asks before it acts: `y`
@@ -551,6 +565,7 @@ impl Model {
                 path: PathBuf::new(),
                 worktree_of: None,
             },
+            frame_rows: None,
         }
     }
 
@@ -584,17 +599,43 @@ impl Model {
     ///
     /// Nothing is grouped while a search is typed (it finds every
     /// project), or when no project or every project is recent.
+    ///
+    /// While a frame is drawn this reads [`Model::frame_rows`] instead of
+    /// working them out again.
     fn grouped(&self) -> (Vec<&Project>, Option<Rest>) {
+        let fresh;
+        let (rows, rest) = if let Some((rows, rest)) = &self.frame_rows {
+            (rows, *rest)
+        } else {
+            fresh = self.rows();
+            (&fresh.0, fresh.1)
+        };
+        (rows.iter().map(|row| self.row(*row)).collect(), rest)
+    }
+
+    /// Returns the project a [`Row`] of the projects list shows.
+    fn row(&self, row: Row) -> &Project {
+        match row {
+            Row::Quick => &self.quick_row,
+            Row::Project(i) => &self.projects[i],
+            Row::Elsewhere => &self.elsewhere,
+        }
+    }
+
+    /// Works out the rows of the projects list and its rest line (see
+    /// [`Model::grouped`]).
+    #[must_use]
+    pub(crate) fn rows(&self) -> (Vec<Row>, Option<Rest>) {
         fn family(project: &Project) -> &str {
             project.worktree_of.as_deref().unwrap_or(&project.name)
         }
         let needle = self.filter.to_lowercase();
-        let elsewhere = (!self.external_in(Path::new("")).is_empty()).then_some(&self.elsewhere);
+        let elsewhere = (!self.external_in(Path::new("")).is_empty()).then_some(Row::Elsewhere);
         let quick = self
             .cards
             .iter()
             .any(|c| self.is_quick(c))
-            .then_some(&self.quick_row);
+            .then_some(Row::Quick);
         // Per family: whether a session runs in it now, and its latest start.
         let mut used = std::collections::HashMap::<&str, (bool, Option<Instant>)>::new();
         for project in &self.projects {
@@ -616,16 +657,15 @@ impl Model {
             .filter(|(rank, (_, (live, _)))| *rank < RECENT_MAX || *live)
             .map(|(_, (name, _))| *name)
             .collect();
-        let (first, rest): (Vec<&Project>, Vec<&Project>) = self
-            .projects
-            .iter()
-            .partition(|p| recent.contains(family(p)));
+        let (first, rest): (Vec<Row>, Vec<Row>) = (0..self.projects.len())
+            .map(Row::Project)
+            .partition(|row| recent.contains(family(self.row(*row))));
         if !needle.is_empty() || first.is_empty() || rest.is_empty() {
             let all = quick
                 .into_iter()
-                .chain(&self.projects)
+                .chain((0..self.projects.len()).map(Row::Project))
                 .chain(elsewhere)
-                .filter(|p| p.name.to_lowercase().contains(&needle))
+                .filter(|row| self.row(*row).name.to_lowercase().contains(&needle))
                 .collect();
             return (all, None);
         }
