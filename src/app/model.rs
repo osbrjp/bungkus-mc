@@ -657,13 +657,20 @@ impl Model {
             .filter(|(rank, (_, (live, _)))| *rank < RECENT_MAX || *live)
             .map(|(_, (name, _))| *name)
             .collect();
+        // A linked worktree gets no row of its own (its sessions show under
+        // its repository), unless one of mc's sessions was started in it.
+        let listed = |i: &usize| {
+            let project = &self.projects[*i];
+            project.worktree_of.is_none() || self.cards.iter().any(|c| c.project == project.path)
+        };
         let (first, rest): (Vec<Row>, Vec<Row>) = (0..self.projects.len())
+            .filter(listed)
             .map(Row::Project)
             .partition(|row| recent.contains(family(self.row(*row))));
         if !needle.is_empty() || first.is_empty() || rest.is_empty() {
             let all = quick
                 .into_iter()
-                .chain((0..self.projects.len()).map(Row::Project))
+                .chain((0..self.projects.len()).filter(listed).map(Row::Project))
                 .chain(elsewhere)
                 .filter(|row| self.row(*row).name.to_lowercase().contains(&needle))
                 .collect();

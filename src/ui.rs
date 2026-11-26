@@ -1693,18 +1693,20 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn worktrees_sit_below_their_repository() {
+    fn only_worktrees_with_a_session_sit_below_their_repository() {
         let mut model = sample(PROJECTS);
+        model.selected = 1;
+        let _session = crate::app::model::tests::with_session(&mut model, "s");
         model.projects[1].name = "kedai-web-fix".into();
         model.projects[1].worktree_of = Some("kedai-web".into());
         model.projects[2].worktree_of = Some("kedai-web".into());
         let screen = render(&mut model, 120, 40);
         assert!(screen.contains("1 kedai-web"), "{screen}");
-        assert!(screen.contains("2 ├ fix "), "{screen}");
-        assert!(screen.contains("3 └ roti-docs"), "{screen}");
+        assert!(screen.contains("2 └ fix "), "{screen}");
+        assert!(!screen.contains("roti-docs"), "{screen}");
         model.theme = model.theme.with_view(model.theme.icons, false, true);
         let screen = render(&mut model, 120, 40);
-        assert!(screen.contains("2 |-fix"), "{screen}");
+        assert!(screen.contains("2 `-fix"), "{screen}");
     }
 
     #[test]
