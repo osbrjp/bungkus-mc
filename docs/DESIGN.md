@@ -304,8 +304,10 @@ that live outside the workspace (inside the repository, as an agent's own
 `.claude/worktrees/<name>`, or in a temporary folder) are listed the same
 way, from `<repo>/.git/worktrees/*/gitdir`; they cannot be moved to the
 Trash from mc. Submodules and worktrees of repositories outside the
-workspace stay top level. The workspace is listed again every 5 s, so a
-new worktree appears by itself.
+workspace stay top level. A worktree row shows only while one of mc's
+sessions was started in it; otherwise it is hidden (its sessions show
+under the repository, and `c` still finds it). The workspace is listed
+again every 5 s, so a new worktree appears by itself.
 
 Drag a pane's right border (where two panes meet) with the mouse to
 resize it; the widths stay within their range, the output pane keeps 40

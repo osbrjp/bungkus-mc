@@ -116,7 +116,8 @@ defaults; change them later with `,`.
 
 **Git worktrees:** a project that is a linked worktree of another project
 in the workspace (its `.git` is a file pointing into that repo) is listed
-right below it as a branch, e.g. `├ i746` under `nrha-timii`.
+right below it as a branch, e.g. `├ i746` under `nrha-timii`, but only
+while an mc session was started in it; otherwise it is hidden.
 
 ---
 
